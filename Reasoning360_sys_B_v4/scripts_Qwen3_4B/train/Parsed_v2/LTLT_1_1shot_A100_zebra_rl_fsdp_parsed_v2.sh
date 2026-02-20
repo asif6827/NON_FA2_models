@@ -62,7 +62,7 @@ ACC_W=$ACC_W, Z3_W=$Z3_W, EPOCH_SWITCH=$SWITCH_EPOCH SYSTEM_NAME=$SYSTEM_NAME EV
 
 # ===============================================================
 #SYSTEM_NAME="Reasoning360_sys_B_v2"
-export PYTHONPATH="/export/home/asifali/${SYSTEM_NAME}:${PYTHONPATH:-}"
+export PYTHONPATH="/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}:${PYTHONPATH:-}"
 echo "Python Path = ${PYTHONPATH}"
 
 
@@ -130,10 +130,10 @@ MODEL_NAME=$(basename "$BASE_MODEL" | tr -s ' ' '_' | tr -d -c '[:alnum:]_')
 MODEL_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]')
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-1.7B
 
-export REWARD_LOG_PATH=/export/home/asifali/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+export REWARD_LOG_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
 SHARED_DATA_PATH=/export/home/asifali/HF_cache/${DATA_PATH}
-VALID_GENERATION_PATH=/export/home/asifali/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
-export PUZZLE_FEEDBACK_PATH=/export/home/asifali/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+VALID_GENERATION_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+export PUZZLE_FEEDBACK_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
 export PUZZLE_DIC_PATH=/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json
 
 
