@@ -1,10 +1,37 @@
 #!/bin/bash
 set -euo pipefail
 
-BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+BASE_DIR="$HOME/NON_FA2_models"
 
-bash "$BASE_DIR/Reasoning360_sys_B_v1/submit_job.sh"
-bash "$BASE_DIR/Reasoning360_sys_B_v2/submit_job.sh"
-bash "$BASE_DIR/Reasoning360_sys_B_v3/submit_job.sh"
-bash "$BASE_DIR/Reasoning360_sys_B_v5/submit_job.sh"
-bash "$BASE_DIR/Reasoning360_sys_B_v4/submit_job.sh"
+echo "Submitting Reasoning360_sys_B_v1..."
+cd "$BASE_DIR/Reasoning360_sys_B_v1"
+bash submit_job.sh
+
+
+echo "Submitting Reasoning360_sys_B_v2..."
+cd "$BASE_DIR/Reasoning360_sys_B_v2"
+bash submit_job.sh
+
+
+echo "Submitting Reasoning360_sys_B_v3..."
+cd "$BASE_DIR/Reasoning360_sys_B_v3"
+bash submit_job.sh
+
+
+echo "Submitting Reasoning360_sys_B_v4..."
+cd "$BASE_DIR/Reasoning360_sys_B_v4"
+bash submit_job.sh
+
+
+echo "Submitting Reasoning360_sys_B_v5..."
+cd "$BASE_DIR/Reasoning360_sys_B_v5"
+bash submit_job.sh
+
+
+echo "Submitting Reasoning360_sys_A..."
+cd "$BASE_DIR/Reasoning360_sys_A"
+bash submit_job.sh
+
+
+
+echo "All submission commands executed."
