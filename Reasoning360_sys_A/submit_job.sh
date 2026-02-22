@@ -104,7 +104,7 @@
 #if false; then
 ACRONYM="MTMT"
 echo "Submitting Training job H200 + GT"
-TRAIN_TEMP_LIST=(0.6)
+TRAIN_TEMP_LIST=(0.5)
 TEST_TEMP_LIST=(0.0)
 SCORING_LIST=("gt")
 EPOCH_LIST=(100)
