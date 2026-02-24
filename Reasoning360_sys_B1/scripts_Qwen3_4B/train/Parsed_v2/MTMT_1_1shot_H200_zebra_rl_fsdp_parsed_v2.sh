@@ -32,30 +32,32 @@ export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 # Force ALL temp/cache off /tmp
 # ===============================
 
-# Use /var/tmp instead of /tmp (per-job to avoid collisions)
+# temp dirs (your existing block)
 LOCAL_BASE="/var/tmp/$USER/${SLURM_JOB_ID}"
 export RAY_TMPDIR="$LOCAL_BASE/ray"
 export TMPDIR="$LOCAL_BASE/tmp"
 export TMP="$TMPDIR"
 export TEMP="$TMPDIR"
-
 mkdir -p "$RAY_TMPDIR" "$TMPDIR"
 chmod 700 "$LOCAL_BASE" "$RAY_TMPDIR" "$TMPDIR"
-
 export RAY_DISABLE_DASHBOARD=1
 
-# Clean stale Ray ONLY ONCE (single node / local rank 0)
-if [[ "${SLURM_LOCALID:-0}" == "0" ]]; then
-  ${CONDA_BIN_PATH}ray stop -f || true
-  pkill -9 raylet gcs_server plasma_store dashboard 2>/dev/null || true
+# ensure we don't connect to an old cluster
+unset RAY_ADDRESS RAY_HEAD_IP RAY_PORT
+
+# run-once guard (pick one)
+if [[ "${SLURM_LOCALID:-0}" != "0" ]]; then
+  echo "Skipping on SLURM_LOCALID=${SLURM_LOCALID}"
+  exit 0
 fi
 
+# cleanup only once (same process)
+${CONDA_BIN_PATH}ray stop -f || true
+pkill -9 raylet gcs_server plasma_store dashboard 2>/dev/null || true
 sleep 3
 
-# Best-effort FD limit (don’t fail if forbidden)
 ulimit -n 1048576 2>/dev/null || true
 echo "NOFILE=$(ulimit -n)"
-
 
 # ==================== All INPUTS =================================
 TRAIN_TEMP=$1
@@ -192,7 +194,7 @@ fi
 echo "Starting Ray on the local node with ${NUM_GPUS} GPUs..."
 #${CONDA_BIN_PATH}ray start --head --num-gpus ${NUM_GPUS} --include-dashboard=True --dashboard-port 8265
 ${CONDA_BIN_PATH}ray start --head --temp-dir="$RAY_TMPDIR" --num-gpus ${NUM_GPUS} --include-dashboard=False --dashboard-port 8265
-#sleep 5
+sleep 5
 
 
 
