@@ -177,7 +177,7 @@ fi
 
 # =================== Ray Start (Single Node) ===================
 # Stop any previous Ray instances
-#${CONDA_BIN_PATH}ray stop -f
+${CONDA_BIN_PATH}ray stop -f
 
 # Start a new Ray cluster on the local machine
 # The number of CPUs is often best left for Ray to determine automatically.
@@ -196,7 +196,7 @@ adv_estimator=grpo
 use_kl_in_reward=False
 kl_coef=0.0
 use_kl_loss=True
-kl_loss_coef=0.05
+kl_loss_coef=0.03
 
 
 clip_ratio_low=0.2
