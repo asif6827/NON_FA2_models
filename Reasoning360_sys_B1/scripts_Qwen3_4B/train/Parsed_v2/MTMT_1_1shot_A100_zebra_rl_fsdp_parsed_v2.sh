@@ -14,7 +14,7 @@
 
 module load cuda12.4/toolkit
 nvidia-smi
-source activate verl_clean
+source activate Reasoning360
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 unset ROCR_VISIBLE_DEVICES
