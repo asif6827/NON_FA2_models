@@ -92,7 +92,7 @@ export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 #export NCCL_DEBUG=WARN
 #export CUDA_DEVICE_MAX_CONNECTIONS=1
 
-export VLLM_ATTENTION_BACKEND=FLASHINFER
+
 export NCCL_DEBUG=INFO
 export NCCL_DEBUG_SUBSYS=INIT,GRAPH
 export NCCL_ASYNC_ERROR_HANDLING=1
@@ -193,10 +193,10 @@ sleep 5
 
 adv_estimator=grpo
 
-use_kl_in_reward=False
-kl_coef=0.0
+use_kl_in_reward=True
+kl_coef=0.01
 use_kl_loss=True
-kl_loss_coef=0.01
+kl_loss_coef=0.02
 
 
 clip_ratio_low=0.2
