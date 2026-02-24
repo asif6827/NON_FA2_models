@@ -214,7 +214,7 @@ clip_ratio_high=0.2
 
 max_prompt_length=$((1024 * 8))
 max_response_length=$((1024 * 4))
-enable_overlong_buffer=True
+enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 2))
 overlong_penalty_factor=2.0
 
