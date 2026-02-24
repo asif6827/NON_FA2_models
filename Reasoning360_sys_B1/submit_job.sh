@@ -238,6 +238,8 @@ echo "All jobs submitted H200."
 
 
 
+
+
 if false; then
     ACRONYM="MTMT"
     echo "Submitting Training job A100 + GT"
