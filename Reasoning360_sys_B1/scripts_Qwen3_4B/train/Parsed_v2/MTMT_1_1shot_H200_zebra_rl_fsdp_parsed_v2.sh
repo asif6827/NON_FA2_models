@@ -239,7 +239,7 @@ train_prompt_mini_bsz=14  # model grad update batchsize
 
 
 # Algorithm
-top_p=0.9
+top_p=0.85
 top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 
 # Training config
