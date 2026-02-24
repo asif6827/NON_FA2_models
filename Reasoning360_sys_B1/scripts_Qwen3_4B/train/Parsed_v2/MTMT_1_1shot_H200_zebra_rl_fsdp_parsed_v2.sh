@@ -177,7 +177,7 @@ fi
 
 # =================== Ray Start (Single Node) ===================
 # Stop any previous Ray instances
-${CONDA_BIN_PATH}ray stop -f
+#${CONDA_BIN_PATH}ray stop -f
 
 # Start a new Ray cluster on the local machine
 # The number of CPUs is often best left for Ray to determine automatically.
