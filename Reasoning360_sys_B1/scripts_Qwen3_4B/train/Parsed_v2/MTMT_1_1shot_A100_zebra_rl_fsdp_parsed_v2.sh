@@ -193,8 +193,8 @@ sleep 5
 
 adv_estimator=grpo
 
-use_kl_in_reward=True
-kl_coef=0.01
+use_kl_in_reward=False
+kl_coef=0.0
 use_kl_loss=True
 kl_loss_coef=0.02
 
@@ -273,6 +273,7 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
+    actor_rollout_ref.actor.ppo_epochs=2 \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${actor_ppo_max_token_len} \
     actor_rollout_ref.actor.strategy="fsdp" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
