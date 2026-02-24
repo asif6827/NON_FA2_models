@@ -189,9 +189,9 @@ fi
 
 # Start a new Ray cluster on the local machine
 # The number of CPUs is often best left for Ray to determine automatically.
-#echo "Starting Ray on the local node with ${NUM_GPUS} GPUs..."
+echo "Starting Ray on the local node with ${NUM_GPUS} GPUs..."
 #${CONDA_BIN_PATH}ray start --head --num-gpus ${NUM_GPUS} --include-dashboard=True --dashboard-port 8265
-#${CONDA_BIN_PATH}ray start --head --temp-dir="$RAY_TMPDIR" --num-gpus ${NUM_GPUS} --include-dashboard=False --dashboard-port 8265
+${CONDA_BIN_PATH}ray start --head --temp-dir="$RAY_TMPDIR" --num-gpus ${NUM_GPUS} --include-dashboard=False --dashboard-port 8265
 #sleep 5
 
 
