@@ -44,20 +44,17 @@ chmod 700 "$LOCAL_BASE" "$RAY_TMPDIR" "$TMPDIR"
 
 export RAY_DISABLE_DASHBOARD=1
 
-# Clean stale Ray ONLY on head node, only once
-HEAD_NODE=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-if [[ "$(hostname)" == "$HEAD_NODE" && "${SLURM_LOCALID:-0}" == "0" ]]; then
-  ray stop -f || true
+# Clean stale Ray ONLY ONCE (single node / local rank 0)
+if [[ "${SLURM_LOCALID:-0}" == "0" ]]; then
+  ${CONDA_BIN_PATH}ray stop -f || true
   pkill -9 raylet gcs_server plasma_store dashboard 2>/dev/null || true
 fi
 
-sleep 5
+sleep 3
 
-# Best-effort FD limit
+# Best-effort FD limit (don’t fail if forbidden)
 ulimit -n 1048576 2>/dev/null || true
 echo "NOFILE=$(ulimit -n)"
-
-
 
 
 # ==================== All INPUTS =================================
@@ -188,14 +185,14 @@ fi
 
 # =================== Ray Start (Single Node) ===================
 # Stop any previous Ray instances
-${CONDA_BIN_PATH}ray stop -f
+#${CONDA_BIN_PATH}ray stop -f
 
 # Start a new Ray cluster on the local machine
 # The number of CPUs is often best left for Ray to determine automatically.
-echo "Starting Ray on the local node with ${NUM_GPUS} GPUs..."
+#echo "Starting Ray on the local node with ${NUM_GPUS} GPUs..."
 #${CONDA_BIN_PATH}ray start --head --num-gpus ${NUM_GPUS} --include-dashboard=True --dashboard-port 8265
-${CONDA_BIN_PATH}ray start --head --temp-dir="$RAY_TMPDIR" --num-gpus ${NUM_GPUS} --include-dashboard=False --dashboard-port 8265
-sleep 5
+#${CONDA_BIN_PATH}ray start --head --temp-dir="$RAY_TMPDIR" --num-gpus ${NUM_GPUS} --include-dashboard=False --dashboard-port 8265
+#sleep 5
 
 
 
