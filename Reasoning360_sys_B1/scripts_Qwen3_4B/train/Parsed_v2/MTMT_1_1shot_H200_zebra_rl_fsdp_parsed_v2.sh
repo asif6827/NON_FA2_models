@@ -34,7 +34,6 @@ export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 
 # Use /var/tmp instead of /tmp (per-job to avoid collisions)
 LOCAL_BASE="/var/tmp/$USER/${SLURM_JOB_ID}"
-
 export RAY_TMPDIR="$LOCAL_BASE/ray"
 export TMPDIR="$LOCAL_BASE/tmp"
 export TMP="$TMPDIR"
@@ -45,12 +44,18 @@ chmod 700 "$LOCAL_BASE" "$RAY_TMPDIR" "$TMPDIR"
 
 export RAY_DISABLE_DASHBOARD=1
 
-# Clean stale Ray
-ray stop -f || true
-pkill -9 raylet gcs_server plasma_store dashboard 2>/dev/null || true
+# Clean stale Ray ONLY on head node, only once
+HEAD_NODE=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+if [[ "$(hostname)" == "$HEAD_NODE" && "${SLURM_LOCALID:-0}" == "0" ]]; then
+  ray stop -f || true
+  pkill -9 raylet gcs_server plasma_store dashboard 2>/dev/null || true
+fi
 
-# Avoid FD-limit crashes
-ulimit -n 1048576 || true
+sleep 5
+
+# Best-effort FD limit
+ulimit -n 1048576 2>/dev/null || true
+echo "NOFILE=$(ulimit -n)"
 
 
 
