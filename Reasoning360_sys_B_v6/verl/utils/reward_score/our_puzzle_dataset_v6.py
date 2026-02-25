@@ -965,8 +965,8 @@ def compute_score(
     reasoning_vs_sol_validate = {}
     if syntactic_clues and predicted_arrangement and z3_out:
         try:
-            list_novel_steps_inc_clues = z3_out.get("list_novel_steps_inc_clues", [])
-            reasoning_vs_sol_validate = verify_solution_two_step(syntactic_clues, list_novel_steps_inc_clues, predicted_arrangement)
+            list_all_steps = z3_out.get("list_all_steps", [])
+            reasoning_vs_sol_validate = verify_solution_two_step(syntactic_clues, list_all_steps, predicted_arrangement)
             consistency_score = reasoning_vs_sol_validate['reward']
         except Exception:
             consistency_score = 0

@@ -965,8 +965,8 @@ def compute_score(
     reasoning_vs_sol_validate = {}
     if syntactic_clues and predicted_arrangement and z3_out:
         try:
-            list_novel_steps_inc_clues = z3_out.get("list_novel_steps_inc_clues", [])
-            reasoning_vs_sol_validate = verify_solution_two_step(syntactic_clues, list_novel_steps_inc_clues, predicted_arrangement)
+            list_all_steps = z3_out.get("list_all_steps", [])
+            reasoning_vs_sol_validate = verify_solution_two_step(syntactic_clues, list_all_steps, predicted_arrangement)
             consistency_score = reasoning_vs_sol_validate['reward']
         except Exception:
             consistency_score = 0
@@ -1008,7 +1008,7 @@ def compute_score(
                 #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
                 #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
                 #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
-                reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) + 0.05 * format_reward + 0.05 * consistency_score
+                reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score) + 0.05 * consistency_score
                 #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
         
         
