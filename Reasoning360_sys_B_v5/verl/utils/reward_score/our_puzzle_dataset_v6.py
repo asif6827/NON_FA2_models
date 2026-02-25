@@ -816,7 +816,7 @@ def compute_score(
         final_result["total_epochs"] = total_epochs
         final_result["reward_logged"] = 0.0
 
-
+    parsing_reward = 0.0
     try:
         syntactic_clues, parsed_reasoning, predicted_arrangement, attribute_values, n_houses, parse_status = extract_reasoning_and_solution(solution_str=solution_str)
         if parse_status != "success_answer_tag":
@@ -826,11 +826,13 @@ def compute_score(
 
         # meta selection
         meta_used = meta
+        parsing_reward = 1.0
         if meta_used is None and isinstance(extra_info, dict):
             meta_used = extra_info.get("meta") or extra_info
     except Exception as parse_error:
         logger.error(f"Error in solution parsing: {parse_error}")
         n_houses = 1
+        parsing_reward = 0.0
         num_blocks = 0
         attribute_values = None
         syntactic_clues = None
@@ -978,7 +980,7 @@ def compute_score(
     # -----------------------
     try:
 
-        reward = -0.5
+        reward = 0.0
         normalizer = 1.0  # will be overwritten if inputs are valid
 
         has_required_inputs = (attribute_values is not None) and (n_houses is not None)
@@ -999,18 +1001,19 @@ def compute_score(
             else:
                 format_reward = 0.0
             #print("Format reward = {}".format(format_reward))
+
             if sat_ok == 0.0:
-                reward = 0.6 * float(puzzle_acc_score)
+                reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
             else:
                 #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
                 #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
                 #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
-                reward = 0.6 * float(puzzle_acc_score) + 0.05 * (n_novel_steps / normalizer) + 0.05 * consistency_score
+                reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) + 0.05 * format_reward + 0.05 * consistency_score
                 #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
         
         
         else:
-            reward = -0.5
+            reward = 0.0
 
 
 
