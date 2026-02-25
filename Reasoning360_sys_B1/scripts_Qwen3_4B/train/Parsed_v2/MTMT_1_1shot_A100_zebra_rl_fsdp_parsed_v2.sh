@@ -198,7 +198,7 @@ adv_estimator=grpo
 use_kl_in_reward=False
 kl_coef=0.0
 use_kl_loss=True
-kl_loss_coef=0.01
+kl_loss_coef=0.009
 
 
 clip_ratio_low=0.2
@@ -223,7 +223,7 @@ max_num_gen_batches=10
 #train_prompt_mini_bsz=4  # model grad update batchsize
 
 
-train_prompt_bsz=112  # on-policy model update batchsize: train_prompt_bsz * rollout.n
+train_prompt_bsz=56  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
 n_resp_per_prompt=8
 train_prompt_mini_bsz=14  # model grad update batchsize
@@ -315,6 +315,7 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.val_kwargs.temperature=${TEST_TEMP} \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
+    actor_rollout_ref.rollout.dtype=bfloat16 \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.rollout.multi_turn.enable=False \
