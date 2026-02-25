@@ -105,8 +105,6 @@ export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 
 export NCCL_DEBUG=INFO
 export NCCL_DEBUG_SUBSYS=INIT,GRAPH
-
-export NCCL_ASYNC_ERROR_HANDLING=1
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 
 export NCCL_NVLS_ENABLE=0
@@ -127,6 +125,7 @@ export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
 export VLLM_USE_V1=1
+
 
 unset LD_LIBRARY_PATH
 export DEBUG_CODE=0
@@ -334,6 +333,7 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.multi_turn.enable=False \
     actor_rollout_ref.rollout.mode="sync" \
     +actor_rollout_ref.model.override_config.attention_dropout=0. \
+    +actor_rollout_ref.model.override_config.attn_implementation=sdpa \
     +actor_rollout_ref.model.override_config.embd_pdrop=0. \
     +actor_rollout_ref.model.override_config.resid_pdrop=0. \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
