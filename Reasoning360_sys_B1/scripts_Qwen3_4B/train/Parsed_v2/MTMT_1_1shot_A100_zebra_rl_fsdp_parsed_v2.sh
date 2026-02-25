@@ -204,7 +204,7 @@ clip_ratio_high=0.2
 
 max_prompt_length=$((1024 * 8))
 max_response_length=$((1024 * 4))
-enable_overlong_buffer=True
+enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 2))
 overlong_penalty_factor=2.0
 
@@ -224,7 +224,7 @@ max_num_gen_batches=10
 train_prompt_bsz=168  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
 n_resp_per_prompt=8
-train_prompt_mini_bsz=14  # model grad update batchsize
+train_prompt_mini_bsz=28  # model grad update batchsize
 
 
 
@@ -273,7 +273,6 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
     actor_rollout_ref.actor.clip_ratio_c=10.0 \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
-    actor_rollout_ref.actor.ppo_epochs=2 \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${actor_ppo_max_token_len} \
     actor_rollout_ref.actor.strategy="fsdp" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -305,6 +304,7 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.max_num_batched_tokens=${infer_ppo_max_token_len} \
     actor_rollout_ref.rollout.max_num_seqs=${gen_max_num_seqs} \
+    actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.temperature=${TRAIN_TEMP} \
     actor_rollout_ref.rollout.top_p=${top_p} \
     actor_rollout_ref.rollout.top_k=${top_k} \
