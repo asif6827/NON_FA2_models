@@ -88,7 +88,7 @@ NUM_GPUS=4 # Set the number of GPUs to use on this node
 gpu_memory_utilization=0.80
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
-WANDB_PROJECT="Sys_B1_Asif_Qwen3_4B_MTMT_1_1shot_A100_v1" # Your wandb project name
+WANDB_PROJECT="Sys_B_Asif_Qwen3_4B_MTMT_1_1shot_A100_v1" # Your wandb project name
 
 # --- External Services ---
 export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as-judge hosted URL for 'STEM' domain evaluation
@@ -206,7 +206,7 @@ adv_estimator=grpo
 use_kl_in_reward=False
 kl_coef=0.0
 use_kl_loss=True
-kl_loss_coef=0.005
+kl_loss_coef=0.03
 
 
 clip_ratio_low=0.2
@@ -314,7 +314,6 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.max_num_batched_tokens=${infer_ppo_max_token_len} \
     actor_rollout_ref.rollout.max_num_seqs=${gen_max_num_seqs} \
-    actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.temperature=${TRAIN_TEMP} \
     actor_rollout_ref.rollout.top_p=${top_p} \
     actor_rollout_ref.rollout.top_k=${top_k} \
