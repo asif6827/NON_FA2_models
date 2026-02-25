@@ -817,6 +817,7 @@ def compute_score(
         final_result["reward_logged"] = 0.0
 
 
+    parsing_reward = 0.0
     try:
         syntactic_clues, parsed_reasoning, predicted_arrangement, attribute_values, n_houses, parse_status = extract_reasoning_and_solution(solution_str=solution_str)
         if parse_status != "success_answer_tag":
@@ -826,11 +827,13 @@ def compute_score(
 
         # meta selection
         meta_used = meta
+        parsing_reward = 0.2
         if meta_used is None and isinstance(extra_info, dict):
             meta_used = extra_info.get("meta") or extra_info
     except Exception as parse_error:
         logger.error(f"Error in solution parsing: {parse_error}")
         n_houses = 1
+        parsing_reward = 0.0
         num_blocks = 0
         attribute_values = None
         syntactic_clues = None
@@ -976,74 +979,38 @@ def compute_score(
     # -----------------------
     # Reward components (safe defaults)
     # -----------------------
+    final_reward = 0.0
     try:
-        '''
-        reward = -0.5
-        normalizer = 1.0  # will be overwritten if inputs are valid
 
-        has_required_inputs = (attribute_values is not None) and (n_houses is not None)
-
-        if has_required_inputs:
-            n_houses_i = max(int(n_houses), 0)
-            n_attrs_i = max(len(attribute_values), 0)
-
-            # Keep strictly positive to avoid division by zero.
-            normalizer = max(2.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
-
-            n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
-            n_novel_steps = float(final_result.get("BASE_n_steps_novel_inc_clues", 0.0))
-            sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))  # expected 1.0 or 0.0
-
-            if format_ok:
-                format_reward = 1.0
-            else:
-                format_reward = 0.0
-            #print("Format reward = {}".format(format_reward))
-            if sat_ok == 0.0:
-                reward = 0.6 * float(puzzle_acc_score)
-            else:
-                #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
-                #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
-                #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
-                reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) + 0.05 * format_reward # + 0.05 * consistency_score
-                #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
-        
-        
-        else:
-            reward = -0.5
-
-        '''
-
-
-        reward = 0.6 * float(puzzle_acc_score)
+        final_reward = 0.6 * float(puzzle_acc_score) + 0.2 * float(parsing_reward)
         normalizer = 0.0
 
         # -----------------------
         # Log / persist to final_result
         # -----------------------
         final_result["Normalizer"] = float(normalizer)
-        final_result["acc"] = float(reward)
+        final_result["acc"] = float(final_reward)
         final_result["PUZZLE_ACCURACY"] = float(puzzle_acc_score)
         final_result["CELL_ACCURACY"] = float(cell_acc_score)
-        final_result["score"] = float(reward)
+        final_result["score"] = float(final_reward)
         final_result["epoch"] = epoch
         final_result["total_epochs"] = total_epochs
-        final_result["reward_logged"] = float(reward)
+        final_result["reward_logged"] = float(final_reward)
 
 
     except Exception:
-        reward = 0.0
+        final_reward = 0.0
         # Hard fail-safe: never crash reward computation pipeline.
         logger.exception("Crash in Final Reward Scoring")
 
         final_result["Normalizer"] = 0.0
-        final_result["acc"] = reward
+        final_result["acc"] = final_reward
         final_result["PUZZLE_ACCURACY"] = 0.0
         final_result["CELL_ACCURACY"] = 0.0
-        final_result["score"] = reward
+        final_result["score"] = final_reward
         final_result["epoch"] = epoch
         final_result["total_epochs"] = total_epochs
-        final_result["reward_logged"] = reward
+        final_result["reward_logged"] = final_reward
 
 
     if os.environ.get("VALID_STATUS", "0") == "1":
@@ -1062,7 +1029,7 @@ def compute_score(
                 example_["processed_prediction"] = "WRONG OUTPUT FORMAT"
             example_["z3_out"] = z3_out
             example_["reasoning_vs_sol_validate"] = reasoning_vs_sol_validate
-            example_["reward"] = reward
+            example_["reward"] = final_reward
             example_["Format_Check"] = format_ok
             example_["final_result"] = final_result
             if example_:
@@ -1088,7 +1055,7 @@ def compute_score(
             else:
                 example_["processed_prediction"] = "WRONG OUTPUT FORMAT"
             example_["z3_out"] = z3_out
-            example_["reward"] = reward
+            example_["reward"] = final_reward
             example_["Format_Check"] = format_ok
             example_["final_result"] = final_result
             if example_:

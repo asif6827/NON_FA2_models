@@ -978,7 +978,7 @@ def compute_score(
     # -----------------------
     try:
 
-        reward = -0.5
+        reward = 0.0
         normalizer = 1.0  # will be overwritten if inputs are valid
 
         has_required_inputs = (attribute_values is not None) and (n_houses is not None)
@@ -1010,7 +1010,7 @@ def compute_score(
         
         
         else:
-            reward = -0.5
+            reward = 0.0
 
 
 

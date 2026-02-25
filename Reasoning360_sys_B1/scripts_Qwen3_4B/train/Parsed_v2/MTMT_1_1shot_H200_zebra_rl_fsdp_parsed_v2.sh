@@ -24,7 +24,6 @@ export USE_Thinking=1
 #export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
 export HF_HOME="/export/home/asifali/HF_cache"
 export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
-
 #export RAY_TMPDIR="/export/home/asifali/HF_cache/RAY_TMP"
 #mkdir -p RAY_TMPDIR
 
@@ -88,7 +87,7 @@ NUM_GPUS=4 # Set the number of GPUs to use on this node
 gpu_memory_utilization=0.80
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
-WANDB_PROJECT="Sys_B_Asif_Qwen3_4B_MTMT_1_1shot_A100_v1" # Your wandb project name
+WANDB_PROJECT="Sys_B1_Asif_Qwen3_4B_MTMT_1_1shot_A100_v1" # Your wandb project name
 
 # --- External Services ---
 export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as-judge hosted URL for 'STEM' domain evaluation
@@ -106,12 +105,9 @@ export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 export NCCL_DEBUG=INFO
 export NCCL_DEBUG_SUBSYS=INIT,GRAPH
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
-
 export NCCL_NVLS_ENABLE=0
-
 unset NCCL_P2P_DISABLE
 unset NCCL_IB_DISABLE
-
 unset CUDA_LAUNCH_BLOCKING
 unset CUDA_DEVICE_MAX_CONNECTIONS
 # ==============================================================
@@ -126,8 +122,7 @@ export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
 export VLLM_USE_V1=1
 
-
-#unset LD_LIBRARY_PATH
+unset LD_LIBRARY_PATH
 export DEBUG_CODE=0
 export USE_NL=0 # Using NL Prompts
 export TEST_SCORE_METHOD='gt'
@@ -138,7 +133,6 @@ export Z3_W=${Z3_W}
 export SWITCH_EPOCH=${SWITCH_EPOCH}
 
 # export CUDA_LAUNCH_BLOCKING=1 # Uncomment for easier debugging of CUDA errors
-
 
 
 
@@ -201,7 +195,6 @@ ${CONDA_BIN_PATH}ray start --head --temp-dir="$RAY_TMPDIR" --num-gpus ${NUM_GPUS
 sleep 5
 
 
-
 # =================== RL Config ===================
 # Note, we borrowed the config format from DAPO while here disabled all DAPO features to run the naive RL baseline.
 
@@ -220,7 +213,7 @@ clip_ratio_high=0.2
 max_prompt_length=$((1024 * 8))
 max_response_length=$((1024 * 4))
 enable_overlong_buffer=False
-overlong_buffer_len=$((1024 * 4))
+overlong_buffer_len=$((1024 * 2))
 overlong_penalty_factor=1.0
 
 loss_agg_mode="token-mean"
