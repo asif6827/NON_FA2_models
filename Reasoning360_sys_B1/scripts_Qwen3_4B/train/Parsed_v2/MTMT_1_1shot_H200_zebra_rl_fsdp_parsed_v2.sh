@@ -109,7 +109,7 @@ export NCCL_DEBUG_SUBSYS=INIT,GRAPH
 export NCCL_ASYNC_ERROR_HANDLING=1
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 
-export NCCL_NVLS_ENABLE=1
+export NCCL_NVLS_ENABLE=0
 
 unset NCCL_P2P_DISABLE
 unset NCCL_IB_DISABLE
@@ -220,8 +220,8 @@ clip_ratio_high=0.2
 max_prompt_length=$((1024 * 8))
 max_response_length=$((1024 * 4))
 enable_overlong_buffer=False
-overlong_buffer_len=$((1024 * 2))
-overlong_penalty_factor=2.0
+overlong_buffer_len=$((1024 * 4))
+overlong_penalty_factor=1.0
 
 loss_agg_mode="token-mean"
 
