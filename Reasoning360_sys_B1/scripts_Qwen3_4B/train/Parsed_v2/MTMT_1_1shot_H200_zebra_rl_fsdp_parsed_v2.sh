@@ -232,7 +232,7 @@ max_num_gen_batches=10
 #train_prompt_mini_bsz=4  # model grad update batchsize
 
 
-train_prompt_bsz=168  # on-policy model update batchsize: train_prompt_bsz * rollout.n
+train_prompt_bsz=56  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
 n_resp_per_prompt=8
 train_prompt_mini_bsz=14  # model grad update batchsize
