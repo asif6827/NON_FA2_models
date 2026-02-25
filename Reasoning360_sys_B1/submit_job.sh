@@ -240,7 +240,7 @@ echo "All jobs submitted H200."
 
 
 
-if false; then
+#if false; then
 ACRONYM="MTMT"
 echo "Submitting Training job A100 + GT"
 TRAIN_TEMP_LIST=(0.8)
@@ -276,7 +276,7 @@ for i in "${!TRAIN_TEMP_LIST[@]}"; do
     sbatch $SLURM_SCRIPT_A100 $TRAIN_TEMP $TEST_TEMP $SCORING_METHOD $EPOCH $TEST_FREQUENCY $ACC_W $Z3_W $SWITCH_EPOCH $SYSTEM_NAME $EVAL_PATH $DATA_PATH
 done
 echo "All jobs submitted A100."
-fi
+#fi
 
 
 
