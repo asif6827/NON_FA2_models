@@ -112,11 +112,10 @@ export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
 export VLLM_USE_V1=1
-#export VLLM_USE_V1=0
-#export VLLM_ATTENTION_BACKEND=FLASHINFER
 
 
-unset LD_LIBRARY_PATH
+
+#unset LD_LIBRARY_PATH
 export DEBUG_CODE=0
 export USE_NL=0 # Using NL Prompts
 export TEST_SCORE_METHOD='gt'
@@ -208,8 +207,8 @@ clip_ratio_high=0.2
 max_prompt_length=$((1024 * 8))
 max_response_length=$((1024 * 4))
 enable_overlong_buffer=False
-overlong_buffer_len=$((1024 * 2))
-overlong_penalty_factor=2.0
+overlong_buffer_len=$((1024 * 4))
+overlong_penalty_factor=1.0
 
 loss_agg_mode="token-mean"
 
@@ -316,7 +315,6 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.val_kwargs.temperature=${TEST_TEMP} \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
-    actor_rollout_ref.rollout.dtype=bfloat16 \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.rollout.multi_turn.enable=False \
