@@ -103,7 +103,7 @@ export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 #export CUDA_DEVICE_MAX_CONNECTIONS=1
 
 
-export NCCL_DEBUG=WARN
+export NCCL_DEBUG=INFO
 export NCCL_DEBUG_SUBSYS=INIT,GRAPH
 
 export NCCL_ASYNC_ERROR_HANDLING=1
@@ -236,10 +236,10 @@ max_num_gen_batches=10
 #train_prompt_mini_bsz=4  # model grad update batchsize
 
 
-train_prompt_bsz=168  # on-policy model update batchsize: train_prompt_bsz * rollout.n
+train_prompt_bsz=56  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
 n_resp_per_prompt=8
-train_prompt_mini_bsz=28  # model grad update batchsize
+train_prompt_mini_bsz=14  # model grad update batchsize
 
 
 
@@ -319,6 +319,7 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.max_num_batched_tokens=${infer_ppo_max_token_len} \
     actor_rollout_ref.rollout.max_num_seqs=${gen_max_num_seqs} \
+    actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.temperature=${TRAIN_TEMP} \
     actor_rollout_ref.rollout.top_p=${top_p} \
     actor_rollout_ref.rollout.top_k=${top_k} \
