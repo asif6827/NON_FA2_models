@@ -827,7 +827,7 @@ def compute_score(
 
         # meta selection
         meta_used = meta
-        parsing_reward = 0.2
+        parsing_reward = 1.0
         if meta_used is None and isinstance(extra_info, dict):
             meta_used = extra_info.get("meta") or extra_info
     except Exception as parse_error:
