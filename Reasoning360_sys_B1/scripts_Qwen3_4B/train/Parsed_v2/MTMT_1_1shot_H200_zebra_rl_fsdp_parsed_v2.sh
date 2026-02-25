@@ -123,9 +123,7 @@ export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
 export VLLM_USE_V1=1
 
-
-
-#unset LD_LIBRARY_PATH
+unset LD_LIBRARY_PATH
 export DEBUG_CODE=0
 export USE_NL=0 # Using NL Prompts
 export TEST_SCORE_METHOD='gt'
