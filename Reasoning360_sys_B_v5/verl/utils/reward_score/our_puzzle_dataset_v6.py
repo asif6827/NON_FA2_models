@@ -1008,7 +1008,7 @@ def compute_score(
                 #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
                 #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
                 #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
-                reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) + 0.05 * format_reward + 0.05 * consistency_score
+                reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score) + 0.05 * (n_novel_steps / normalizer) + 0.05 * consistency_score
                 #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
         
         
