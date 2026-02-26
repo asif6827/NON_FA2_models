@@ -677,11 +677,13 @@ def compute_score(
     puzzle_acc_score = 0.0
     final_prompt = ""
     reward = 0.0
-
+    parsing_reward = 0.0
     try:
         reasoning,  predicted_arrangement, parse_status = extract_reasoning_and_solution(solution_str=solution_str)
+        parsing_reward = 1.0
 
     except Exception as e:
+        parsing_reward = 0.0
         cell_acc_score = 0.0
         puzzle_acc_score = 0.0
         logger.exception(f"Exception in Parsing : {e}")
@@ -713,7 +715,7 @@ def compute_score(
 
 
     #reward = 1.0 if puzzle_acc_score == 1.0 else min(0.95, 0.2 + 0.75 * cell_acc_score)
-    reward = 0.6 * puzzle_acc_score
+    reward = 0.6 * puzzle_acc_score + 0.2 * parsing_reward
 
     final_result = {"epoch": epoch,
                     "total-epoch": total_epochs,
