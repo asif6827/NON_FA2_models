@@ -32,22 +32,32 @@ export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 # Force ALL temp/cache off /tmp
 # ===============================
 
-# Use /var/tmp instead of /tmp
-LOCAL_BASE="/var/tmp/$USER"
-
+# temp dirs (your existing block)
+LOCAL_BASE="/var/tmp/$USER/${SLURM_JOB_ID}"
 export RAY_TMPDIR="$LOCAL_BASE/ray"
 export TMPDIR="$LOCAL_BASE/tmp"
 export TMP="$TMPDIR"
 export TEMP="$TMPDIR"
-
 mkdir -p "$RAY_TMPDIR" "$TMPDIR"
-chmod 700 "$RAY_TMPDIR" "$TMPDIR"
-
+chmod 700 "$LOCAL_BASE" "$RAY_TMPDIR" "$TMPDIR"
 export RAY_DISABLE_DASHBOARD=1
 
+# ensure we don't connect to an old cluster
+unset RAY_ADDRESS RAY_HEAD_IP RAY_PORT
 
+# run-once guard (pick one)
+if [[ "${SLURM_LOCALID:-0}" != "0" ]]; then
+  echo "Skipping on SLURM_LOCALID=${SLURM_LOCALID}"
+  exit 0
+fi
 
+# cleanup only once (same process)
+${CONDA_BIN_PATH}ray stop -f || true
+pkill -9 raylet gcs_server plasma_store dashboard 2>/dev/null || true
+sleep 3
 
+ulimit -n 1048576 2>/dev/null || true
+echo "NOFILE=$(ulimit -n)"
 
 # ==================== All INPUTS =================================
 TRAIN_TEMP=$1
@@ -75,10 +85,10 @@ echo "Python Path = ${PYTHONPATH}"
 # =================== User-Configurable Settings ===================
 # --- Execution Environment ---
 NUM_GPUS=4 # Set the number of GPUs to use on this node
-gpu_memory_utilization=0.80
+gpu_memory_utilization=0.8
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
-WANDB_PROJECT="Sys_B_Asif_Qwen3_4B_MTMT_1_1shot_A100_v1" # Your wandb project name
+WANDB_PROJECT="Sys_B1_Asif_Qwen3_4B_MTMT_1_1shot_A100_v1" # Your wandb project name
 
 # --- External Services ---
 export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as-judge hosted URL for 'STEM' domain evaluation
@@ -92,7 +102,6 @@ export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 #export NCCL_DEBUG=WARN
 #export CUDA_DEVICE_MAX_CONNECTIONS=1
 
-
 export NCCL_DEBUG=INFO
 export NCCL_DEBUG_SUBSYS=INIT,GRAPH
 export NCCL_ASYNC_ERROR_HANDLING=1
@@ -103,7 +112,6 @@ unset CUDA_LAUNCH_BLOCKING
 unset CUDA_DEVICE_MAX_CONNECTIONS
 # ==============================================================
 
-
 export TOKENIZERS_PARALLELISM=true
 export TRANSFORMERS_OFFLINE=1
 export TRANSFORMERS_NO_TORCHVISION=1
@@ -113,9 +121,7 @@ export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
 export VLLM_USE_V1=1
 
-
-
-#unset LD_LIBRARY_PATH
+unset LD_LIBRARY_PATH
 export DEBUG_CODE=0
 export USE_NL=0 # Using NL Prompts
 export TEST_SCORE_METHOD='gt'
@@ -179,13 +185,13 @@ fi
 
 # =================== Ray Start (Single Node) ===================
 # Stop any previous Ray instances
-${CONDA_BIN_PATH}ray stop -f
+#${CONDA_BIN_PATH}ray stop -f
 
 # Start a new Ray cluster on the local machine
 # The number of CPUs is often best left for Ray to determine automatically.
 echo "Starting Ray on the local node with ${NUM_GPUS} GPUs..."
 #${CONDA_BIN_PATH}ray start --head --num-gpus ${NUM_GPUS} --include-dashboard=True --dashboard-port 8265
-${CONDA_BIN_PATH}ray start --head --num-gpus ${NUM_GPUS} --include-dashboard=False --dashboard-port 8265
+${CONDA_BIN_PATH}ray start --head --temp-dir="$RAY_TMPDIR" --num-gpus ${NUM_GPUS} --include-dashboard=False --dashboard-port 8265
 sleep 5
 
 
@@ -197,9 +203,8 @@ adv_estimator=grpo
 
 use_kl_in_reward=False
 kl_coef=0.0
-use_kl_loss=True
-kl_loss_coef=0.005
-
+use_kl_loss=False
+kl_loss_coef=0.0
 
 
 clip_ratio_low=0.2
@@ -224,7 +229,7 @@ max_num_gen_batches=10
 #train_prompt_mini_bsz=4  # model grad update batchsize
 
 
-train_prompt_bsz=56  # on-policy model update batchsize: train_prompt_bsz * rollout.n
+train_prompt_bsz=168  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
 n_resp_per_prompt=8
 train_prompt_mini_bsz=14  # model grad update batchsize
@@ -242,7 +247,7 @@ top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 # For a 32B model on 8 GPUs, TP=2 is a reasonable starting point. Adjust if you have memory issues.
 sp_size=1
 gen_tp=${NUM_GPUS}
-gen_max_num_seqs=1024
+gen_max_num_seqs=1344
 infer_micro_batch_size=null
 train_micro_batch_size=null
 use_dynamic_bsz=True
