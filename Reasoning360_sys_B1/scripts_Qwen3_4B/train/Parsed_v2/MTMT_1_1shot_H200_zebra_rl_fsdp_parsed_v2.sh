@@ -2,7 +2,6 @@
 
 #SBATCH -J MTMT-B1-H200 #job name
 #SBATCH -p gpu-H200 # queue used
-#SBATCH --nodelist=crirdchpxd001,crirdchpxd002,crirdchpxd003,crirdchpxd004,crirdchpxd006
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
@@ -86,7 +85,7 @@ echo "Python Path = ${PYTHONPATH}"
 # =================== User-Configurable Settings ===================
 # --- Execution Environment ---
 NUM_GPUS=4 # Set the number of GPUs to use on this node
-gpu_memory_utilization=0.80
+gpu_memory_utilization=0.75
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
 WANDB_PROJECT="Sys_B1_Asif_Qwen3_4B_MTMT_1_1shot_A100_v1" # Your wandb project name
