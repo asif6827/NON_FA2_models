@@ -102,7 +102,7 @@ export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 #export NCCL_DEBUG=WARN
 #export CUDA_DEVICE_MAX_CONNECTIONS=1
 
-
+#export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:256
 export NCCL_DEBUG=INFO
 export NCCL_DEBUG_SUBSYS=INIT,GRAPH
 export NCCL_ASYNC_ERROR_HANDLING=1
@@ -112,7 +112,6 @@ unset NCCL_IB_DISABLE
 unset CUDA_LAUNCH_BLOCKING
 unset CUDA_DEVICE_MAX_CONNECTIONS
 # ==============================================================
-
 
 export TOKENIZERS_PARALLELISM=true
 export TRANSFORMERS_OFFLINE=1
