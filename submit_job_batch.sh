@@ -9,9 +9,9 @@ cd "$BASE_DIR/Reasoning360_sys_B1"
 bash submit_job.sh
 
 
-#echo "Submitting Reasoning360_sys_B_v9..."
-#cd "$BASE_DIR/Reasoning360_sys_B_v9"
-#bash submit_job.sh
+echo "Submitting Reasoning360_sys_B_v9..."
+cd "$BASE_DIR/Reasoning360_sys_B_v9"
+bash submit_job.sh
 
 
 echo "All submission commands executed."
