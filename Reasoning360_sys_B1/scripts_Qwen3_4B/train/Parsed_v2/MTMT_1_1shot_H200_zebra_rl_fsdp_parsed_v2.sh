@@ -4,7 +4,7 @@
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --exclude=crirdchpxd005
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
-#SBATCH -c 60  #number of CPUs needed, default is 1
+#SBATCH -c 128  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
 #SBATCH --output=./all_logs/%j-%x.out
 #SBATCH --error=./all_logs/%j-%x.err
@@ -103,7 +103,6 @@ export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 #export NCCL_DEBUG=WARN
 #export CUDA_DEVICE_MAX_CONNECTIONS=1
 
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:256
 export NCCL_DEBUG=INFO
 export NCCL_DEBUG_SUBSYS=INIT,GRAPH
 export NCCL_ASYNC_ERROR_HANDLING=1
