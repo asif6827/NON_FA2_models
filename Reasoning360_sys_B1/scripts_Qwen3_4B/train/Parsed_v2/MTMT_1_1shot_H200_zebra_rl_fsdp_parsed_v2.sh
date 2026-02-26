@@ -7,6 +7,7 @@
 #SBATCH --mem 256GB #amount of memory needed, default
 #SBATCH --output=./all_logs/%j-%x.out
 #SBATCH --error=./all_logs/%j-%x.err
+#SBATCH --exclude=crirdchpxd005
 #SBATCH -A H200
 #SBATCH -q h200_qos
 #SBATCH --mail-user=asif6827@gmail.com
