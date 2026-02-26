@@ -204,8 +204,8 @@ adv_estimator=grpo
 
 use_kl_in_reward=False
 kl_coef=0.0
-use_kl_loss=True
-kl_loss_coef=0.001
+use_kl_loss=False
+kl_loss_coef=0.0
 
 
 clip_ratio_low=0.2
@@ -230,7 +230,7 @@ max_num_gen_batches=10
 #train_prompt_mini_bsz=4  # model grad update batchsize
 
 
-train_prompt_bsz=56  # on-policy model update batchsize: train_prompt_bsz * rollout.n
+train_prompt_bsz=168  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
 n_resp_per_prompt=8
 train_prompt_mini_bsz=14  # model grad update batchsize
@@ -248,7 +248,7 @@ top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 # For a 32B model on 8 GPUs, TP=2 is a reasonable starting point. Adjust if you have memory issues.
 sp_size=1
 gen_tp=${NUM_GPUS}
-gen_max_num_seqs=1024
+gen_max_num_seqs=1344
 infer_micro_batch_size=null
 train_micro_batch_size=null
 use_dynamic_bsz=True

@@ -166,7 +166,7 @@ if false; then
     ACC_W_LIST=(0.8)
     Z3_W_LIST=(0.2)
     SWITCH_EPOCH_LIST=(80)
-    SYSTEM_NAME_LIST=("Reasoning360_sys_B_v5")
+    SYSTEM_NAME_LIST=("Reasoning360_sys_B_v7")
     EVAL_PATH_LIST=("small_train_small_test_1_parsed_v6a_${ACRONYM}")
     DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v6a_${ACRONYM}/small_train_small_test")
 
@@ -201,15 +201,15 @@ fi
 #if false; then
 ACRONYM="MTMT"
 echo "Submitting Training job H200 + GT"
-TRAIN_TEMP_LIST=(0.5)
+TRAIN_TEMP_LIST=(0.8)
 TEST_TEMP_LIST=(0.0)
 SCORING_LIST=("gt")
-EPOCH_LIST=(100)
-TEST_LIST=(4)
+EPOCH_LIST=(30)
+TEST_LIST=(2)
 ACC_W_LIST=(0.8)
 Z3_W_LIST=(0.2)
 SWITCH_EPOCH_LIST=(80)
-SYSTEM_NAME_LIST=("Reasoning360_sys_B_v5")
+SYSTEM_NAME_LIST=("Reasoning360_sys_B_v7")
 EVAL_PATH_LIST=("med_train_med_test_1_parsed_v6a_${ACRONYM}")
 DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v6a_${ACRONYM}/med_train_med_test")
 
