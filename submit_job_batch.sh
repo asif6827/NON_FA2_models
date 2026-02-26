@@ -21,7 +21,6 @@ bash submit_job.sh
 
 
 
-
 echo "Submitting Reasoning360_sys_B_v6..."
 cd "$BASE_DIR/Reasoning360_sys_B_v6"
 bash submit_job.sh
