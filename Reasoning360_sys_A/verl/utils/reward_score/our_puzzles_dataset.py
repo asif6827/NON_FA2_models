@@ -14,14 +14,10 @@ import json
 from typing import Dict, List, Any, Optional, Tuple
 import logging
 import sys
-#from z3_verifier_v13 import compute_dsl_components
-from verl.utils.reward_score.z3_verifier_v15 import compute_z3_reward
 
 
 
 os.environ.setdefault("CLUE_TIMEOUT_S", "3.0")
-os.environ.setdefault("Z3_TIMEOUT_S", "1.5")
-os.environ.setdefault("Z3_CLUE_GATE", "0.7")
 os.environ.setdefault("CLUE_MAX_NEW_TOKENS", "256")
 os.environ.setdefault("CLUE_MAX_INFLIGHT", "1")
 
@@ -284,51 +280,6 @@ def _compute_acc_from_normalized(norm_pred: Dict[str, Any], norm_gt: Dict[str, A
 
 # -------------------- ray verifier singleton --------------------
 
-_RAY_VERIFIER = None
-
-def _get_ray_verifier(model_config: Dict[str, Any]):
-    """Per-process singleton: avoid recreating verifier/actor for each sample."""
-    global _RAY_VERIFIER
-    if _RAY_VERIFIER is None:
-        from verl.utils.reward_score.ray_clue_verifier import RayClueVerifier
-        _RAY_VERIFIER = RayClueVerifier(model_config=model_config)
-    return _RAY_VERIFIER
-
-
-# -------------------- z3 timeout patch --------------------
-
-_Z3_SOLVER_PATCHED = False
-_Z3_LAST_TIMEOUT_MS = None
-
-def _ensure_z3_timeout(timeout_s: float):
-    """
-    Monkey-patch verl.utils.reward_score.z3_verifier.Solver to set timeout for new solvers.
-    """
-    global _Z3_SOLVER_PATCHED, _Z3_LAST_TIMEOUT_MS
-    try:
-        import verl.utils.reward_score.z3_verifier as zv
-    except Exception:
-        return
-
-    ms = int(max(0.0, float(timeout_s)) * 1000)
-    if _Z3_SOLVER_PATCHED and _Z3_LAST_TIMEOUT_MS == ms:
-        return
-
-    orig_solver = getattr(zv, "Solver", None)
-    if orig_solver is None:
-        return
-
-    def _solver_with_timeout(*args, **kwargs):
-        s = orig_solver(*args, **kwargs)
-        try:
-            s.set("timeout", ms)
-        except Exception:
-            pass
-        return s
-
-    zv.Solver = _solver_with_timeout
-    _Z3_SOLVER_PATCHED = True
-    _Z3_LAST_TIMEOUT_MS = ms
 
 from typing import Dict, Any, List, Tuple, Optional
 import re
@@ -557,72 +508,7 @@ def clamp01(x: float) -> float:
     return x
 
 
-def logic_quality(z3_sat: float, clue_sat: float, parse_cov: float, cov_floor: float = 0.25) -> float:
-    z3_sat = clamp01(z3_sat)
-    clue_sat = clamp01(clue_sat)
-    cov = clamp01(parse_cov)
 
-    reliable = 1.0 if cov >= cov_floor else 0.0
-
-    # When reliable: mix sat + clue_sat; when not reliable: don’t punish (quality=1)
-    if reliable < 1.0:
-        return 1.0
-
-    q = 0.70 * z3_sat + 0.30 * clue_sat
-    return clamp01(q)
-
-def schedule(epoch: int, total_epochs: int):
-    """
-    Returns:
-      w_puz: weight for puzzle_acc in GT anchor (0->1)
-      alpha: penalty exponent (increases over time)
-      cov_floor: min parse_cov to trust Z3
-      parse_bonus_w: small bonus early to encourage parsable outputs
-    """
-    t = clamp01(epoch / max(1, total_epochs - 1))   # 0..1
-
-    w_puz = t**1.5                 # slow start, stronger later
-    alpha = 0.5 + 3.0 * (t**2.0)   # Z3 penalty weak early, strong late
-    cov_floor = 0.20 + 0.15 * t    # stricter later
-    parse_bonus_w = 0.05 * (1.0 - t)  # only early
-
-    return w_puz, alpha, cov_floor, parse_bonus_w
-
-def curriculum_with_z3(
-    cell_acc: float,
-    puzzle_acc: float,
-    z3_sat: float,
-    clue_sat: float,
-    parse_cov: float,
-    epoch: int,
-    total_epochs: int,
-    cell_beta: float = 2.0,
-) -> float:
-    c = clamp01(cell_acc)
-    p = clamp01(puzzle_acc)
-
-    if p >= 1.0:
-        return 1.0
-    if p <= 0.0 and c <= 0.0:
-        return 0.0
-
-    w_puz, alpha, cov_floor, parse_bonus_w = schedule(epoch, total_epochs)
-
-    # GT anchor (early: shaped cell, late: puzzle)
-    c_shaped = c ** max(1e-6, float(cell_beta))
-    gt_anchor = clamp01((1.0 - w_puz) * c_shaped + w_puz * p)
-
-    # Z3 logic quality (reliable only when parse_cov high)
-    q_logic = logic_quality(z3_sat=z3_sat, clue_sat=clue_sat, parse_cov=parse_cov, cov_floor=cov_floor)
-
-    # penalty ramps up with alpha over time
-    reward = gt_anchor * (q_logic ** max(1e-6, float(alpha)))
-
-    # small early parse bonus (prevents “ignore Z3 parser” collapse early)
-    cov = clamp01(parse_cov)
-    reward = clamp01(reward + parse_bonus_w * cov)
-
-    return float(reward)
 
 def normalize_header(data_sample):
     """
@@ -647,10 +533,7 @@ def compute_score(
     meta: Optional[Dict[str, Any]] = None,
 ) -> float:
     """
-    Triple scoring with:
-    - ACC
-    - Z3
-    - Clue-check (gated by Z3)
+
 
     NOTE:
     - clue 超时/失败不会中断整个评分
