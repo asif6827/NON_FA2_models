@@ -20,6 +20,23 @@ cd "$BASE_DIR/Reasoning360_sys_A"
 bash submit_job.sh
 
 
+echo "Submitting Reasoning360_sys_A..."
+cd "$BASE_DIR/Reasoning360_sys_A"
+bash submit_job.sh
+
+
+echo "Submitting Reasoning360_sys_A..."
+cd "$BASE_DIR/Reasoning360_sys_A"
+bash submit_job.sh
+
+
+
+
+
+echo "Submitting Reasoning360_sys_B_v1..."
+cd "$BASE_DIR/Reasoning360_sys_B_v1"
+bash submit_job.sh
+
 
 echo "Submitting Reasoning360_sys_B_v6..."
 cd "$BASE_DIR/Reasoning360_sys_B_v6"
@@ -39,12 +56,6 @@ bash submit_job.sh
 echo "Submitting Reasoning360_sys_B_v9..."
 cd "$BASE_DIR/Reasoning360_sys_B_v9"
 bash submit_job.sh
-
-
-echo "Submitting Reasoning360_sys_B_v1..."
-cd "$BASE_DIR/Reasoning360_sys_B_v1"
-bash submit_job.sh
-
 
 echo "Submitting Reasoning360_sys_B_v2..."
 cd "$BASE_DIR/Reasoning360_sys_B_v2"
