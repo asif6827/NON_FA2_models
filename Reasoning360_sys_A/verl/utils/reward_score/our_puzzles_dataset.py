@@ -563,7 +563,6 @@ def compute_score(
     parsing_reward = 0.0
     try:
         reasoning,  predicted_arrangement, parse_status = extract_reasoning_and_solution(solution_str=solution_str)
-        parsing_reward = 1.0
 
     except Exception as e:
         parsing_reward = 0.0
@@ -572,6 +571,7 @@ def compute_score(
         logger.exception(f"Exception in Parsing : {e}")
 
     if predicted_arrangement:
+        parsing_reward = 1.0
         try:
             pred_conv = convert_numpy_arrays(predicted_arrangement)
             gt_conv = convert_numpy_arrays(ground_truth)
@@ -594,6 +594,10 @@ def compute_score(
             logger.error(f"Error calculating ACC score: {e}")
             cell_acc_score = 0.0
             puzzle_acc_score = 0.0
+    else:
+        parsing_reward = 0.0
+        cell_acc_score = 0.0
+        puzzle_acc_score = 0.0
 
 
 
