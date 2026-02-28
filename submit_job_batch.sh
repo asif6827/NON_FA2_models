@@ -31,8 +31,14 @@ if false; then
     cd "$BASE_DIR/Reasoning360_sys_B1"
     bash submit_job.sh
 
+
     echo "Submitting Reasoning360_sys_B1..."
     cd "$BASE_DIR/Reasoning360_sys_B1"
+    bash submit_job.sh
+
+
+    echo "Submitting Reasoning360_sys_A..."
+    cd "$BASE_DIR/Reasoning360_sys_A"
     bash submit_job.sh
 
 
@@ -42,9 +48,6 @@ fi
 
 #if false; then
 
-echo "Submitting Reasoning360_sys_A..."
-cd "$BASE_DIR/Reasoning360_sys_A"
-bash submit_job.sh
 
 
 
@@ -60,6 +63,11 @@ bash submit_job.sh
 echo "Submitting Reasoning360_sys_B_v5..."
 cd "$BASE_DIR/Reasoning360_sys_B_v5"
 bash submit_job.sh
+
+echo "Submitting Reasoning360_sys_B_v6..."
+cd "$BASE_DIR/Reasoning360_sys_B_v6"
+bash submit_job.sh
+
 
 echo "Submitting Reasoning360_sys_B_v7..."
 cd "$BASE_DIR/Reasoning360_sys_B_v7"
