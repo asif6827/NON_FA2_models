@@ -823,10 +823,12 @@ def compute_score(
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 log_case("non_boxed_answer", solution_str, ground_truth, logger)
 
+        if parse_status == "success_direct_json" or parse_status == "success_answer_json":
+            parsing_reward = 1.0
 
         # meta selection
         meta_used = meta
-        parsing_reward = 1.0
+
         if meta_used is None and isinstance(extra_info, dict):
             meta_used = extra_info.get("meta") or extra_info
     except Exception as parse_error:

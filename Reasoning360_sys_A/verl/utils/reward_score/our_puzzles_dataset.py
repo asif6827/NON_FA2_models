@@ -563,6 +563,8 @@ def compute_score(
     parsing_reward = 0.0
     try:
         reasoning,  predicted_arrangement, parse_status = extract_reasoning_and_solution(solution_str=solution_str)
+        if parse_status == "success_direct_json" or parse_status == "success_answer_json":
+            parsing_reward = 1.0
 
     except Exception as e:
         parsing_reward = 0.0
@@ -571,7 +573,6 @@ def compute_score(
         logger.exception(f"Exception in Parsing : {e}")
 
     if predicted_arrangement:
-        parsing_reward = 1.0
         try:
             pred_conv = convert_numpy_arrays(predicted_arrangement)
             gt_conv = convert_numpy_arrays(ground_truth)
