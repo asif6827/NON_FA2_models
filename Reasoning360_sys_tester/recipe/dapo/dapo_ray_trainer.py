@@ -100,7 +100,7 @@ class RayDAPOTrainer(RayPPOTrainer):
             puzzle_accuracy = float(val_metrics[puzzle_key])
             print(f"Puzzle Accuracy = {puzzle_accuracy}")
             if puzzle_accuracy > self.puzzle_acc:
-                print(f"Replacing Puzzle Accuracy with {self.puzzle_acc}")
+                print(f"Replacing Puzzle Accuracy with {puzzle_accuracy}")
                 self.puzzle_acc = puzzle_accuracy
 
         # add tqdm
