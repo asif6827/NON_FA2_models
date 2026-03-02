@@ -375,14 +375,14 @@ class RayDAPOTrainer(RayPPOTrainer):
                         metrics.update(val_metrics_tr)
                         os.environ["VALID_STATUS"] = "0"
 
-                    puzzle_accuracy = float(val_metrics[puzzle_key])
-                    if puzzle_accuracy > self.puzzle_acc:
-                        print(f"New Puzzle Accuracy is higher. Updating Puzzle Accuracy = {puzzle_accuracy}")
-                        print("Updating checkpoint...!")
-                        if self.config.trainer.save_freq > 0 and (self.global_steps % self.config.trainer.save_freq == 0):
-                            with marked_timer("save_checkpoint", timing_raw, "green"):
-                                self._save_checkpoint()
-                        self.puzzle_acc = puzzle_accuracy
+                        puzzle_accuracy = float(val_metrics[puzzle_key])
+                        if puzzle_accuracy > self.puzzle_acc:
+                            print(f"New Puzzle Accuracy is higher. Updating Puzzle Accuracy = {puzzle_accuracy}")
+                            print("Updating checkpoint...!")
+                            if self.config.trainer.save_freq > 0 and (self.global_steps % self.config.trainer.save_freq == 0):
+                                with marked_timer("save_checkpoint", timing_raw, "green"):
+                                    self._save_checkpoint()
+                            self.puzzle_acc = puzzle_accuracy
 
                 with marked_timer("stop_profile", timing_raw):
                     if do_profile:
