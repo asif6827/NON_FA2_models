@@ -180,7 +180,7 @@ if [[ -n "$RESUME_CKPT_DIR_NAME" ]]; then
     WANDB_EXPERIMENT_NAME="$RESUME_CKPT_DIR_NAME"
 else
     TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-    WANDB_EXPERIMENT_NAME="job-id${SLURM_JOB_ID}-time-${TIMESTAMP}-${BASE_MODEL##*/}"
+    WANDB_EXPERIMENT_NAME="job-id-${SLURM_JOB_ID}-time-${TIMESTAMP}-${BASE_MODEL##*/}"
 fi
 
 # =================== Ray Start (Single Node) ===================
