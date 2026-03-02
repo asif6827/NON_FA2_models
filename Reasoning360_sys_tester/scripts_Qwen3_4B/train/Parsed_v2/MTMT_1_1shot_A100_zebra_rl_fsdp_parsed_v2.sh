@@ -180,7 +180,7 @@ if [[ -n "$RESUME_CKPT_DIR_NAME" ]]; then
     WANDB_EXPERIMENT_NAME="$RESUME_CKPT_DIR_NAME"
 else
     TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-    WANDB_EXPERIMENT_NAME="single-node-${TIMESTAMP}-${BASE_MODEL##*/}"
+    WANDB_EXPERIMENT_NAME="job-id${SLURM_JOB_ID}-time-${TIMESTAMP}-${BASE_MODEL##*/}"
 fi
 
 # =================== Ray Start (Single Node) ===================
@@ -335,6 +335,7 @@ python -m recipe.dapo.main_dapo \
     reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
     trainer.logger=['console'] \
     trainer.project_name=${WANDB_PROJECT} \
+    trainer.system_name=${SYSTEM_NAME} \
     trainer.experiment_name=${WANDB_EXPERIMENT_NAME} \
     trainer.val_before_train=True \
     trainer.n_gpus_per_node=${NUM_GPUS} \
