@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J MTMT-B-v1-H200 #job name
+#SBATCH -J MTMT-B-v10-H200 #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --nodelist=crirdchpxd003
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
@@ -89,7 +89,7 @@ NUM_GPUS=4 # Set the number of GPUs to use on this node
 gpu_memory_utilization=0.8
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
-WANDB_PROJECT="Sys_B_v1_Qwen3_4B_MTMT_1_1shot_H200" # Your wandb project name
+WANDB_PROJECT="Sys_B_v10_Qwen3_4B_MTMT_1_1shot_H200" # Your wandb project name
 
 # --- External Services ---
 export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as-judge hosted URL for 'STEM' domain evaluation
@@ -181,7 +181,7 @@ if [[ -n "$RESUME_CKPT_DIR_NAME" ]]; then
     WANDB_EXPERIMENT_NAME="$RESUME_CKPT_DIR_NAME"
 else
     TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-    WANDB_EXPERIMENT_NAME="single-node-${TIMESTAMP}-${BASE_MODEL##*/}"
+    WANDB_EXPERIMENT_NAME="job-id-${SLURM_JOB_ID}-time-${TIMESTAMP}-${BASE_MODEL##*/}"
 fi
 
 # =================== Ray Start (Single Node) ===================
@@ -336,12 +336,15 @@ python -m recipe.dapo.main_dapo \
     reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
     trainer.logger=['console'] \
     trainer.project_name=${WANDB_PROJECT} \
+    trainer.system_name=${SYSTEM_NAME} \
     trainer.experiment_name=${WANDB_EXPERIMENT_NAME} \
     trainer.val_before_train=True \
     trainer.n_gpus_per_node=${NUM_GPUS} \
     trainer.nnodes=1 \
-    trainer.save_freq=200 \
     trainer.test_freq=${TEST_FREQUENCY} \
+    trainer.save_freq=1 \
+    trainer.max_actor_ckpt_to_keep=1 \
+    trainer.max_critic_ckpt_to_keep=1 \
     trainer.total_epochs=${EPOCH} \
     trainer.log_val_generations=127 \
     trainer.resume_mode=auto \
