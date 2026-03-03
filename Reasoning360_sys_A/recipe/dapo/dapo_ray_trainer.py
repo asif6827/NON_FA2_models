@@ -44,6 +44,7 @@ from verl.trainer.ppo.ray_trainer import (
 )
 from verl.utils.profiler import marked_timer
 
+puzzle_key = "val-aux/our_zebra_puzzle_new_reward_test/PUZZLE_ACCURACY/mean@1"
 
 class RayDAPOTrainer(RayPPOTrainer):
     """
@@ -69,6 +70,7 @@ class RayDAPOTrainer(RayPPOTrainer):
         )
 
         self.global_steps = 0
+        self.puzzle_acc = 0
 
         # load checkpoint before doing anything
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
@@ -81,12 +83,25 @@ class RayDAPOTrainer(RayPPOTrainer):
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
             os.environ["CURRENT_EPOCH"] = str(0)
             print(f"VALIDATE BEFORE MODEL TRAINING")
+            os.environ["VALID_STATUS"] = "1"
             val_metrics = self._validate()
+            os.environ["VALID_STATUS"] = "2"
+            val_metrics_tr = self._validate_tr()
+            os.environ["VALID_STATUS"] = "0"
             assert val_metrics, f"{val_metrics=}"
             pprint(f"INITIAL VALIDATION METRICS: {val_metrics}")
-            logger.log(data=val_metrics, step=self.global_steps)
+            print()
+            pprint(f"INITIAL TR-VALIDATION METRICS: {val_metrics_tr}")
+            print()
+            ##logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
+
+            puzzle_accuracy = float(val_metrics[puzzle_key])
+            print(f"Puzzle Accuracy = {puzzle_accuracy}")
+            if puzzle_accuracy > self.puzzle_acc:
+                print(f"Replacing Puzzle Accuracy with {puzzle_accuracy}")
+                self.puzzle_acc = puzzle_accuracy
 
         # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
@@ -101,7 +116,7 @@ class RayDAPOTrainer(RayPPOTrainer):
         num_gen_batches = 0
         os.environ["TOTAL_EPOCH"] = str(self.config.trainer.total_epochs)
         for epoch in range(self.config.trainer.total_epochs):
-            os.environ["CURRENT_EPOCH"] = str(epoch)
+            os.environ["CURRENT_EPOCH"] = str(epoch+1)
             start = time.perf_counter()
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 print(f"DEBUG-MODE: START MAIN TRAINING LOOP")
@@ -350,16 +365,24 @@ class RayDAPOTrainer(RayPPOTrainer):
                         and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                     ):
                         with marked_timer("testing", timing_raw, "green"):
+                            os.environ["VALID_STATUS"] = "1"
                             val_metrics: dict = self._validate()
+                            os.environ["VALID_STATUS"] = "2"
+                            val_metrics_tr: dict = self._validate_tr()
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
+                        metrics.update(val_metrics_tr)
+                        os.environ["VALID_STATUS"] = "0"
 
-                    if self.config.trainer.save_freq > 0 and (
-                        is_last_step or self.global_steps % self.config.trainer.save_freq == 0
-                    ):
-                        with marked_timer("save_checkpoint", timing_raw, "green"):
-                            self._save_checkpoint()
+                        puzzle_accuracy = float(val_metrics[puzzle_key])
+                        if puzzle_accuracy > self.puzzle_acc:
+                            print(f"New Puzzle Accuracy is higher. Updating Puzzle Accuracy = {puzzle_accuracy}")
+                            print("Updating checkpoint...!")
+                            if self.config.trainer.save_freq > 0 and (self.global_steps % self.config.trainer.save_freq == 0):
+                                with marked_timer("save_checkpoint", timing_raw, "green"):
+                                    self._save_checkpoint()
+                            self.puzzle_acc = puzzle_accuracy
 
                 with marked_timer("stop_profile", timing_raw):
                     if do_profile:
@@ -372,14 +395,19 @@ class RayDAPOTrainer(RayPPOTrainer):
                             self.rm_wg.stop_profile()
 
                 # collect metrics
+
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
+
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
+
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+
                 timing_raw = defaultdict(float)  # clear timing
 
                 metrics["train/num_gen_batches"] = num_gen_batches
+                metrics["train/epoch"] = epoch + 1
                 batch = None
                 num_prompt_in_batch = 0
                 num_gen_batches = 0
