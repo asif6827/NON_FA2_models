@@ -64,4 +64,9 @@ if false; then
 
 fi
 
+
+echo "Submitting Reasoning360_sys_B_v10..."
+cd "$BASE_DIR/Reasoning360_sys_B_v10"
+bash submit_job.sh
+
 echo "All submission commands executed."
