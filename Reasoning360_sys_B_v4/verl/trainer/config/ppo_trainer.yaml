@@ -258,6 +258,9 @@ trainer:
   # Experiment name for run identification in tracking tools
   experiment_name: gsm8k
 
+  # Name of the system/run
+  system_name: Reasoning360_sys_tester
+
   # Logging backends to use: "console", "wandb", etc.
   logger: [ 'console', 'wandb' ]
 
@@ -314,7 +317,7 @@ trainer:
   del_local_ckpt_after_load: False
 
   # Default local directory for saving checkpoints
-  default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
+  default_local_dir: /export/alt-insight/NON_FA2_models/${trainer.system_name}/checkpoints/${trainer.project_name}/${trainer.experiment_name}
 
   # Maximum number of actor checkpoints to keep
   max_actor_ckpt_to_keep: null
