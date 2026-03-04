@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J MTMT-B-v4-H200 #job name
+#SBATCH -J MTMT-B-v11-H200 #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --nodelist=crirdchpxd003
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
