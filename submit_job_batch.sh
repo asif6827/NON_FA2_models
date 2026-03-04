@@ -10,6 +10,10 @@ cd "$BASE_DIR/Reasoning360_sys_B_v11"
 bash submit_job.sh
 
 
+echo "Submitting Reasoning360_sys_B_v12..."
+cd "$BASE_DIR/Reasoning360_sys_B_v12"
+bash submit_job.sh
+
 
 if false; then
 
