@@ -83,16 +83,9 @@ class RayDAPOTrainer(RayPPOTrainer):
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
             os.environ["CURRENT_EPOCH"] = str(0)
             print(f"VALIDATE BEFORE MODEL TRAINING")
-            os.environ["VALID_STATUS"] = "1"
             val_metrics = self._validate()
-            os.environ["VALID_STATUS"] = "2"
-            val_metrics_tr = self._validate_tr()
-            os.environ["VALID_STATUS"] = "0"
             assert val_metrics, f"{val_metrics=}"
             pprint(f"INITIAL VALIDATION METRICS: {val_metrics}")
-            print()
-            pprint(f"INITIAL TR-VALIDATION METRICS: {val_metrics_tr}")
-            print()
             ##logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
@@ -365,10 +358,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                     ):
                         with marked_timer("testing", timing_raw, "green"):
-                            os.environ["VALID_STATUS"] = "1"
                             val_metrics: dict = self._validate()
-                            os.environ["VALID_STATUS"] = "2"
-                            val_metrics_tr: dict = self._validate_tr()
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
