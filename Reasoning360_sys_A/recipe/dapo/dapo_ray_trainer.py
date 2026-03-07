@@ -362,7 +362,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
-                        metrics.update(val_metrics_tr)
+                        #metrics.update(val_metrics_tr)
                         os.environ["VALID_STATUS"] = "0"
 
                         puzzle_accuracy = float(val_metrics[puzzle_key])
