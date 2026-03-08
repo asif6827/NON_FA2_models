@@ -13,6 +13,7 @@
 #SBATCH --mail-user=asif6827@gmail.com
 
 
+
 module load cuda12.4/toolkit
 nvidia-smi
 source activate Reasoning360
