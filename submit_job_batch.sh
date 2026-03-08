@@ -5,8 +5,8 @@ BASE_DIR="$HOME/NON_FA2_models"
 
 
 
-echo "Submitting Reasoning360_sys_B_v19..."
-cd "$BASE_DIR/Reasoning360_sys_B_v19"
+echo "Submitting Reasoning360_sys_B_v20..."
+cd "$BASE_DIR/Reasoning360_sys_B_v20"
 bash submit_job.sh
 
 
