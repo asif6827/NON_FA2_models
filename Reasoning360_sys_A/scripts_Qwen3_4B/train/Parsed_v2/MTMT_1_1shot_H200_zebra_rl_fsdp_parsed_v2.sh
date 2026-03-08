@@ -2,7 +2,6 @@
 
 #SBATCH -J MTMT-A-H200 #job name
 #SBATCH -p gpu-H200 # queue used
-#SBATCH --nodelist=crirdchpxd003
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
