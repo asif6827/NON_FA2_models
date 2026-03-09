@@ -182,7 +182,7 @@ TEST_LIST=(5)
 ACC_W_LIST=(0.8)
 Z3_W_LIST=(0.2)
 SWITCH_EPOCH_LIST=(80)
-SYSTEM_NAME_LIST=("Reasoning360_sys_B3")
+SYSTEM_NAME_LIST=("Reasoning360_sys_C_v2")
 EVAL_PATH_LIST=("small_train_small_test_1_parsed_v5e_${ACRONYM}")
 DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v5e_${ACRONYM}/small_train_small_test")
 
