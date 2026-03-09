@@ -24,7 +24,8 @@ from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import solve
 from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import normalize_header, normalize_months_in_rows
 from verl.utils.reward_score.check_interleved_format import check_interleaved_reasoning
 from verl.utils.reward_score.z3_reasoning_vs_solution_verifier_v2 import verify_solution_two_step
-from prompt_step_2 import SOLUTION_PROMPT_VERIFIER_V2, SOLUTION_PROMPT_1_SHOT_VERIFIER_USER_V2
+from verl.utils.reward_score.prompt_step_2 import SOLUTION_PROMPT_VERIFIER_V2, SOLUTION_PROMPT_1_SHOT_VERIFIER_USER_V2
+
 
 
 os.environ.setdefault("CLUE_TIMEOUT_S", "3.0")
