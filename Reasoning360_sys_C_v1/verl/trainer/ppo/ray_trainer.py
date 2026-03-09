@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
 from typing import Optional
-import math
+
 import numpy as np
 import ray
 import torch
@@ -48,7 +48,7 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
-    compute_difficulty_histogram_metrics,   # NOTE: added by Reasoning360
+    compute_difficulty_histogram_metrics,  # NOTE: added by Reasoning360
     compute_throughout_metrics,
     compute_timing_metrics,
     process_validation_metrics,
@@ -214,13 +214,13 @@ def compute_response_mask(data: DataProto):
 
 
 def compute_advantage(
-    data: DataProto,
-    adv_estimator: AdvantageEstimator,
-    gamma: float = 1.0,
-    lam: float = 1.0,
-    num_repeat: int = 1,
-    norm_adv_by_std_in_grpo: bool = True,
-    config: Optional[AlgoConfig] = None,
+        data: DataProto,
+        adv_estimator: AdvantageEstimator,
+        gamma: float = 1.0,
+        lam: float = 1.0,
+        num_repeat: int = 1,
+        norm_adv_by_std_in_grpo: bool = True,
+        config: Optional[AlgoConfig] = None,
 ) -> DataProto:
     """Compute advantage estimates for policy optimization.
 
@@ -304,20 +304,20 @@ class RayPPOTrainer:
     # TODO: support each role have individual ray_worker_group_cls,
     # i.e., support different backend of different role
     def __init__(
-        self,
-        config,
-        tokenizer,
-        role_worker_mapping: dict[Role, WorkerType],
-        resource_pool_manager: ResourcePoolManager,
-        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-        processor=None,
-        reward_fn=None,
-        val_reward_fn=None,
-        train_dataset: Optional[Dataset] = None,
-        val_dataset: Optional[Dataset] = None,
-        collate_fn=None,
-        train_sampler: Optional[Sampler] = None,
-        device_name="cuda",
+            self,
+            config,
+            tokenizer,
+            role_worker_mapping: dict[Role, WorkerType],
+            resource_pool_manager: ResourcePoolManager,
+            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+            processor=None,
+            reward_fn=None,
+            val_reward_fn=None,
+            train_dataset: Optional[Dataset] = None,
+            val_dataset: Optional[Dataset] = None,
+            collate_fn=None,
+            train_sampler: Optional[Sampler] = None,
+            device_name="cuda",
     ):
         """
         Initialize distributed PPO trainer with Ray backend.
@@ -386,11 +386,10 @@ class RayPPOTrainer:
 
         self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
-        #self._create_dataloader_verification(train_dataset, collate_fn, train_sampler)
+        # self._create_dataloader_verification(train_dataset, collate_fn, train_sampler)
 
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
             print(f"DEBUG-MODE: use-critic = {self.use_critic}")
-
 
     def _validate_config(self):
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
@@ -401,17 +400,17 @@ class RayPPOTrainer:
         n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
         if config.actor_rollout_ref.actor.strategy == "megatron":
             model_parallel_size = (
-                config.actor_rollout_ref.actor.megatron.tensor_model_parallel_size
-                * config.actor_rollout_ref.actor.megatron.pipeline_model_parallel_size
+                    config.actor_rollout_ref.actor.megatron.tensor_model_parallel_size
+                    * config.actor_rollout_ref.actor.megatron.pipeline_model_parallel_size
             )
             assert (
-                n_gpus % (model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size) == 0
+                    n_gpus % (model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size) == 0
             ), (
                 f"n_gpus ({n_gpus}) must be divisible by model_parallel_size ({model_parallel_size}) times "
                 f"context_parallel_size ({config.actor_rollout_ref.actor.megatron.context_parallel_size})"
             )
             megatron_dp = n_gpus // (
-                model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size
+                    model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size
             )
             minimal_bsz = megatron_dp * config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu
         else:
@@ -419,7 +418,6 @@ class RayPPOTrainer:
 
         # 1. Check total batch size for data correctness
         real_train_batch_size = config.data.train_batch_size * config.actor_rollout_ref.rollout.n
-
 
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
             print(f"DEBUG-MODE: minimal_bsz = {minimal_bsz}")
@@ -430,7 +428,6 @@ class RayPPOTrainer:
         )
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
             print(f"DEBUG-MODE: End Validation Configration. Done..!")
-
 
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
@@ -516,9 +513,9 @@ class RayPPOTrainer:
             sp_size = config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1)
             if config.actor_rollout_ref.actor.ppo_micro_batch_size is not None:
                 assert (
-                    config.actor_rollout_ref.actor.ppo_mini_batch_size
-                    % config.actor_rollout_ref.actor.ppo_micro_batch_size
-                    == 0
+                        config.actor_rollout_ref.actor.ppo_mini_batch_size
+                        % config.actor_rollout_ref.actor.ppo_micro_batch_size
+                        == 0
                 )
                 assert config.actor_rollout_ref.actor.ppo_micro_batch_size * sp_size >= n_gpus
 
@@ -542,8 +539,8 @@ class RayPPOTrainer:
 
         # Check if use_remove_padding is enabled when using sequence parallelism for fsdp
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"} and (
-            config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1
-            or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1
+                config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1
+                or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1
         ):
             assert config.actor_rollout_ref.model.use_remove_padding, (
                 "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
@@ -570,22 +567,26 @@ class RayPPOTrainer:
 
         print("[validate_config] All configuration checks passed successfully!")
 
-
-    def _create_dataloader_feedback(self, data_path, collate_fn, train_sampler: Optional[Sampler]):
+    def _create_dataloader_verification(self, verification_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
         Creates the train and validation dataloaders.
         """
         # TODO: we have to make sure the batch size is divisible by the dp size
         from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
-            print(f"DEBUG-MODE: Start Loading Training dataset...!")
+            print(f"DEBUG-MODE: CREATE DATA-LOADER FOR VERIFICATION DATA")
 
-        self.feedback_data = create_rl_dataset(data_path, self.config.data, self.tokenizer, self.processor)
+        if verification_dataset is None:
+            verification_dataset = create_rl_dataset(self.config.data.train_files, self.config.data, self.tokenizer, self.processor)
 
-        print(f"LENGTH OF Feedback DATA SET = {len(self.feedback_data)}\n")
-        print(f" Number of step-2 iterations = {math.ceil(len(self.feedback_data)/self.config.data.get("gen_batch_size", self.config.data.train_batch_size))}")
+        self.verification_dataset = verification_dataset
+
+        print(f"LENGTH OF Verification DATA SET = {len(self.verification_dataset)}\n")
+
+        if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+            print(f"DEBUG-MODE: TRAIN DATASET TYPE = {type(self.train_dataset)}")
         if train_sampler is None:
-            train_sampler = create_rl_sampler(self.config.data, self.feedback_data)
+            train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
         if collate_fn is None:
             from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
 
@@ -593,8 +594,8 @@ class RayPPOTrainer:
 
         num_workers = self.config.data["dataloader_num_workers"]
 
-        self.feedback_dataloader = StatefulDataLoader(
-            dataset=self.feedback_data,
+        self.train_dataloader = StatefulDataLoader(
+            dataset=self.train_dataset,
             batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
             num_workers=num_workers,
             drop_last=True,
@@ -602,9 +603,49 @@ class RayPPOTrainer:
             sampler=train_sampler,
         )
 
-        assert len(self.feedback_dataloader) >= 1, "Feedback dataloader is empty!"
+        val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
+        if val_batch_size is None:
+            val_batch_size = len(self.val_dataset)
 
+        self.val_dataloader = StatefulDataLoader(
+            dataset=self.val_dataset,
+            batch_size=val_batch_size,
+            num_workers=num_workers,
+            shuffle=self.config.data.get("validation_shuffle", True),
+            drop_last=False,
+            collate_fn=collate_fn,
+        )
 
+        assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
+        assert len(self.val_dataloader) >= 1, "Validation dataloader is empty!"
+
+        if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+            print(f"DEBUG-MODE: Size of train and validation data loader is as follows =\n")
+        print(
+            f"Size of train dataloader: {len(self.train_dataloader)}, Size of val dataloader: "
+            f"{len(self.val_dataloader)}"
+        )
+
+        total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
+
+        if self.config.trainer.total_training_steps is not None:
+            total_training_steps = self.config.trainer.total_training_steps
+
+        self.total_training_steps = total_training_steps
+        print(f"Total training steps: {self.total_training_steps}")
+
+        try:
+            OmegaConf.set_struct(self.config, True)
+            with open_dict(self.config):
+                if OmegaConf.select(self.config, "actor_rollout_ref.actor.optim"):
+                    self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
+                if OmegaConf.select(self.config, "critic.optim"):
+                    self.config.critic.optim.total_training_steps = total_training_steps
+        except Exception as e:
+            print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")
+
+        if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+            print(f"DEBUG-MODE: DATALOADER Creation done..!")
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
         """
@@ -640,7 +681,7 @@ class RayPPOTrainer:
             dataset=self.train_dataset,
             batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
             num_workers=num_workers,
-            drop_last=True,
+            drop_last=False,
             collate_fn=collate_fn,
             sampler=train_sampler,
         )
@@ -649,15 +690,25 @@ class RayPPOTrainer:
         if val_batch_size is None:
             val_batch_size = len(self.val_dataset)
 
+        #shuffle = self.config.data.get("validation_shuffle", True),
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             batch_size=val_batch_size,
             num_workers=num_workers,
-            shuffle=self.config.data.get("validation_shuffle", True),
+            shuffle=False,
             drop_last=False,
             collate_fn=collate_fn,
         )
 
+        tr_val_batch_size = len(self.train_dataset)
+        self.tr_val_dataloader = StatefulDataLoader(
+            dataset=self.train_dataset,
+            batch_size=tr_val_batch_size,
+            num_workers=num_workers,
+            shuffle=False,
+            drop_last=False,
+            collate_fn=collate_fn,
+        )
 
         assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
         assert len(self.val_dataloader) >= 1, "Validation dataloader is empty!"
@@ -693,7 +744,34 @@ class RayPPOTrainer:
     def _dump_generations(self, inputs, outputs, scores, reward_extra_infos_dict, dump_path):
         """Dump rollout/validation samples as JSONL."""
         os.makedirs(dump_path, exist_ok=True)
-        filename = os.path.join(dump_path, f"{self.global_steps}.jsonl")
+        filename = os.path.join(dump_path, f"{self.global_steps}_valid.jsonl")
+
+        n = len(inputs)
+        base_data = {
+            "input": inputs,
+            "output": outputs,
+            "score": scores,
+            "step": [self.global_steps] * n,
+        }
+
+        for k, v in reward_extra_infos_dict.items():
+            if len(v) == n:
+                base_data[k] = v
+
+        lines = []
+        for i in range(n):
+            entry = {k: v[i] for k, v in base_data.items()}
+            lines.append(json.dumps(entry, ensure_ascii=False))
+
+        with open(filename, "w") as f:
+            f.write("\n".join(lines) + "\n")
+
+        print(f"Dumped generations to {filename}")
+
+    def _dump_generations_tr(self, inputs, outputs, scores, reward_extra_infos_dict, dump_path):
+        """Dump rollout/validation samples as JSONL."""
+        os.makedirs(dump_path, exist_ok=True)
+        filename = os.path.join(dump_path, f"{self.global_steps}_train.jsonl")
 
         n = len(inputs)
         base_data = {
@@ -783,7 +861,6 @@ class RayPPOTrainer:
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 print(f"DEBUG-MODE: sample inputs = {sample_inputs}")
 
-
             batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
             non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
             if "multi_modal_data" in test_batch.non_tensor_batch:
@@ -796,7 +873,7 @@ class RayPPOTrainer:
                 non_tensor_batch_keys_to_pop.append("interaction_kwargs")
             if "agent_name" in test_batch.non_tensor_batch:
                 non_tensor_batch_keys_to_pop.append("agent_name")
-            test_gen_batch = test_batch.pop(batch_keys=batch_keys_to_pop, non_tensor_batch_keys=non_tensor_batch_keys_to_pop,)
+            test_gen_batch = test_batch.pop(batch_keys=batch_keys_to_pop, non_tensor_batch_keys=non_tensor_batch_keys_to_pop, )
 
             test_gen_batch.meta_info = {
                 "eos_token_id": self.tokenizer.eos_token_id,
@@ -812,7 +889,7 @@ class RayPPOTrainer:
 
             # pad to be divisible by dp_size
             size_divisor = (self.actor_rollout_wg.world_size
-                if not self.async_rollout_mode else self.config.actor_rollout_ref.rollout.agent.num_workers)
+                            if not self.async_rollout_mode else self.config.actor_rollout_ref.rollout.agent.num_workers)
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
 
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
@@ -825,7 +902,6 @@ class RayPPOTrainer:
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
 
-
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 print(f"DEBUG-MODE: Validation GENERATION END...!")
 
@@ -833,37 +909,8 @@ class RayPPOTrainer:
             output_ids = test_output_gen_batch.batch["responses"]
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
             sample_outputs.extend(output_texts)
-            
-            # Log full outputs to console and file
-            #print(f"Model Outputs: {output_texts}")
-            
-            # Save full outputs to file
-            import json
-            
-            try:
-                # Use default_local_dir instead of output_dir which doesn't exist in config
-                log_dir = os.path.join(self.config.trainer.default_local_dir, "val_outputs")
-                os.makedirs(log_dir, exist_ok=True)
-                
-                # Save full generation outputs
-                output_log_file = os.path.join(log_dir, f"val_outputs_step_{self.global_steps}.json")
-                with open(output_log_file, "a") as f:
-                    for input_text, output_text, score in zip(input_texts, output_texts, scores):
-                        json.dump({
-                            "step": self.global_steps,
-                            "input": input_text,
-                            "output": output_text,
-                            "score": score
-                        }, f)
-                        f.write("\n")  # Add newline for better readability
-            except Exception as e:
-                print(f"Warning: Failed to save validation outputs: {e}")
-                print(f"Config trainer: {dir(self.config.trainer)}")
-            
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 print(f"DEBUG-MODE: Sample_Outputs = {sample_outputs}")
-
-
 
             test_batch = test_batch.union(test_output_gen_batch)
             test_batch.meta_info["validate"] = True
@@ -872,11 +919,11 @@ class RayPPOTrainer:
                 print(f"DEBUG-MODE: After Union Test Batch {test_batch}")
 
             # evaluate using reward_function
-            #print('START REWARD CALCULATION')
+            # print('START REWARD CALCULATION')
 
             result = self.val_reward_fn(test_batch, return_dict=True)
 
-            #print('END REWARD CALCULATION')
+            # print('END REWARD CALCULATION')
 
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 print(f"DEBUG-MODE: RESULT for VALIDATION STEP = {result}")
@@ -900,7 +947,7 @@ class RayPPOTrainer:
 
             scores = reward_tensor.sum(-1).cpu().tolist()
             # print(f"Shape of reward_tensor: {reward_tensor.shape}")
-            
+
             sample_scores.extend(scores)
 
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
@@ -929,15 +976,10 @@ class RayPPOTrainer:
                 sample_turns.append(test_batch.non_tensor_batch["__num_turns__"])
 
             data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
-            
-            # 达到最大评测数，退出循环
-            #if eval_count >= max_eval_samples:
-            #    print(f"Completed evaluation of {eval_count} samples. Exiting validation loop.")
-            #    break
 
-        #print('START LOG GENERATIONS.')
+        # print('START LOG GENERATIONS.')
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
-        #print('END LOG GENERATIONS.')
+        # print('END LOG GENERATIONS.')
 
         # dump generations
         val_data_dir = self.config.trainer.get("validation_data_dir", None)
@@ -969,9 +1011,9 @@ class RayPPOTrainer:
                 for metric_name, metric_val in metric2val.items():
                     # NOTE: Added by Reasoning360: Add std to the metric name.
                     if (
-                        (var_name == core_var)
-                        and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best", "std"])
-                        and (f"@{n_max}" in metric_name)
+                            (var_name == core_var)
+                            and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best", "std"])
+                            and (f"@{n_max}" in metric_name)
                     ):
                         metric_sec = "val-core"
                     else:
@@ -998,9 +1040,235 @@ class RayPPOTrainer:
         # Record the mean reward for each data source and dataset
         for (data_source, dataset), rewards in data_source_dataset_reward.items():
             metric_dict[f"val/test_score/{data_source}/{dataset}"] = np.mean(rewards)
-        #print(f"VALIDATION METRICS = \n")
-        #print(json.dumps(metric_dict, indent=2))
+        # print(f"VALIDATION METRICS = \n")
+        # print(json.dumps(metric_dict, indent=2))
         print('END VALIDATION LOOP')
+        return metric_dict
+
+    def _validate_tr(self):
+        print(f"START TRAIN-VALID LOOP")
+        job_id = os.getenv("SLURM_JOB_ID")
+        epoch = 0
+        data_source_lst = []
+        dataset_lst = []
+        reward_extra_infos_dict: dict[str, list] = defaultdict(list)
+
+        # Lists to collect samples for the table
+        sample_inputs = []
+        sample_outputs = []
+        sample_scores = []
+        sample_turns = []
+
+        for test_data in self.tr_val_dataloader:
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                print(f"DEBUG-MODE: test data = {test_data}")
+
+            test_batch = DataProto.from_single_dict(test_data)
+            # NOTE: print statements in this loop added by Reasoning360 are temporarily disabled
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                print(f"DEBUG-MODE: Shape of test_batch: {test_batch.batch['input_ids'].shape}")
+            # print(f"Shape of test_batch: {test_batch.batch['input_ids'].shape}")
+
+            # repeat test batch
+            test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True)
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                print(f"DEBUG-MODE: Repeating Test Batch {self.config.actor_rollout_ref.rollout.val_kwargs.n} times")
+
+            # we only do validation on rule-based rm
+            if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
+                return {}
+
+            # Store original inputs
+            input_ids = test_batch.batch["input_ids"]
+            # TODO: Can we keep special tokens except for padding tokens?
+            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+            sample_inputs.extend(input_texts)
+
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                print(f"DEBUG-MODE: sample inputs = {sample_inputs}")
+
+            batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+            non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
+            if "multi_modal_data" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("multi_modal_data")
+            if "raw_prompt" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("raw_prompt")
+            if "tools_kwargs" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("tools_kwargs")
+            if "interaction_kwargs" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("interaction_kwargs")
+            if "agent_name" in test_batch.non_tensor_batch:
+                non_tensor_batch_keys_to_pop.append("agent_name")
+            test_gen_batch = test_batch.pop(batch_keys=batch_keys_to_pop, non_tensor_batch_keys=non_tensor_batch_keys_to_pop, )
+
+            test_gen_batch.meta_info = {
+                "eos_token_id": self.tokenizer.eos_token_id,
+                "pad_token_id": self.tokenizer.pad_token_id,
+                "recompute_log_prob": False,
+                "do_sample": self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
+                "validate": True,
+                "global_steps": self.global_steps,
+            }
+
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                print(f"DEBUG-MODE: test_gen_batch META INFO: {test_gen_batch.meta_info}")
+
+            # pad to be divisible by dp_size
+            size_divisor = (self.actor_rollout_wg.world_size
+                            if not self.async_rollout_mode else self.config.actor_rollout_ref.rollout.agent.num_workers)
+            test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
+
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                print(f"DEBUG-MODE: Validation GENERATION START...!")
+            if not self.async_rollout_mode:
+                test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
+            else:
+                test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
+
+            # unpad
+            test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
+
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                print(f"DEBUG-MODE: Validation GENERATION END...!")
+
+            # Store generated outputs
+            output_ids = test_output_gen_batch.batch["responses"]
+            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
+            sample_outputs.extend(output_texts)
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                print(f"DEBUG-MODE: Sample_Outputs = {sample_outputs}")
+
+            test_batch = test_batch.union(test_output_gen_batch)
+            test_batch.meta_info["validate"] = True
+
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                print(f"DEBUG-MODE: After Union Test Batch {test_batch}")
+
+            # evaluate using reward_function
+            # print('START REWARD CALCULATION')
+
+            result = self.val_reward_fn(test_batch, return_dict=True)
+
+            # print('END REWARD CALCULATION')
+
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                print(f"DEBUG-MODE: RESULT for VALIDATION STEP = {result}")
+
+            reward_tensor = result["reward_tensor"]
+
+            '''
+            verification_prompts = result["verification_prompts"]
+
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                print(f"DEBUG-MODE: RESULT for VALIDATION STEP = {result}")
+                for line in verification_prompts:
+                    print(f"Prompt = {line}")
+
+
+                with open("VERIFICATION_PROMPTS.txt", "w") as f:
+                    for line in verification_prompts:
+                        f.write(line + "\n")
+
+            '''
+
+            scores = reward_tensor.sum(-1).cpu().tolist()
+            # print(f"Shape of reward_tensor: {reward_tensor.shape}")
+
+            sample_scores.extend(scores)
+
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                print(f"DEBUG-MODE: RESULT for VALIDATION STEP SAMPLE Scores = {sample_scores}")
+
+            reward_extra_infos_dict["reward"].extend(scores)
+            print(f"len reward_extra_infos_dict['reward']: {len(reward_extra_infos_dict['reward'])}")
+            if "reward_extra_info" in result:
+                for key, lst in result["reward_extra_info"].items():
+                    reward_extra_infos_dict[key].extend(lst)
+                    print(f"len reward_extra_infos_dict['{key}']: {len(reward_extra_infos_dict[key])}")
+
+            # NOTE: Added by Reasoning360: Collect dataset information. TODO: maybe replicated usage with the data_source_lst and can be removed?
+            datasets = []
+            for i in range(reward_tensor.shape[0]):
+                dataset = "unknown"
+                if "extra_info" in test_batch.non_tensor_batch:
+                    extra_info = test_batch.non_tensor_batch["extra_info"][i]
+                    if isinstance(extra_info, dict) and "dataset" in extra_info:
+                        dataset = extra_info["dataset"]
+                datasets.append(dataset)
+            dataset_lst.append(np.array(datasets))
+
+            # collect num_turns of each prompt
+            if "__num_turns__" in test_batch.non_tensor_batch:
+                sample_turns.append(test_batch.non_tensor_batch["__num_turns__"])
+
+            data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
+
+        # print('START LOG GENERATIONS.')
+        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+        # print('END LOG GENERATIONS.')
+
+        # dump generations
+        val_data_dir = self.config.trainer.get("validation_data_dir", None)
+        val_data_dir = os.path.join(val_data_dir, f"jobid_{job_id}")
+
+        if val_data_dir:
+            self._dump_generations_tr(
+                inputs=sample_inputs,
+                outputs=sample_outputs,
+                scores=sample_scores,
+                reward_extra_infos_dict=reward_extra_infos_dict,
+                dump_path=val_data_dir,
+            )
+
+        for key_info, lst in reward_extra_infos_dict.items():
+            assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
+
+        # NOTE: Added by Reasoning360: Calculate the mean reward for each data source and dataset
+        data_sources = np.concatenate(data_source_lst, axis=0)
+
+        datasets = np.concatenate(dataset_lst, axis=0)  # Concatenate datasets
+
+        data_src2var2metric2val = process_validation_metrics(data_sources, sample_inputs, reward_extra_infos_dict)
+        metric_dict = {}
+        for data_source, var2metric2val in data_src2var2metric2val.items():
+            core_var = "acc" if "acc" in var2metric2val else "reward"
+            for var_name, metric2val in var2metric2val.items():
+                n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
+                for metric_name, metric_val in metric2val.items():
+                    # NOTE: Added by Reasoning360: Add std to the metric name.
+                    if (
+                            (var_name == core_var)
+                            and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best", "std"])
+                            and (f"@{n_max}" in metric_name)
+                    ):
+                        metric_sec = "val-core-tr"
+                    else:
+                        metric_sec = "val-aux-tr"
+                    pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
+                    metric_dict[pfx] = metric_val
+
+        # NOTE: Added by Reasoning360: Calculate the mean reward for each data source and dataset
+        data_source_dataset_reward = {}
+        for i in range(len(sample_scores)):
+            data_source = data_sources[i]
+            dataset = datasets[i]
+            key = (data_source, dataset)
+            if key not in data_source_dataset_reward:
+                data_source_dataset_reward[key] = []
+            data_source_dataset_reward[key].append(sample_scores[i])
+
+        if len(sample_turns) > 0:
+            sample_turns = np.concatenate(sample_turns)
+            metric_dict["val-aux-tr/num_turns/min"] = sample_turns.min()
+            metric_dict["val-aux-tr/num_turns/max"] = sample_turns.max()
+            metric_dict["val-aux-tr/num_turns/mean"] = sample_turns.mean()
+
+        # Record the mean reward for each data source and dataset
+        for (data_source, dataset), rewards in data_source_dataset_reward.items():
+            metric_dict[f"val-tr/test_score/{data_source}/{dataset}"] = np.mean(rewards)
+        # print(f"VALIDATION METRICS = \n")
+        # print(json.dumps(metric_dict, indent=2))
+        print('END TRAIN-VALID LOOP')
         return metric_dict
 
     def init_workers(self):
@@ -1192,7 +1460,7 @@ class RayPPOTrainer:
             print("load from hdfs is not implemented yet")
             raise NotImplementedError("load from hdfs is not implemented yet")
         else:
-            checkpoint_folder = self.config.trainer.default_local_dir   # TODO: check path
+            checkpoint_folder = self.config.trainer.default_local_dir  # TODO: check path
             print('Checkpoint folder is', checkpoint_folder)
             if not os.path.isabs(checkpoint_folder):
                 working_dir = os.getcwd()
@@ -1338,18 +1606,6 @@ class RayPPOTrainer:
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
-                # 添加训练数据详情日志
-                print(f"\n=== 训练数据详情 (步骤 {self.global_steps}) ===")
-                print(f"批次大小: {len(batch)}")
-                if "input_ids" in batch.batch:
-                    input_lengths = [len(ids) for ids in batch.batch["input_ids"]]
-                    print(f"输入长度范围: {min(input_lengths)} - {max(input_lengths)} (平均: {sum(input_lengths)/len(input_lengths):.1f})")
-                if "extra_info" in batch.non_tensor_batch:
-                    datasets = [info.get("dataset", "unknown") for info in batch.non_tensor_batch["extra_info"]]
-                    print(f"数据来源: {set(datasets)}")
-                print(f"数据键: {list(batch.batch.keys())}")
-                print(f"非张量数据键: {list(batch.non_tensor_batch.keys())}")
-
                 # pop those keys for generation
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
                 non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
@@ -1434,64 +1690,8 @@ class RayPPOTrainer:
                         if self.config.reward_model.launch_reward_fn_async:
                             future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
                         else:
-##############################
-                            # Log input before calling reward function
-                            input_ids = batch.batch["input_ids"]
-                            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
-                            
-                            # Call reward function and get results
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
-                            
-                            # Log output after calling reward function
-                            response_ids = batch.batch["responses"]
-                            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in response_ids]
-                            
-                            # 计算分数
-                            scores = reward_tensor.sum(-1).cpu().tolist()
-                            
-                            # 添加详细的训练阶段日志输出
-                            print(f"\n=== 训练阶段详情 (步骤 {self.global_steps}) ===")
-                            print(f"批次大小: {len(batch)}")
-                            
-                            # 输出第一个样本的详细信息
-                            if input_texts and output_texts:
-                                print(f"\n1. 输入prompt:")
-                                print(f"   {input_texts[0]}")
-                                print(f"\n2. 生成输出:")
-                                print(f"   {output_texts[0]}")
-                                print(f"\n3. 分数:")
-                                print(f"   单样本分数: {scores[0]:.4f}")
-                                print(f"   平均分数: {sum(scores)/len(scores):.4f}")
-                                print(f"   分数范围: {min(scores):.4f} - {max(scores):.4f}")
-                            
-                            # 输出奖励相关信息
-                            if reward_extra_infos_dict:
-                                print(f"\n4. 奖励额外信息:")
-                                for key, value in reward_extra_infos_dict.items():
-                                    print(f"   {key}: {value}")
-                            
-                            # Save training outputs to file
-                            import json
-                            
-                            try:
-                                log_dir = os.path.join(self.config.trainer.default_local_dir, "train_outputs")
-                                os.makedirs(log_dir, exist_ok=True)
-                                
-                                # Save full generation outputs
-                                output_log_file = os.path.join(log_dir, f"train_outputs_step_{self.global_steps}.json")
-                                with open(output_log_file, "a") as f:
-                                    for input_text, output_text, score in zip(input_texts, output_texts, scores):
-                                        json.dump({
-                                            "step": self.global_steps,
-                                            "input": input_text,
-                                            "output": output_text,
-                                            "score": score,
-                                            "extra_infos": {k: v[i] for k, v in reward_extra_infos_dict.items() if i < len(v)}
-                                        }, f)
-                                        f.write("\n")
-                            except Exception as e:
-                                print(f"Warning: Failed to save training outputs: {e}")
-################################
+
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
@@ -1611,15 +1811,18 @@ class RayPPOTrainer:
 
                     # validate
                     if (
-                        self.val_reward_fn is not None
-                        and self.config.trainer.test_freq > 0
-                        and is_last_step  # 只在最后一步进行验证
+                            self.val_reward_fn is not None
+                            and self.config.trainer.test_freq > 0
+                            and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                     ):
                         with marked_timer("testing", timing_raw, color="green"):
                             val_metrics: dict = self._validate()
+                            val_metrics_tr: dict = self._validate_tr()
                             if is_last_step:
                                 last_val_metrics = val_metrics
+
                         metrics.update(val_metrics)
+                        metrics.update(val_metrics_tr)
 
                     # Check if the ESI (Elastic Server Instance)/training plan is close to expiration.
                     esi_close_to_expiration = should_save_ckpt_esi(
@@ -1634,9 +1837,9 @@ class RayPPOTrainer:
                     # 3. The current step number is a multiple of the save frequency.
                     # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
                     if self.config.trainer.save_freq > 0 and (
-                        is_last_step
-                        or self.global_steps % self.config.trainer.save_freq == 0
-                        or esi_close_to_expiration
+                            is_last_step
+                            or self.global_steps % self.config.trainer.save_freq == 0
+                            or esi_close_to_expiration
                     ):
                         if esi_close_to_expiration:
                             print("Force saving checkpoint: ESI instance expiration approaching.")
@@ -1669,7 +1872,7 @@ class RayPPOTrainer:
                     self.train_dataloader.sampler.update(batch=batch)
 
                 # TODO: make a canonical logger that supports various backend
-                #logger.log(data=metrics, step=self.global_steps)
+                # logger.log(data=metrics, step=self.global_steps)
                 logger.log(f"Metrics at step {self.global_steps}: {json.dumps(metrics, indent=2)}", step=self.global_steps)
 
                 progress_bar.update(1)

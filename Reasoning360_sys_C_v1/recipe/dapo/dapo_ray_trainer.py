@@ -176,6 +176,7 @@ class RayDAPOTrainer(RayPPOTrainer):
         )
 
         self.global_steps = 0
+        self.puzzle_acc = 0
 
         # load checkpoint before doing anything
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
@@ -184,15 +185,29 @@ class RayDAPOTrainer(RayPPOTrainer):
 
 
         # perform validation before training
+        # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
             os.environ["CURRENT_EPOCH"] = str(0)
             print(f"VALIDATE BEFORE MODEL TRAINING")
+            os.environ["VALID_STATUS"] = "1"
             val_metrics = self._validate()
+            os.environ["VALID_STATUS"] = "2"
+            val_metrics_tr = self._validate_tr()
+            os.environ["VALID_STATUS"] = "0"
             assert val_metrics, f"{val_metrics=}"
             pprint(f"INITIAL VALIDATION METRICS: {val_metrics}")
-            logger.log(data=val_metrics, step=self.global_steps)
+            print()
+            pprint(f"INITIAL TR-VALIDATION METRICS: {val_metrics_tr}")
+            print()
+            ##logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
+
+            puzzle_accuracy = float(val_metrics[puzzle_key])
+            print(f"Puzzle Accuracy = {puzzle_accuracy}")
+            if puzzle_accuracy > self.puzzle_acc:
+                print(f"Replacing Puzzle Accuracy with {puzzle_accuracy}")
+                self.puzzle_acc = puzzle_accuracy
 
         # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
@@ -437,11 +452,29 @@ class RayDAPOTrainer(RayPPOTrainer):
                         timing_raw = defaultdict(float)
 
 
+
                     # Validate & Save
                     if self.val_reward_fn and self.config.trainer.test_freq > 0 and current_step % self.config.trainer.test_freq == 0:
+                        with marked_timer("testing", timing_raw, "green"):
+                            os.environ["VALID_STATUS"] = "1"
+                            val_metrics: dict = self._validate()
+                            os.environ["VALID_STATUS"] = "2"
+                            val_metrics_tr: dict = self._validate_tr()
+
+                        metrics.update(val_metrics)
+                        metrics.update(val_metrics_tr)
+                        os.environ["VALID_STATUS"] = "0"
                         metrics.update(self._validate())
-                    if self.config.trainer.save_freq > 0 and current_step % self.config.trainer.save_freq == 0:
-                        self._save_checkpoint()
+
+                        puzzle_accuracy = float(val_metrics[puzzle_key])
+                        if puzzle_accuracy > self.puzzle_acc:
+                            print(f"New Puzzle Accuracy is higher. Updating Puzzle Accuracy = {puzzle_accuracy}")
+                            print("Updating checkpoint...!")
+                            if self.config.trainer.save_freq > 0 and (self.global_steps % self.config.trainer.save_freq == 0):
+                                with marked_timer("save_checkpoint", timing_raw, "green"):
+                                    self._save_checkpoint()
+                            self.puzzle_acc = puzzle_accuracy
+
                     metrics["train/step"] = 1
                     metrics["train/step1/epoch"] = epoch+1
                     print(json.dumps(metrics, indent=2, sort_keys=True))
