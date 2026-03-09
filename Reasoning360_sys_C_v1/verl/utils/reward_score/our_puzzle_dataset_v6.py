@@ -752,7 +752,7 @@ def compute_score(
     if isinstance(extra_info, dict):
         puzzle_id = extra_info.get("id")
 
-    print("Puzzle Id = ", puzzle_id)
+    #print("Puzzle Id = ", puzzle_id)
     enable_step_feedback = True
 
     try:
