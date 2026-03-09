@@ -24,6 +24,7 @@ from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import solve
 from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import normalize_header, normalize_months_in_rows
 from verl.utils.reward_score.check_interleved_format import check_interleaved_reasoning
 from verl.utils.reward_score.z3_reasoning_vs_solution_verifier_v2 import verify_solution_two_step
+from prompt_step_2 import SOLUTION_PROMPT_VERIFIER_V2, SOLUTION_PROMPT_1_SHOT_VERIFIER_USER_V2
 
 
 os.environ.setdefault("CLUE_TIMEOUT_S", "3.0")
@@ -746,6 +747,9 @@ def compute_score(
         total_epochs = int(os.getenv("TOTAL_EPOCH", "100"))
         switch_epoch = int(os.environ.get("SWITCH_EPOCH", "25"))
         feedback_path = os.path.join(os.environ.get("PUZZLE_FEEDBACK_PATH", "./"), f"jobid_{job_id}")
+        feedback_path_steps = os.path.join(feedback_path, f"jobid_{job_id}_feedback.jsonl")
+        enable_step_feedback = bool(meta.get("enable_step_feedback", True))
+        step_weight = float(meta.get("step_weight", 1.0))
         #feedback_path = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_feedback.jsonl")
 
         puzzle_id = ""
@@ -1104,6 +1108,169 @@ def compute_score(
 
     #os.environ["VALID_STATUS"] = "0"
     #sorted_result = dict(sorted(final_result.items(), key=lambda x: x[0]))
+
+
+    # -----------------------
+    # 6) Not used; only compatible with Write feedback JSONL (for Step-2).
+    # -----------------------
+    # Ensure that feedback_path is set correctly
+    if not feedback_path:
+        feedback_path = os.path.join(os.getcwd(), f"feedback_{job_id}.jsonl")
+        print(f"WARNING: feedback_path is not set, using the default path: {feedback_path}")
+
+    # Ensure enable_step_feedback is True
+    if not enable_step_feedback:
+        enable_step_feedback = True
+        print("WARNING: enable_step_feedback为False，设置为True")
+
+    # print(f"DEBUG: enable_step_feedback={enable_step_feedback}, feedback_path={feedback_path}, step_verif类型={type(step_verif)}")
+
+    if enable_step_feedback and feedback_path and isinstance(z3_out, dict):
+        # Extract the original puzzle text
+        puzzle_text = None
+        if isinstance(extra_info, dict):
+            puzzle_text = extra_info.get("puzzle_text") or extra_info.get("text")
+
+        # Collect the complete step1 JSON data
+        step1_json = {
+            "n_houses": n_houses,
+            "attribute_values": attribute_values,
+            "parsed_clues": syntactic_clues,
+            "parsed_reasoning": parsed_reasoning,
+            "solution": predicted_arrangement
+        }
+
+        # Prepare verification feedback JSON
+        verifier_feedback = {
+            "passed_steps": [step["raw"] for step in z3_out.get("good_steps", [])],
+            "failed_steps": [{"step": step["raw"], "error": step["note"]} for step in z3_out.get("bad_steps", [])],
+            "notes": z3_out.get("error", None)
+        }
+
+        record = {
+            "timestamp": time.time(),
+            "puzzle_id": puzzle_id,
+            "epoch": meta.get("epoch", 1) if isinstance(meta, dict) else 1,
+            "n_houses": n_houses,
+            "attribute_values": attribute_values,
+            "parsed_clues": syntactic_clues,
+            "parsed_reasoning": parsed_reasoning,
+            "solution_predicted": predicted_arrangement,
+            "scores": {
+                "acc_score": cell_acc_score,
+            },
+            "step_verification": {
+                "error": z3_out.get("error"),
+                "good_steps": z3_out.get("good_steps", []),
+                "bad_steps": z3_out.get("bad_steps", []),
+                "unknown_steps": z3_out.get("unknown_steps", []),
+            },
+            # Required information for Step-2 prompt generation
+            "puzzle_text": puzzle_text,
+            "step1_json": step1_json,
+            "verifier_feedback": verifier_feedback,
+            # Optional: Save the raw output for debugging.
+            "raw_model_output": solution_str[:20000],
+        }
+
+        record_extra = {
+            "timestamp": time.time(),
+            "puzzle_id": puzzle_id,
+            "epoch": meta.get("epoch", 1) if isinstance(meta, dict) else 1,
+            "n_houses": n_houses,
+            "attribute_values": attribute_values,
+            "parsed_clues": syntactic_clues,
+            "parsed_reasoning": parsed_reasoning,
+            "solution_predicted": predicted_arrangement,
+            "scores": {
+                "acc_score": cell_acc_score,
+            },
+            "step_verification": {
+                "error": z3_out.get("error"),
+                "good_steps": z3_out.get("good_steps", []),
+                "bad_steps": z3_out.get("bad_steps", []),
+                "unknown_steps": z3_out.get("unknown_steps", []),
+            },
+            # Required information for Step-2 prompt generation
+            "puzzle_text": pid_to_puzzle_dic[puzzle_id],
+            "step1_json": step1_json,
+            "verifier_feedback": verifier_feedback,
+            # Optional: Save the raw output for debugging.
+            "raw_model_output": solution_str[:20000],
+        }
+
+        if os.environ.get("STEP1_STATUS", "0") == "1":
+            try:
+
+                if puzzle_acc_score != 1.0:
+                    puzzle_text = pid_to_puzzle_dic[puzzle_id]
+                    grid = pid_to_puzzle_dic[puzzle_id + '_sol']
+
+                    if os.environ.get("VERIFICATION_PASSED", "0") == "1":
+                        # print('Writing example with verification passed')
+                        if verifier_feedback["passed_steps"] != []:
+                            example_ = {
+                                "prompt": SOLUTION_PROMPT_VERIFIER_V2 + SOLUTION_PROMPT_1_SHOT_VERIFIER_USER_V2.format(
+                                    puzzle=puzzle_text, reasoning_steps=verifier_feedback["passed_steps"]),
+                                "id": puzzle_id,
+                                "solution": grid,
+                                "puzzle": puzzle_text,
+                            }
+                    else:
+                        # print('Writing example without verification passed')
+                        example_ = {
+                            "prompt": SOLUTION_PROMPT_VERIFIER_V2 + SOLUTION_PROMPT_1_SHOT_VERIFIER_USER_V2.format(
+                                puzzle=puzzle_text, reasoning_steps=verifier_feedback["passed_steps"]),
+                            "id": puzzle_id,
+                            "solution": grid,
+                            "puzzle": puzzle_text,
+                        }
+                    # Ensure the directory exists
+                    # print(f"Example returned {example_}")
+                    if example_:
+                        os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
+                        _append_jsonl(feedback_path, example_)
+
+                    # bad = _find_bad_key(example_)
+                    # print(f"Found bad key: {bad}")
+                    # print(f"DEBUG: In scoring script, write feedback to: {feedback_path}")
+
+                    # print(f"[FEEDBACK]: In scoring script, wrote step feedback to: {feedback_path}")
+                    # print(f"example = {example_}")
+            except Exception as e:
+                # print(f"Failing example = {example_}")
+                logger.exception("Crash in Writing Feedback")
+                print(f"[FEEDBACK] Failed to write feedback file: {e}")
+                print(f"[FEEDBACK] Error details: {str(e)}")
+                print(f"[FEEDBACK] Feedback path: {feedback_path}")
+                print(f"[FEEDBACK] Record: {json.dumps(example_, ensure_ascii=False, indent=2)}")
+
+    ret = {
+        "score": reward,
+        "acc": reward,  # Compatible with your old framework
+        "acc_score": cell_acc_score,
+        "clue_score": 0.0,  # Constant as 0: Strictly adhered to procedures and not used.
+        "puzzle_acc_score": 1.0 if cell_acc_score == 1.0 else 0.0,
+        "cell_acc": cell_acc_score,
+
+        # step fields
+        "good_steps_cnt": len(z3_out.get("good_steps", [])) if isinstance(z3_out, dict) else 0,
+        "bad_steps_cnt": len(z3_out.get("bad_steps", [])) if isinstance(z3_out, dict) else 0,
+        "unknown_steps_cnt": len(z3_out.get("unknown_steps", [])) if isinstance(z3_out, dict) else 0,
+        "step_verification_enabled": 1 if (isinstance(z3_out, dict) and z3_out.get("enabled", False)) else 0,
+        "step_verification_error": 1 if (isinstance(z3_out, dict) and z3_out.get("error")) else 0,
+
+        # Return full verification data for in-memory Step-2 training
+        "step_verification_data": {
+            "good_steps": z3_out.get("good_steps", []) if isinstance(z3_out, dict) else [],
+            "bad_steps": z3_out.get("bad_steps", []) if isinstance(z3_out, dict) else [],
+            "unknown_steps": z3_out.get("unknown_steps", []) if isinstance(z3_out, dict) else [],
+            "puzzle_text": puzzle_text if 'puzzle_text' in locals() else None,
+            "step1_json": step1_json if 'step1_json' in locals() else None,
+            "verifier_feedback": verifier_feedback if 'verifier_feedback' in locals() else None,
+        }
+    }
+    return ret
     return final_result
 
 
