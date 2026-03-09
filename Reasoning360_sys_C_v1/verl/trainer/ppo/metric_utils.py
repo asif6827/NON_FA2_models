@@ -18,7 +18,8 @@ Metrics related to the PPO trainer.
 from collections import defaultdict
 from functools import partial
 from typing import Any, Callable
-
+import json
+import pprint
 import numpy as np
 import torch
 import wandb
@@ -104,6 +105,32 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
             - prompt_length/mean, max, min, clip_ratio: Statistics about prompt lengths
             - num_turns/mean, max, min: Statistics about the number of multi-turn conversations
     """
+
+    #print("batch in compute data metrics = {}".format(batch))
+    #print()
+    #pprint.pprint(batch, width=120)
+
+    base_sat_full_GT = torch.from_numpy(batch.non_tensor_batch["BASE_sat_full_GT"])
+    missed_data = torch.from_numpy(batch.non_tensor_batch["missed_data"])
+
+
+    BASE_n_steps_total = torch.from_numpy(batch.non_tensor_batch["BASE_n_steps_total"])
+    BASE_n_steps_parsed_ok = torch.from_numpy(batch.non_tensor_batch["BASE_n_steps_parsed_ok"])
+    BASE_n_steps_valid = torch.from_numpy(batch.non_tensor_batch["BASE_n_steps_valid"])
+    BASE_n_steps_novel_inc_clues = torch.from_numpy(batch.non_tensor_batch["BASE_n_steps_novel_inc_clues"])
+    BASE_n_non_valid_contradiction = torch.from_numpy(batch.non_tensor_batch["BASE_n_non_valid_contradiction"])
+
+    Normalizer = torch.from_numpy(batch.non_tensor_batch["Normalizer"])
+
+    acc = torch.from_numpy(batch.non_tensor_batch["acc"])
+    PUZZLE_ACCURACY = torch.from_numpy(batch.non_tensor_batch["PUZZLE_ACCURACY"])
+    CELL_ACCURACY = torch.from_numpy(batch.non_tensor_batch["CELL_ACCURACY"])
+    score = torch.from_numpy(batch.non_tensor_batch["score"])
+    epoch = torch.from_numpy(batch.non_tensor_batch["epoch"])
+    total_epochs = torch.from_numpy(batch.non_tensor_batch["total_epochs"])
+    reward_logged = torch.from_numpy(batch.non_tensor_batch["reward_logged"])
+
+
     sequence_score = batch.batch["token_level_scores"].sum(-1)
     sequence_reward = batch.batch["token_level_rewards"].sum(-1)
 
@@ -137,7 +164,29 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
         data_source_response_lengths[data_source].append(response_length[i].item())
         data_source_scores[data_source].append(sequence_score[i].item())
 
+
     metrics = {
+        # Z3 and Acc Metrics:
+        "TRAIN/Z3-solver/BASE_sat_full_GT/mean": torch.mean(base_sat_full_GT.float()).detach().item(),
+        "TRAIN/Z3-solver/missed_data/mean": torch.mean(missed_data.float()).detach().item(),
+
+        "TRAIN/Z3-solver/BASE_n_steps_total/mean": torch.mean(BASE_n_steps_total.float()).detach().item(),
+        "TRAIN/Z3-solver/BASE_n_steps_parsed_ok/mean": torch.mean(BASE_n_steps_parsed_ok.float()).detach().item(),
+        "TRAIN/Z3-solver/BASE_n_steps_valid/mean": torch.mean(BASE_n_steps_valid.float()).detach().item(),
+        "TRAIN/Z3-solver/BASE_n_steps_novel_inc_clues/mean": torch.mean(BASE_n_steps_novel_inc_clues.float()).detach().item(),
+        "TRAIN/Z3-solver/BASE_n_non_valid_contradiction/mean": torch.mean(BASE_n_non_valid_contradiction.float()).detach().item(),
+
+    #"Z3-solver/score/max": torch.max(sequence_score).detach().item(),
+        #"Z3/solver/min": torch.min(sequence_score).detach().item(),
+        # ACC-Metrics:
+        "TRAIN/ACC-Metrics/Normalizer/mean": torch.mean(Normalizer.float()).detach().item(),
+        "TRAIN/ACC-Metrics/acc/mean": torch.mean(acc.float()).detach().item(),
+        "TRAIN/ACC-Metrics/PUZZLE_ACCURACY/mean": torch.mean(PUZZLE_ACCURACY.float()).detach().item(),
+        "TRAIN/ACC-Metrics/CELL_ACCURACY/mean": torch.mean(CELL_ACCURACY.float()).detach().item(),
+        "TRAIN/ACC-Metrics/score/mean": torch.mean(score.float()).detach().item(),
+        "TRAIN/ACC-Metrics/epoch/mean": torch.mean(epoch.float()).detach().item(),
+        "TRAIN/ACC-Metrics/total_epochs/mean": torch.mean(total_epochs.float()).detach().item(),
+        "TRAIN/ACC-Metrics/reward_logged/mean": torch.mean(reward_logged.float()).detach().item(),
         # score
         "critic/score/mean": torch.mean(sequence_score).detach().item(),
         "critic/score/max": torch.max(sequence_score).detach().item(),

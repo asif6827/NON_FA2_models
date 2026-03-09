@@ -741,6 +741,12 @@ def compute_score(
 
     import logging
     import time
+    enable_step_feedback = True
+    puzzle_id = None
+    if isinstance(extra_info, dict):
+        puzzle_id = extra_info.get("id") or extra_info.get("puzzle_id")
+    if puzzle_id is None and isinstance(meta, dict):
+        puzzle_id = meta.get("id") or meta.get("puzzle_id")
 
     try:
         epoch = int(os.getenv("CURRENT_EPOCH", "90"))
@@ -751,15 +757,6 @@ def compute_score(
         enable_step_feedback = bool(meta.get("enable_step_feedback", True))
         step_weight = float(meta.get("step_weight", 1.0))
         #feedback_path = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_feedback.jsonl")
-
-        puzzle_id = ""
-
-        puzzle_id = None
-        if isinstance(extra_info, dict):
-            puzzle_id = extra_info.get("id") or extra_info.get("puzzle_id")
-        if puzzle_id is None and isinstance(meta, dict):
-            puzzle_id = meta.get("id") or meta.get("puzzle_id")
-
 
 
         ground_truth = normalize_ground_truth(ground_truth)
@@ -1114,18 +1111,18 @@ def compute_score(
     # 6) Not used; only compatible with Write feedback JSONL (for Step-2).
     # -----------------------
     # Ensure that feedback_path is set correctly
-    if not feedback_path:
-        feedback_path = os.path.join(os.getcwd(), f"feedback_{job_id}.jsonl")
-        print(f"WARNING: feedback_path is not set, using the default path: {feedback_path}")
+    if not feedback_path_steps:
+        feedback_path_steps = os.path.join(os.getcwd(), f"feedback_{job_id}.jsonl")
+        print(f"WARNING: feedback_path_steps is not set, using the default path: {feedback_path}")
 
     # Ensure enable_step_feedback is True
-    if not enable_step_feedback:
-        enable_step_feedback = True
-        print("WARNING: enable_step_feedback为False，设置为True")
+    #if not enable_step_feedback:
+    #    enable_step_feedback = True
+    #    print("WARNING: enable_step_feedback为False，设置为True")
 
     # print(f"DEBUG: enable_step_feedback={enable_step_feedback}, feedback_path={feedback_path}, step_verif类型={type(step_verif)}")
 
-    if enable_step_feedback and feedback_path and isinstance(z3_out, dict):
+    if enable_step_feedback and feedback_path_steps and isinstance(z3_out, dict):
         # Extract the original puzzle text
         puzzle_text = None
         if isinstance(extra_info, dict):
@@ -1135,73 +1132,18 @@ def compute_score(
         step1_json = {
             "n_houses": n_houses,
             "attribute_values": attribute_values,
-            "parsed_clues": syntactic_clues,
+            "syntactic_clues": syntactic_clues,
             "parsed_reasoning": parsed_reasoning,
             "solution": predicted_arrangement
         }
 
         # Prepare verification feedback JSON
         verifier_feedback = {
-            "passed_steps": [step["raw"] for step in z3_out.get("good_steps", [])],
-            "failed_steps": [{"step": step["raw"], "error": step["note"]} for step in z3_out.get("bad_steps", [])],
-            "notes": z3_out.get("error", None)
+            "passed_steps": [step for step in z3_out.get("list_novel_steps_inc_clues", [])],
         }
 
-        record = {
-            "timestamp": time.time(),
-            "puzzle_id": puzzle_id,
-            "epoch": meta.get("epoch", 1) if isinstance(meta, dict) else 1,
-            "n_houses": n_houses,
-            "attribute_values": attribute_values,
-            "parsed_clues": syntactic_clues,
-            "parsed_reasoning": parsed_reasoning,
-            "solution_predicted": predicted_arrangement,
-            "scores": {
-                "acc_score": cell_acc_score,
-            },
-            "step_verification": {
-                "error": z3_out.get("error"),
-                "good_steps": z3_out.get("good_steps", []),
-                "bad_steps": z3_out.get("bad_steps", []),
-                "unknown_steps": z3_out.get("unknown_steps", []),
-            },
-            # Required information for Step-2 prompt generation
-            "puzzle_text": puzzle_text,
-            "step1_json": step1_json,
-            "verifier_feedback": verifier_feedback,
-            # Optional: Save the raw output for debugging.
-            "raw_model_output": solution_str[:20000],
-        }
-
-        record_extra = {
-            "timestamp": time.time(),
-            "puzzle_id": puzzle_id,
-            "epoch": meta.get("epoch", 1) if isinstance(meta, dict) else 1,
-            "n_houses": n_houses,
-            "attribute_values": attribute_values,
-            "parsed_clues": syntactic_clues,
-            "parsed_reasoning": parsed_reasoning,
-            "solution_predicted": predicted_arrangement,
-            "scores": {
-                "acc_score": cell_acc_score,
-            },
-            "step_verification": {
-                "error": z3_out.get("error"),
-                "good_steps": z3_out.get("good_steps", []),
-                "bad_steps": z3_out.get("bad_steps", []),
-                "unknown_steps": z3_out.get("unknown_steps", []),
-            },
-            # Required information for Step-2 prompt generation
-            "puzzle_text": pid_to_puzzle_dic[puzzle_id],
-            "step1_json": step1_json,
-            "verifier_feedback": verifier_feedback,
-            # Optional: Save the raw output for debugging.
-            "raw_model_output": solution_str[:20000],
-        }
-
-        if os.environ.get("STEP1_STATUS", "0") == "1":
+        if os.environ.get("STEP1_STATUS", "1") == "1":
             try:
-
                 if puzzle_acc_score != 1.0:
                     puzzle_text = pid_to_puzzle_dic[puzzle_id]
                     grid = pid_to_puzzle_dic[puzzle_id + '_sol']
@@ -1228,8 +1170,8 @@ def compute_score(
                     # Ensure the directory exists
                     # print(f"Example returned {example_}")
                     if example_:
-                        os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
-                        _append_jsonl(feedback_path, example_)
+                        os.makedirs(os.path.dirname(feedback_path_steps), exist_ok=True)
+                        _append_jsonl(feedback_path_steps, example_)
 
                     # bad = _find_bad_key(example_)
                     # print(f"Found bad key: {bad}")
@@ -1245,32 +1187,7 @@ def compute_score(
                 print(f"[FEEDBACK] Feedback path: {feedback_path}")
                 print(f"[FEEDBACK] Record: {json.dumps(example_, ensure_ascii=False, indent=2)}")
 
-    ret = {
-        "score": reward,
-        "acc": reward,  # Compatible with your old framework
-        "acc_score": cell_acc_score,
-        "clue_score": 0.0,  # Constant as 0: Strictly adhered to procedures and not used.
-        "puzzle_acc_score": 1.0 if cell_acc_score == 1.0 else 0.0,
-        "cell_acc": cell_acc_score,
 
-        # step fields
-        "good_steps_cnt": len(z3_out.get("good_steps", [])) if isinstance(z3_out, dict) else 0,
-        "bad_steps_cnt": len(z3_out.get("bad_steps", [])) if isinstance(z3_out, dict) else 0,
-        "unknown_steps_cnt": len(z3_out.get("unknown_steps", [])) if isinstance(z3_out, dict) else 0,
-        "step_verification_enabled": 1 if (isinstance(z3_out, dict) and z3_out.get("enabled", False)) else 0,
-        "step_verification_error": 1 if (isinstance(z3_out, dict) and z3_out.get("error")) else 0,
-
-        # Return full verification data for in-memory Step-2 training
-        "step_verification_data": {
-            "good_steps": z3_out.get("good_steps", []) if isinstance(z3_out, dict) else [],
-            "bad_steps": z3_out.get("bad_steps", []) if isinstance(z3_out, dict) else [],
-            "unknown_steps": z3_out.get("unknown_steps", []) if isinstance(z3_out, dict) else [],
-            "puzzle_text": puzzle_text if 'puzzle_text' in locals() else None,
-            "step1_json": step1_json if 'step1_json' in locals() else None,
-            "verifier_feedback": verifier_feedback if 'verifier_feedback' in locals() else None,
-        }
-    }
-    return ret
     return final_result
 
 
@@ -1280,8 +1197,8 @@ def pretty(x):
 
 
 if __name__ == "__main__":
-
-    sol_str = """```json
+    # Minimal smoke test
+    example_solution_str = """```json
     {
         "n_houses": 3,
         "attribute_values": {
@@ -1307,15 +1224,15 @@ if __name__ == "__main__":
       "solution": {
         "header": ["House", "Name", "Color", "Children"],
         "rows": [
-          ["1", "Peter", "yellow", "Bella"],
-          ["2", "Arnold", "red", "Fred"],
+          ["1", "Arnold", "yellow", "Bella"],
+          ["2", "Peter", "red", "Fred"],
           ["3", "Eric", "white", "Meredith"]
         ]
       }
     }
     ```"""
 
-    ground_truth =  {
+    example_ground_truth =  {
         "header": ["House", "Name", "Color", "Children"],
         "rows": [
             ["1", "Peter", "yellow", "Bella"],
@@ -1324,5 +1241,22 @@ if __name__ == "__main__":
         ]
     }
 
-    res = compute_score(sol_str, ground_truth)
-    print(f"Result = {json.dumps (res, indent=2, ensure_ascii=False)}")
+    scores = compute_score(
+        example_solution_str,
+        example_ground_truth,
+        extra_info={
+            "puzzle_id": "lgp-test-5x6-16",
+            "enable_step_feedback": True,
+            "step_timeout_ms": 800,
+            "base_timeout_ms": 2000,
+            # If you don't want ACC to affect training, set acc_weight to 0.0 (you can also pass it in the training framework).
+        },
+        meta={
+            "feedback_path": "./reasoning_feedback.jsonl",
+            "enable_step_feedback": True,
+            "step_timeout_ms": 800,
+            "base_timeout_ms": 2000,
+            # If you don't want ACC to affect training, set acc_weight to 0.0 (you can also pass it in the training framework).
+        },
+    )
+    #print(json.dumps(scores, indent=2, ensure_ascii=False))

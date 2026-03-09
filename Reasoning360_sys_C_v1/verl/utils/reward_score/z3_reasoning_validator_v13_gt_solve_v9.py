@@ -1245,6 +1245,7 @@ def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.
             report["n_steps_parsed_ok"] = out_distinct_steps["n_steps_parsed_ok"]
             report["n_steps_valid"] = out_distinct_steps["n_steps_valid"]
             report["n_steps_novel_inc_clues"] = out_distinct_steps["n_steps_novel_inc_clues"]
+            report["list_all_steps"] = out_distinct_steps["list_all_steps"]
             report["list_steps_non_valid"] = out_distinct_steps["list_steps_non_valid"]
             report["list_novel_steps_inc_clues"] = out_distinct_steps["list_novel_steps_inc_clues"]
             report["n_non_valid_contradiction"] = out_distinct_steps["n_non_valid_contradiction"]
