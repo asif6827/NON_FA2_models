@@ -19,6 +19,7 @@ import numpy as np
 from typing import Dict, Any, List, Tuple, Optional
 import re
 
+
 from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import solve_and_validate_payload
 from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import normalize_header, normalize_months_in_rows
 from verl.utils.reward_score.check_interleved_format import check_interleaved_reasoning
@@ -41,11 +42,12 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# pid_to_puzzle_dic_file = '/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json'
+
 pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/home/asif/data3/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
 
 with open(pid_to_puzzle_dic_file, "r", encoding="utf-8") as f:
     pid_to_puzzle_dic = json.load(f)  # this is a dict (if JSON root is an object)
+
 
 
 def parse_answer_tag(solution_str: str) -> Optional[str]:
@@ -245,6 +247,8 @@ def _safe_bool(x: Any) -> Optional[bool]:
     if x is False:
         return False
     return None
+
+
 
 
 def puzzle_and_cell_accuracy(
@@ -603,14 +607,12 @@ def extract_reasoning_and_solution(solution_str: str):
     if answer_content:
         parsed = _try_parse_first_json_obj(answer_content)
         if parsed is not None:
-            return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses",
-                                                                                                                                                                      None), "success_answer_tag"
+            return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses", None), "success_answer_tag"
         return None, None, None, None, None, "answer_tag_json_error"
 
     parsed = _try_parse_first_json_obj(solution_str)
     if parsed is not None:
-        return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses",
-                                                                                                                                                                  None), "success_direct_json"
+        return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses", None), "success_direct_json"
 
     return None, None, None, None, None, "parsing_failed"
 
@@ -635,6 +637,7 @@ def normalize_ground_truth(ground_truth: dict) -> dict:
     return {"header": header_list, "rows": rows_list}
 
 
+
 def append_jsonl_pretty(filepath, record):
     """
     Appends ONE JSON object to a .jsonl file.
@@ -646,10 +649,11 @@ def append_jsonl_pretty(filepath, record):
     pretty = json.dumps(record, indent=2, ensure_ascii=False)
 
     # Collapse into a single line while keeping spacing readable
-    # one_line = "".join(pretty.splitlines())
+    #one_line = "".join(pretty.splitlines())
 
     with open(filepath, "a", encoding="utf-8") as f:
         f.write(pretty + "\n")
+
 
 
 def _append_jsonl(path: str, record: Dict[str, Any]) -> None:
@@ -779,6 +783,7 @@ def compute_score(
         final_result["BASE_n_steps_novel_inc_clues"] = 0.0
         final_result["BASE_n_non_valid_contradiction"] = 0.0
         final_result["Normalizer"] = 0.0
+
 
         final_result["acc"] = 0.0
         final_result["PUZZLE_ACCURACY"] = 0.0
@@ -1038,6 +1043,7 @@ def compute_score(
         final_result["total_epochs"] = total_epochs
         final_result["reward_logged"] = reward
 
+
     if os.environ.get("VALID_STATUS", "0") == "1":
         feedback_path = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_valid_feedback.jsonl")
         try:
@@ -1090,13 +1096,13 @@ def compute_score(
         except Exception as e:
             logger.exception("Crash in Writing Feedback")
 
-    # os.environ["VALID_STATUS"] = "0"
-    # sorted_result = dict(sorted(final_result.items(), key=lambda x: x[0]))
+
     return final_result
 
 
 def pretty(x):
     print(json.dumps(x, indent=2, ensure_ascii=False))
+
 
 
 if __name__ == "__main__":
