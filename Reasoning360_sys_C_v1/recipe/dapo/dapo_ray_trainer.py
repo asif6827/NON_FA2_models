@@ -50,7 +50,6 @@ from verl.trainer.ppo.ray_trainer import (
     compute_response_mask,
 )
 from verl.utils.profiler import marked_timer
-from verl.utils.reward_score.our_step2_data_WWQ import build_step2_prompt
 
 job_id = os.getenv("SLURM_JOB_ID")
 
