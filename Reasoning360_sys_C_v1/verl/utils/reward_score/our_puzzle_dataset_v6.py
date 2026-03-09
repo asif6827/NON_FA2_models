@@ -746,6 +746,17 @@ def compute_score(
 
     import logging
     import time
+    puzzle_id = ""
+
+    puzzle_id = None
+    if isinstance(extra_info, dict):
+        puzzle_id = extra_info.get("id") or extra_info.get("puzzle_id")
+    if puzzle_id is None and isinstance(meta, dict):
+        puzzle_id = meta.get("id") or meta.get("puzzle_id")
+
+    print("Extra Info = ", extra_info)
+    print("Meta = ", meta)
+    
     try:
         epoch = int(os.getenv("CURRENT_EPOCH", "90"))
         total_epochs = int(os.getenv("TOTAL_EPOCH", "100"))
@@ -756,16 +767,7 @@ def compute_score(
         step_weight = float(meta.get("step_weight", 1.0))
         #feedback_path = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_feedback.jsonl")
 
-        puzzle_id = ""
 
-        puzzle_id = None
-        if isinstance(extra_info, dict):
-            puzzle_id = extra_info.get("id") or extra_info.get("puzzle_id")
-        if puzzle_id is None and isinstance(meta, dict):
-            puzzle_id = meta.get("id") or meta.get("puzzle_id")
-
-        print("Extra Info = ", extra_info)
-        print("Meta = ", meta)
 
 
         ground_truth = normalize_ground_truth(ground_truth)
