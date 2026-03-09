@@ -746,7 +746,6 @@ def compute_score(
 
     import logging
     import time
-    enable_step_feedback = True
     try:
         epoch = int(os.getenv("CURRENT_EPOCH", "90"))
         total_epochs = int(os.getenv("TOTAL_EPOCH", "100"))
@@ -804,7 +803,7 @@ def compute_score(
         final_result["reward_logged"] = 0.0
 
     except Exception as e:
-        # logger.exception(f"Failed to get puzzle id from extra_info: {e}")
+        logger.exception(f"Failed to get puzzle id from extra_info: {e}")
         logger.error(f"Failed to get puzzle id from extra_info: {e}")
         final_result = {}
         payload = {}
