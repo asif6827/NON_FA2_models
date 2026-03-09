@@ -750,21 +750,19 @@ def compute_score(
 
     puzzle_id = None
     if isinstance(extra_info, dict):
-        puzzle_id = extra_info.get("id") or extra_info.get("puzzle_id")
-    if puzzle_id is None and isinstance(meta, dict):
-        puzzle_id = meta.get("id") or meta.get("puzzle_id")
+        puzzle_id = extra_info.get("id")
 
-    print("Extra Info = ", extra_info)
-    print("Meta = ", meta)
-    
+    print("Puzzle Id = ", puzzle_id)
+    enable_step_feedback = True
+
     try:
         epoch = int(os.getenv("CURRENT_EPOCH", "90"))
         total_epochs = int(os.getenv("TOTAL_EPOCH", "100"))
         switch_epoch = int(os.environ.get("SWITCH_EPOCH", "25"))
         feedback_path = os.path.join(os.environ.get("PUZZLE_FEEDBACK_PATH", "./"), f"jobid_{job_id}")
         feedback_path_steps = os.path.join(feedback_path, f"jobid_{job_id}_feedback.jsonl")
-        enable_step_feedback = bool(meta.get("enable_step_feedback", True))
-        step_weight = float(meta.get("step_weight", 1.0))
+        #enable_step_feedback = bool(meta.get("enable_step_feedback", True))
+        #step_weight = float(meta.get("step_weight", 1.0))
         #feedback_path = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_feedback.jsonl")
 
 
@@ -838,10 +836,10 @@ def compute_score(
         if parse_status == "success_direct_json" or parse_status == "success_answer_json":
             parsing_reward = 1.0
         # meta selection
-        meta_used = meta
+        #meta_used = meta
 
-        if meta_used is None and isinstance(extra_info, dict):
-            meta_used = extra_info.get("meta") or extra_info
+        #if meta_used is None and isinstance(extra_info, dict):
+        #    meta_used = extra_info.get("meta") or extra_info
     except Exception as parse_error:
         logger.error(f"Error in solution parsing: {parse_error}")
         n_houses = 1

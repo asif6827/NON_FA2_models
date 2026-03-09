@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pprint import pprint
 from typing import Optional
-
+import math
 import numpy as np
 import ray
 import torch
@@ -214,13 +214,13 @@ def compute_response_mask(data: DataProto):
 
 
 def compute_advantage(
-        data: DataProto,
-        adv_estimator: AdvantageEstimator,
-        gamma: float = 1.0,
-        lam: float = 1.0,
-        num_repeat: int = 1,
-        norm_adv_by_std_in_grpo: bool = True,
-        config: Optional[AlgoConfig] = None,
+    data: DataProto,
+    adv_estimator: AdvantageEstimator,
+    gamma: float = 1.0,
+    lam: float = 1.0,
+    num_repeat: int = 1,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
 ) -> DataProto:
     """Compute advantage estimates for policy optimization.
 
@@ -304,20 +304,20 @@ class RayPPOTrainer:
     # TODO: support each role have individual ray_worker_group_cls,
     # i.e., support different backend of different role
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            train_dataset: Optional[Dataset] = None,
-            val_dataset: Optional[Dataset] = None,
-            collate_fn=None,
-            train_sampler: Optional[Sampler] = None,
-            device_name="cuda",
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: RayWorkerGroup = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        train_dataset: Optional[Dataset] = None,
+        val_dataset: Optional[Dataset] = None,
+        collate_fn=None,
+        train_sampler: Optional[Sampler] = None,
+        device_name="cuda",
     ):
         """
         Initialize distributed PPO trainer with Ray backend.
@@ -386,10 +386,11 @@ class RayPPOTrainer:
 
         self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
-        # self._create_dataloader_verification(train_dataset, collate_fn, train_sampler)
+        #self._create_dataloader_verification(train_dataset, collate_fn, train_sampler)
 
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
             print(f"DEBUG-MODE: use-critic = {self.use_critic}")
+
 
     def _validate_config(self):
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
@@ -400,17 +401,17 @@ class RayPPOTrainer:
         n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
         if config.actor_rollout_ref.actor.strategy == "megatron":
             model_parallel_size = (
-                    config.actor_rollout_ref.actor.megatron.tensor_model_parallel_size
-                    * config.actor_rollout_ref.actor.megatron.pipeline_model_parallel_size
+                config.actor_rollout_ref.actor.megatron.tensor_model_parallel_size
+                * config.actor_rollout_ref.actor.megatron.pipeline_model_parallel_size
             )
             assert (
-                    n_gpus % (model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size) == 0
+                n_gpus % (model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size) == 0
             ), (
                 f"n_gpus ({n_gpus}) must be divisible by model_parallel_size ({model_parallel_size}) times "
                 f"context_parallel_size ({config.actor_rollout_ref.actor.megatron.context_parallel_size})"
             )
             megatron_dp = n_gpus // (
-                    model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size
+                model_parallel_size * config.actor_rollout_ref.actor.megatron.context_parallel_size
             )
             minimal_bsz = megatron_dp * config.actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu
         else:
@@ -418,6 +419,7 @@ class RayPPOTrainer:
 
         # 1. Check total batch size for data correctness
         real_train_batch_size = config.data.train_batch_size * config.actor_rollout_ref.rollout.n
+
 
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
             print(f"DEBUG-MODE: minimal_bsz = {minimal_bsz}")
@@ -428,6 +430,7 @@ class RayPPOTrainer:
         )
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
             print(f"DEBUG-MODE: End Validation Configration. Done..!")
+
 
         # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
         # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
@@ -513,9 +516,9 @@ class RayPPOTrainer:
             sp_size = config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1)
             if config.actor_rollout_ref.actor.ppo_micro_batch_size is not None:
                 assert (
-                        config.actor_rollout_ref.actor.ppo_mini_batch_size
-                        % config.actor_rollout_ref.actor.ppo_micro_batch_size
-                        == 0
+                    config.actor_rollout_ref.actor.ppo_mini_batch_size
+                    % config.actor_rollout_ref.actor.ppo_micro_batch_size
+                    == 0
                 )
                 assert config.actor_rollout_ref.actor.ppo_micro_batch_size * sp_size >= n_gpus
 
@@ -539,8 +542,8 @@ class RayPPOTrainer:
 
         # Check if use_remove_padding is enabled when using sequence parallelism for fsdp
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"} and (
-                config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1
-                or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1
+            config.actor_rollout_ref.actor.get("ulysses_sequence_parallel_size", 1) > 1
+            or config.actor_rollout_ref.ref.get("ulysses_sequence_parallel_size", 1) > 1
         ):
             assert config.actor_rollout_ref.model.use_remove_padding, (
                 "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
@@ -861,6 +864,7 @@ class RayPPOTrainer:
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 print(f"DEBUG-MODE: sample inputs = {sample_inputs}")
 
+
             batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
             non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
             if "multi_modal_data" in test_batch.non_tensor_batch:
@@ -873,7 +877,7 @@ class RayPPOTrainer:
                 non_tensor_batch_keys_to_pop.append("interaction_kwargs")
             if "agent_name" in test_batch.non_tensor_batch:
                 non_tensor_batch_keys_to_pop.append("agent_name")
-            test_gen_batch = test_batch.pop(batch_keys=batch_keys_to_pop, non_tensor_batch_keys=non_tensor_batch_keys_to_pop, )
+            test_gen_batch = test_batch.pop(batch_keys=batch_keys_to_pop, non_tensor_batch_keys=non_tensor_batch_keys_to_pop,)
 
             test_gen_batch.meta_info = {
                 "eos_token_id": self.tokenizer.eos_token_id,
@@ -889,7 +893,7 @@ class RayPPOTrainer:
 
             # pad to be divisible by dp_size
             size_divisor = (self.actor_rollout_wg.world_size
-                            if not self.async_rollout_mode else self.config.actor_rollout_ref.rollout.agent.num_workers)
+                if not self.async_rollout_mode else self.config.actor_rollout_ref.rollout.agent.num_workers)
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
 
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
@@ -901,6 +905,7 @@ class RayPPOTrainer:
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
+
 
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 print(f"DEBUG-MODE: Validation GENERATION END...!")
@@ -947,7 +952,7 @@ class RayPPOTrainer:
 
             scores = reward_tensor.sum(-1).cpu().tolist()
             # print(f"Shape of reward_tensor: {reward_tensor.shape}")
-
+            
             sample_scores.extend(scores)
 
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
@@ -1872,7 +1877,7 @@ class RayPPOTrainer:
                     self.train_dataloader.sampler.update(batch=batch)
 
                 # TODO: make a canonical logger that supports various backend
-                # logger.log(data=metrics, step=self.global_steps)
+                #logger.log(data=metrics, step=self.global_steps)
                 logger.log(f"Metrics at step {self.global_steps}: {json.dumps(metrics, indent=2)}", step=self.global_steps)
 
                 progress_bar.update(1)
