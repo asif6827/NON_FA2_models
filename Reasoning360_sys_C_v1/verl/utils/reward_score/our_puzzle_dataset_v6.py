@@ -765,6 +765,8 @@ def compute_score(
         if puzzle_id is None and isinstance(meta, dict):
             puzzle_id = meta.get("id") or meta.get("puzzle_id")
 
+        print("Extra Info = ", extra_info)
+
         ground_truth = normalize_ground_truth(ground_truth)
         ground_truth = normalize_header(ground_truth)
         # ground_truth = normalize_months_in_rows(ground_truth)
