@@ -53,6 +53,7 @@ from verl.utils.profiler import marked_timer
 
 job_id = os.getenv("SLURM_JOB_ID")
 
+puzzle_key = "val-aux/our_zebra_puzzle_new_reward_test/PUZZLE_ACCURACY/mean@1"
 
 
 
