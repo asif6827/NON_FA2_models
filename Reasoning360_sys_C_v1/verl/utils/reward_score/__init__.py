@@ -103,16 +103,16 @@ def default_compute_score(
 
 
     elif data_source.startswith("our_zebra_puzzle_new_reward_test"):
-        from . import our_puzzles_dataset_test
+        from . import our_puzzles_dataset_v6
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
             print(f"DEBUG-MODE: USING OUR ZEBRA PUZZLE COMPUTE SCORE\n\n")
-        res = our_puzzles_dataset_test.compute_score(solution_str, ground_truth, extra_info=extra_info)
+        res = our_puzzles_dataset_v6.compute_score(solution_str, ground_truth, extra_info=extra_info)
 
     elif data_source.startswith("zebra_puzzle_new_reward") or data_source.startswith("our_zebra_puzzle_new_reward"):
-        from . import our_puzzles_dataset_WWQ
+        from . import our_puzzles_dataset_v6
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
             print(f"DEBUG-MODE: USING OUR ZEBRA PUZZLE COMPUTE SCORE (WWQ VERSION)\n\n")
-        res = our_puzzles_dataset_WWQ.compute_score(solution_str, ground_truth, extra_info=extra_info, meta=meta)
+        res = our_puzzles_dataset_v6.compute_score(solution_str, ground_truth, extra_info=extra_info, meta=meta)
 
 
 
