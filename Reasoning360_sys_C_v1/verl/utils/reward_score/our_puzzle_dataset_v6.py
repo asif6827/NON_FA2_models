@@ -766,6 +766,8 @@ def compute_score(
             puzzle_id = meta.get("id") or meta.get("puzzle_id")
 
         print("Extra Info = ", extra_info)
+        print("Meta = ", meta)
+
 
         ground_truth = normalize_ground_truth(ground_truth)
         ground_truth = normalize_header(ground_truth)
