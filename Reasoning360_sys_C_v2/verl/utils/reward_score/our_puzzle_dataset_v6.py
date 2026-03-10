@@ -1226,7 +1226,7 @@ def compute_score(
                         puzzle=puzzle_text,
                         solution_header = grid['header'],
                         attribute_values = attribute_values_from_solution(grid),
-                        passed_reasoning = [step for step in  z3_out["list_steps_valid"]]
+                        passed_reasoning = [step for step in z3_out.get("list_steps_valid", [])]
                     ),
                     "id": puzzle_id,
                     "solution": grid,
