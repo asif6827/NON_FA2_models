@@ -13,6 +13,7 @@
 #SBATCH --mail-user=asif6827@gmail.com
 
 
+
 module load cuda12.4/toolkit
 
 nvidia-smi
@@ -157,17 +158,21 @@ export PUZZLE_FEEDBACK_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/e
 export PUZZLE_DIC_PATH=/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json
 
 
+
 echo "Validation Folder NAME: $VALID_GENERATION_PATH"
 
 #SHARED_DATA_PATH=./data
 TRAIN_DATA_DIR=${SHARED_DATA_PATH}/train
 TEST_DATA_DIR=${SHARED_DATA_PATH}/test
 
+
+
 ### Logic (train)
 zebra_train_path=${TRAIN_DATA_DIR}/logic_our_zebra_puzzle_new_reward_168.parquet
 
 ### Logic (test)
 zebralogic_test_path=${TEST_DATA_DIR}/logic_our_zebra_puzzle_new_reward_test_112.parquet
+
 
 train_files="['${zebra_train_path}']"  # Use math as example, add to more tasks as needed
 test_files="['${zebralogic_test_path}']"  # Use math as example, add to more tasks as needed
@@ -197,6 +202,7 @@ ${CONDA_BIN_PATH}ray start --head --temp-dir="$RAY_TMPDIR" --num-gpus ${NUM_GPUS
 sleep 5
 
 
+
 # =================== RL Config ===================
 # Note, we borrowed the config format from DAPO while here disabled all DAPO features to run the naive RL baseline.
 
@@ -206,6 +212,7 @@ use_kl_in_reward=False
 kl_coef=0.0
 use_kl_loss=False
 kl_loss_coef=0.0
+
 
 clip_ratio_low=0.2
 clip_ratio_high=0.2

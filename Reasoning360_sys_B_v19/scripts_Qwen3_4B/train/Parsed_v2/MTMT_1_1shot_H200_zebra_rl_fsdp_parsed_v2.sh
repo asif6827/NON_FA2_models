@@ -15,6 +15,7 @@
 
 
 module load cuda12.4/toolkit
+
 nvidia-smi
 source activate Reasoning360
 
@@ -174,6 +175,9 @@ zebralogic_test_path=${TEST_DATA_DIR}/logic_our_zebra_puzzle_new_reward_test_112
 
 train_files="['${zebra_train_path}']"  # Use math as example, add to more tasks as needed
 test_files="['${zebralogic_test_path}']"  # Use math as example, add to more tasks as needed
+
+
+
 
 
 # =================== Logging ===================

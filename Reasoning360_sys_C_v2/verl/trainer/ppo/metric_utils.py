@@ -109,22 +109,18 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     #print("batch in compute data metrics = {}".format(batch))
     #print()
     #pprint.pprint(batch, width=120)
-    base_sat_raw = torch.from_numpy(batch.non_tensor_batch["base_sat_raw"])
-    base_sat_full = torch.from_numpy(batch.non_tensor_batch["base_sat_full"])
-    base_sat_raw_GT = torch.from_numpy(batch.non_tensor_batch["base_sat_raw_GT"])
-    base_sat_full_GT = torch.from_numpy(batch.non_tensor_batch["base_sat_full_GT"])
 
-    n_steps_total = torch.from_numpy(batch.non_tensor_batch["n_steps_total"])
-
-    n_steps_parsed_ok = torch.from_numpy(batch.non_tensor_batch["n_steps_parsed_ok"])
-    n_steps_entailed_strict = torch.from_numpy(batch.non_tensor_batch["n_steps_entailed_strict"])
-    n_steps_entailed_chain = torch.from_numpy(batch.non_tensor_batch["n_steps_entailed_chain"])
-    n_steps_contradiction_chain = torch.from_numpy(batch.non_tensor_batch["n_steps_contradiction_chain"])
+    base_sat_full_GT = torch.from_numpy(batch.non_tensor_batch["BASE_sat_full_GT"])
     missed_data = torch.from_numpy(batch.non_tensor_batch["missed_data"])
-    pass_rate_strict_gt_validated = torch.from_numpy(batch.non_tensor_batch["pass_rate_strict_gt_validated"])
-    pass_rate_chain_gt_validated = torch.from_numpy(batch.non_tensor_batch["pass_rate_chain_gt_validated"])
-    gt_valid = torch.from_numpy(batch.non_tensor_batch["gt_valid"])
 
+
+    BASE_n_steps_total = torch.from_numpy(batch.non_tensor_batch["BASE_n_steps_total"])
+    BASE_n_steps_parsed_ok = torch.from_numpy(batch.non_tensor_batch["BASE_n_steps_parsed_ok"])
+    BASE_n_steps_valid = torch.from_numpy(batch.non_tensor_batch["BASE_n_steps_valid"])
+    BASE_n_steps_novel_inc_clues = torch.from_numpy(batch.non_tensor_batch["BASE_n_steps_novel_inc_clues"])
+    BASE_n_non_valid_contradiction = torch.from_numpy(batch.non_tensor_batch["BASE_n_non_valid_contradiction"])
+
+    Normalizer = torch.from_numpy(batch.non_tensor_batch["Normalizer"])
 
     acc = torch.from_numpy(batch.non_tensor_batch["acc"])
     PUZZLE_ACCURACY = torch.from_numpy(batch.non_tensor_batch["PUZZLE_ACCURACY"])
@@ -171,23 +167,19 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
 
     metrics = {
         # Z3 and Acc Metrics:
-        "TRAIN/Z3-solver/base_sat_raw/mean": torch.mean(base_sat_raw.float()).detach().item(),
-        "TRAIN/Z3-solver/base_sat_full/mean": torch.mean(base_sat_full.float()).detach().item(),
-        "TRAIN/Z3-solver/base_sat_raw_GT/mean": torch.mean(base_sat_raw_GT.float()).detach().item(),
-        "TRAIN/Z3-solver/base_sat_full_GT/mean": torch.mean(base_sat_full_GT.float()).detach().item(),
-        "TRAIN/Z3-solver/n_steps_total/mean": torch.mean(n_steps_total.float()).detach().item(),
-        "TRAIN/Z3-solver/n_steps_parsed_ok/mean": torch.mean(n_steps_parsed_ok.float()).detach().item(),
-        "TRAIN/Z3-solver/n_steps_entailed_strict/mean": torch.mean(n_steps_entailed_strict.float()).detach().item(),
-        "TRAIN/Z3-solver/n_steps_entailed_chain/mean": torch.mean(n_steps_entailed_chain.float()).detach().item(),
-        "TRAIN/Z3-solver/n_steps_contradiction_chain/mean": torch.mean(n_steps_contradiction_chain.float()).detach().item(),
+        "TRAIN/Z3-solver/BASE_sat_full_GT/mean": torch.mean(base_sat_full_GT.float()).detach().item(),
         "TRAIN/Z3-solver/missed_data/mean": torch.mean(missed_data.float()).detach().item(),
-        "TRAIN/Z3-solver/pass_rate_strict_gt_validated/mean": torch.mean(pass_rate_strict_gt_validated.float()).detach().item(),
-        "TRAIN/Z3-solver/pass_rate_chain_gt_validated/mean": torch.mean(pass_rate_chain_gt_validated.float()).detach().item(),
-        "TRAIN/Z3-solver/gt_valid/mean": torch.mean(gt_valid.float()).detach().item(),
 
-        #"Z3-solver/score/max": torch.max(sequence_score).detach().item(),
+        "TRAIN/Z3-solver/BASE_n_steps_total/mean": torch.mean(BASE_n_steps_total.float()).detach().item(),
+        "TRAIN/Z3-solver/BASE_n_steps_parsed_ok/mean": torch.mean(BASE_n_steps_parsed_ok.float()).detach().item(),
+        "TRAIN/Z3-solver/BASE_n_steps_valid/mean": torch.mean(BASE_n_steps_valid.float()).detach().item(),
+        "TRAIN/Z3-solver/BASE_n_steps_novel_inc_clues/mean": torch.mean(BASE_n_steps_novel_inc_clues.float()).detach().item(),
+        "TRAIN/Z3-solver/BASE_n_non_valid_contradiction/mean": torch.mean(BASE_n_non_valid_contradiction.float()).detach().item(),
+
+    #"Z3-solver/score/max": torch.max(sequence_score).detach().item(),
         #"Z3/solver/min": torch.min(sequence_score).detach().item(),
         # ACC-Metrics:
+        "TRAIN/ACC-Metrics/Normalizer/mean": torch.mean(Normalizer.float()).detach().item(),
         "TRAIN/ACC-Metrics/acc/mean": torch.mean(acc.float()).detach().item(),
         "TRAIN/ACC-Metrics/PUZZLE_ACCURACY/mean": torch.mean(PUZZLE_ACCURACY.float()).detach().item(),
         "TRAIN/ACC-Metrics/CELL_ACCURACY/mean": torch.mean(CELL_ACCURACY.float()).detach().item(),
