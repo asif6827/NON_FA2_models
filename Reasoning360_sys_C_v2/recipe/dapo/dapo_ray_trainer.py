@@ -528,7 +528,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                 # ==================================
                 num_gen_batches = 0
                 os.environ["STEP1_STATUS"] = "0"
-                if enable_step2 and epoch >= 5 and step2_iterations > 0:
+                if enable_step2 and step2_iterations > 0:
                     print(f"Starting Step-2 training for current batch...!")
 
                     file_path = os.path.join(os.environ.get("PUZZLE_FEEDBACK_PATH", "./"), f"jobid_{job_id}")
