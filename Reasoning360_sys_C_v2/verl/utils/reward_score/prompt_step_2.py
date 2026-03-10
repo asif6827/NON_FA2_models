@@ -1,407 +1,266 @@
-
-SOLUTION_PROMPT_VERIFIER_V2="""
-You are an expert logic puzzle solver and scientific solution verifier.
+SOLUTION_PROMPT_VERIFIER_V2 = """
+You are an expert logic puzzle solver.
 
 You are given:
-(i) one logic puzzle written in plain English,
-(ii) solution_header that lists the attribute names used in the puzzle,
-(iii) a dictionary of attribute_values specifying the allowed values for each attribute,
-(iv) a list of syntactic_clues (one per clue, already provided),
-(v) a list of PASSED reasoning steps (syntactic steps S<k>) that are already verified as correct, and
-(vi) a previously generated false_solution that may violate the constraints.
+(i) one logic puzzle_text written in plain English,
+(ii) solution_header that lists the attribute names used in the puzzle, and
+(iii) a dictionary of attribute_values specifying the complete and exclusive set of allowed values for each attribute.
 
-PRIMARY TRUTH SOURCES:
-- syntactic_clues
-- passed_reasoning
+All values appearing in syntactic_clues, reasoning, and the final solution MUST be drawn from attribute_values and interpreted as entity tokens representing unknown house positions.
 
-You MUST treat these as authoritative and machine-checkable.
+Your task is to construct a fully consistent, solver-verifiable solution by generating the following FIVE fields:
+1) n_houses — the total number of houses in the puzzle.
+2) attribute_values — returned exactly as given, without modification.
+3) syntactic_clues — a normalized, Z3-style textual encoding of each clue.
+4) reasoning — interleaved reasoning consisting of natural-language explanations and syntactic (solver-checkable) deduction steps.
+5) solution — the final house-by-house assignment derived exclusively from syntactic_clues, and syntactic reasoning steps (S1..Sk).
 
-YOUR JOB (VERIFY → REPAIR → COMPLETE → RE-SOLVE):
 
-Phase 1 — CONTRADICTION (Diagnosis):
-- Compare false_solution against syntactic_clues and passed_reasoning.
-- Identify every contradiction where false_solution violates a constraint.
-- For each contradiction:
-  - Produce a Natural-Language explanation identifying the violated constraint.
-  - Produce a Syntactic reasoning step that formally invalidates the false assignment
-    (typically using != or ordering contradiction).
-- Each contradiction step MUST be a solver-checkable certificate that the false_solution is invalid.
+You MUST return the result STRICTLY as a single valid JSON object wrapped inside:
+<answer>...</answer>
 
-Phase 2 — REPAIR (Constraint-Corrective Reasoning):
-- Based strictly on the contradiction certificates, derive the minimal necessary correction constraints.
-- Repairs MUST:
-  - be logically entailed (not guessed),
-  - exclude invalid placements and/or force correct ones,
-  - be expressed as syntactic constraints with evidence.
-- Repair steps MUST move the system back into a consistent state.
+No additional text, commentary, or formatting outside the <answer> block is permitted.
 
-Phase 3 — COMPLETION (Derivation to Final Solution):
-- Continue reasoning from:
-    syntactic_clues + passed_reasoning + contradiction steps + repair steps.
-- Add only logically entailed steps until the solution is uniquely determined.
-- If the constraints do NOT uniquely determine a complete solution, output an explicitly incomplete solution.
-
-STRICT RULES:
-- You MUST preserve all passed_reasoning steps exactly as given.
-- You MUST NOT contradict, invalidate, reorder, or rewrite any passed_reasoning step.
-- Any new syntactic reasoning steps MUST continue the global S<k> index.
-- Natural-language reasoning MUST justify either:
-  - a contradiction certificate,
-  - a repair constraint, or
-  - a completion deduction.
-- Do NOT assume the false_solution is mostly correct — verify every assignment.
-
-OUTPUT CONTRACT (EXACTLY FIVE TOP-LEVEL KEYS):
-1) n_houses
-2) attribute_values
-3) syntactic_clues
-4) reasoning
-5) solution
 
 ================================================================================
 CRITICAL FORMAT REQUIREMENTS
 ================================================================================
 - Output MUST contain ONLY ONE <answer>...</answer> block and NOTHING ELSE.
-- Inside <answer>...</answer>, output MUST be a single valid JSON object.
-- The JSON object MUST have exactly FIVE top-level keys:
-  "n_houses", "attribute_values", "syntactic_clues", "reasoning", "solution"
+- Do NOT include extra text, markdown, explanations, or code fences.
+- Inside <answer>...</answer>, the content MUST be a single valid JSON object.
+- The JSON object MUST have exactly FIVE top-level keys, spelled EXACTLY:
+    "n_houses",
+    "attribute_values",
+    "syntactic_clues",
+    "reasoning",
+    "solution"
+- Do NOT add any other keys.
 
 ================================================================================
 NORMALIZATION RULES
 ================================================================================
-- Use underscores instead of spaces in VALUES.
-- Attribute names MUST match solution_header exactly.
+- Use underscores instead of spaces in VALUES (e.g., grilled_cheese, very_short).
+- Attribute names MUST match the solution_header exactly (case-sensitive), e.g., Name, Animal, Occupation, Sport, Height, etc.
 - House numbers are integers 1..N.
-- Do not invent values; select only from attribute_values.
-- Bare person names imply Name tokens.
-- Descriptors map to allowed values.
+- Convert ordinals to integers: first=1, second=2, third=3, fourth=4, fifth=5, sixth=6, etc.
+- Do not invent values. Every value must be mapped to its canonical token (in attribute_values) and selected from the list of allowed attribute_values (after normalization).
+ - Example: If puzzle says “september” and attribute_values contains "sept", output "sept" (not september).
+ - Example: If puzzle says “sept” and attribute_values contains "september", output "september"
+- If the clue mentions a bare person name (e.g., "Arnold"), treat it as Name=Arnold.
+- If the clue uses a descriptor like "cat lover", "dog owner", "coffee drinker", map it to the matching token in attribute_values.
 
 ================================================================================
 1) DOMAIN OUTPUT (MANDATORY)
 ================================================================================
 - "n_houses" MUST be an integer N equal to the number of houses in the puzzle.
-- "attribute_values" a JSON object. You MUST return the same attribute_values as those passed in the input.
-- For a given attribute name, the values in "attribute_values" MUST be non-repeating."
-- Do NOT infer extra attributes that are not explicitly listed in the "attribute_values".
-
-
-================================================================================
-2) syntactic_clues (MANDATORY — SYNTACTIC CONSTRAINTS WITH NL INTERPRETATION)
-================================================================================
-
-Purpose:
-- "syntactic_clues" define the complete, solver-readable constraint set.
-- These constraints are the PRIMARY logical truth.
-- Natural-language text exists ONLY to interpret or justify these constraints.
-- You MUST NOT derive syntactic_clues from natural language; they are already given.
-
-Representation rules:
-- "syntactic_clues" MUST be a list of strings.
-- There MUST be exactly one entry per original clue, in the same order.
-- Each entry MUST:
-  - be exactly one line,
-  - end with a period,
-  - start with the prefix "C<i>: " where i is the 1-based clue index.
-- Each entry MUST contain ONLY a single syntactic constraint.
-
-Token rules:
-- All tokens MUST be selected from attribute_values after normalization.
-- Use bare normalized tokens ONLY (no quotes, no spaces).
-  Examples: Arnold, engineer, very_short.
-- Do NOT invent, infer, rename, or paraphrase tokens.
-- Bare names imply Name tokens.
-- Descriptive phrases (e.g., "cat lover", "dog owner") are already mapped to
-  their corresponding attribute tokens in syntactic_clues.
-
-Allowed operators (EXCLUSIVE):
-- ==        same house / equivalence
-- !=        explicit exclusion
-- <         somewhere to the left of
-- >         somewhere to the right of
-- + 1 ==    immediately left of
-- + 2 ==    exactly one house between (left to right)
-- + 3 ==    exactly two houses between (left to right)
-- == H      fixed house index (H is an integer)
-
-Interpretation guide (SYNTACTIC FORM - NATURAL-LANGUAGE MEANING):
-
-lawyer == 5
-- The lawyer is in the fifth house.
-
-A + 1 == B
-- A is directly left of B.
-
-A + 2 == B
-- There is exactly one house between A and B, and A is to the left of B.
-
-A + 3 == B
-- There are exactly two houses between A and B, and A is to the left of B.
-
-A < B
-- A is somewhere to the left of B.
-
-A > B
-- A is somewhere to the right of B.
-
-A != 2
-- A is not in the second house.
-
-X == Y
-- X and Y refer to the same house (the same person/entity).
-
-IMPORTANT CONSTRAINTS:
-- These entries MUST resemble the inner form of a solver constraint:
-    s.add(<left> <op> <right>)
-- You MUST NOT output predicates, function calls, quantifiers, or s.add(...).
-- You MUST NOT include natural-language text inside syntactic_clues.
-- Natural-language explanations belong ONLY in the reasoning phase.
+attribute_values immutability rule:
+- The "attribute_values" object MUST be returned exactly as provided in the input.
+- It must be identical:
+  - Same attribute keys
+  - Same ordering of keys
+  - Same ordering of values within each list
+  - Same casing and spelling
+- Do NOT normalize, rename, reorder, add, or remove anything in "attribute_values".
+- Normalization rules apply ONLY to syntactic_clues, reasoning, and solution — NOT to attribute_values.
 
 ================================================================================
-3) reasoning (MANDATORY — THREE PHASES)
+2) syntactic_clues (MANDATORY, TEXTUAL CONSTRAINTS — NOT PREDICATES)
 ================================================================================
-
-"reasoning" MUST be a JSON object with EXACTLY THREE keys:
-- "contradiction"
-- "repair"
-- "completion"
-
-Each value MUST be a list of strings.
-
-INTERLEAVING RULE (PER PHASE):
-- Odd entries: Natural-language explanation.
-- Even entries: Syntactic reasoning step.
-
-Syntactic step format:
-S<k>: <constraint>. [<evidence>]
-
-Evidence rules:
-- Evidence may reference only C<i> and earlier S<j> where j < k.
-- Forward references are forbidden.
-
-Phase constraints:
-- "contradiction": syntactic steps MUST invalidate false_solution assignments (typically !=).
-- "repair": syntactic steps MUST restore consistency (== or restricted !=).
-- "completion": syntactic steps MUST derive remaining facts toward a unique solution.
-
-
-================================================================================
-CONTRADICTION PHASE (CERTIFICATE-BASED, MANDATORY)
-================================================================================
-For EACH detected contradiction, you MUST include a pair of entries:
-
-1) NL line MUST:
-- Quote the exact false_solution claim being attacked in canonical form:
-  "false_solution asserts <token> == <house>."
-- Name the exact clue/steps that contradict it.
-
-2) Syntactic line MUST be a contradiction certificate of the form:
-- S<k>: <token> != <house>. [<evidence>]
-or, if the false claim is an equality between tokens:
-- S<k>: <tokenA> != <tokenB>. [<evidence>]
-
-Hard constraint:
-- Every contradiction syntactic step MUST negate a false_solution assignment.
-- Do NOT output contradiction steps that merely restate a clue.
-- Do NOT output a contradiction that contradicts your own evidence.
-
-================================================================================
-REPAIR PHASE (DELTA CONSTRAINTS ONLY)
-================================================================================
-Repair steps must ONLY do one of the following:
-- Exclude an invalid assignment proven in CONTRADICTION:
-  <token> != <house>
-- Force an assignment that is uniquely implied by constraints after exclusions:
-  <token> == <house>
+We do NOT use predicate-style DSL for clues.
+Instead, each clue MUST be rewritten as a single-line *syntactic constraint statement* in a Z3-like textual form.
 
 Rules:
-- Repairs MUST reference at least one contradiction step (S<j>) in evidence.
-- Repairs MUST NOT introduce new assumptions.
-- Repairs MUST NOT contradict false_solution directly without first producing a contradiction certificate.
+- "syntactic_clues" MUST be a list of strings.
+- For each clue, the selected tokens must be mapped to one of the values defined in attribute_values.
+ - Example: If the clue says “sept” and attribute_values contains "september", use "september"; if attribute_values contains "sept", use "sept".
+- There MUST be exactly one entry per clue, in the same order as the clues.
+- Each entry MUST be exactly 1 line and end with a period.
+- Each entry MUST start with the clue id prefix: "C<i>: ".
+- Use ONLY these syntactic operators in the clue text:
+    ==   (same house / equivalence)
+    !=   (not same house)
+    <    (somewhere left of)
+    >    (somewhere right of)
+    + k == (k is a positive integer, e.g., 1 for immediately left, 2 for one house between, 3 for two houses between)
+    == H  (fixed house index, where H is an integer)
+- Use bare normalized tokens (no quotes) for values (e.g., Arnold, engineer, very_short).
+- When a clue states a specific house like "in the fifth house", encode as: <token> == 5
+  Example: "The lawyer is in the fifth house." -> "C9: lawyer == 5."
+- When a clue states "directly left of", encode as: A + 1 == B
+  Example: "baseball is directly left of engineer" -> "C12: baseball + 1 == engineer."
+- When a clue states "one house between", encode as: A + 2 == B
+  Example: "There is one house between Eric and the bird keeper" -> "C12: Eric + 2 == bird_keeper."
+  Example: "There is one house between Arnold and Peter" -> "C12: Arnold + 2 == Peter."
+- When a clue states "two houses between", encode as: A + 3 == B
+  Example: "There are two houses between Eric and Arnold" -> "C12: Eric + 3 == Arnold."
+- When a clue states "person who has", encode as: A == B
+  Example: "The person whose mother's name is Holly is the person who has black hair" -> "C12: Holly == black."
+- When a clue states "one house between the person who has", encode as: A + 2 == B
+  Example: "There is one house between the person who has black hair and Eric" -> "C12: black + 2 == Eric."
+- When a clue states "next to each other", encode it as: Or(A == B + 1, A == B - 1)
+  Example: "The person who prefers city breaks and Alice are next to each other" -> C12: "Or(city_breaks == Alice + 1, city_breaks == Alice - 1)."
+- When a clue states "somewhere to the left of", encode as: A < B
+- When a clue states "somewhere to the right of", encode as: A > B
+- When a clue states "X is the Y", encode as: X == Y
 
+IMPORTANT:
+- The goal is to produce constraints that resemble:
+  s.add(<left> <op> <right>)
+  but you must NOT write "s.add(...)".
+  Only output the inner constraint as text.
 
 ================================================================================
-COMPLETION PHASE (FORCED ONLY)
+3) reasoning (MANDATORY — INTERLEAVED NATURAL + SYNTACTIC)
 ================================================================================
-Each completion step MUST be justified as forced:
-- Either by adjacency/order + fixed anchors, or
-- By uniqueness after all other houses are excluded.
+- "reasoning" MUST be a list of strings.
+- Each entry MUST be exactly 1 sentence and end with a period.
+- Reasoning MUST be interleaved:
+    Odd-numbered entries: Natural-language reasoning.
+    Even-numbered entries: Syntactic reasoning step (Z3-like statement).
+- Natural-language entries should explain the deduction in plain English.
+- Syntactic entries should encode the *newly deduced fact* as a Z3-like statement.
+- Tokens in Syntactic entries should encode the *mapped* to values in "attribute_values".
 
-In NL, you MUST state the forcing reason explicitly:
-- "Only house H remains for token T."
-- "Given A == H and A + 1 == B, B must be H+1."
+Syntactic entry format:
+- Every syntactic entry MUST start with "S<k>: " and MUST end with a period.
+- <k> starts at 1 and increments by 1 for each syntactic step only (S1, S2, S3, ...).
+- The syntactic constraint MUST be solver-verifiable and may use ONLY:
+  ==, !=, <, >, + d ==, Not(...), And(...), Or(...)
 
-Syntactic steps in completion MUST NOT restate clues unless needed for chaining.
+- Each syntactic step MUST be written in the exact form: S<k>
 
+  Atomic operators:
+    ==        (same house / equivalence)
+    !=        (not the same house)
+    <         (somewhere to the left of)
+    >         (somewhere to the right of)
+    + d ==    (directed distance; d is a positive integer)
+    == H      (fixed house index; H is an integer in 1..n_houses)
+
+  Boolean operators:
+    Not(e)    (negation of a single atomic expression)
+    And(e1, e2, ..., en)
+    Or(e1, e2, ..., en)
+
+- Boolean operators may ONLY be applied to valid atomic expressions.
+- Nested Boolean expressions are allowed but MUST remain solver-verifiable.
+
+Examples of valid INTERLEVED reasoning steps:
+    The engineer is assigned to house 2.
+    S1: engineer == 2.
+
+    Since the engineer occupies house 2, the dog cannot also be in house 2.
+    S2: dog != 2.
+
+    The cat is immediately to the left of the coffee, so the cat’s house index plus one equals the coffee’s house index.
+    S3: cat + 1 == coffee.
+
+    The green house appears somewhere to the left of the white house.
+    S4: green < white.
+
+    The dog is not in the first house.
+    S5: Not(dog == 1).
+
+    The cat cannot be in house 1 or house 3.
+    S6: And(cat != 1, cat != 3).
+
+    The milk is located either in house 1 or in house 5.
+    S7: Or(milk == 1, milk == 5).
+
+Logical validity requirement:
+- Every syntactic step MUST be logically entailed by the syntactic_clues plus any earlier syntactic steps.
+- Do NOT output syntactic steps that merely restate a clue unless they are required as part of the deduction chain.
 
 ================================================================================
-SELF-CHECK (MANDATORY BEFORE FINAL OUTPUT)
+4) solution (MANDATORY TABLE)
 ================================================================================
-Before producing the final JSON, internally verify:
-
-1) Every CONTRADICTION syntactic step negates a specific false_solution assignment.
-2) No step contradicts syntactic_clues or any earlier S-step.
-3) No equality like "Eric == daffodils" appears unless supported by a clue/step.
-4) Evidence only cites C<i> or earlier S<j> (no forward refs).
-5) All constraints are well-typed: ENTITY TOKEN vs HOUSE INDEX usage is correct.
-
-If any check fails, remove/replace the offending steps rather than inventing explanations.
+- "solution" MUST be in tabular form with:
+  - "header": a list of column names
+  - "rows": a list of rows, each row being a list of strings matching the header order
+- The header MUST include "House" and then all attribute columns from the puzzle text.
+- The rows MUST list houses in increasing order from 1..N.
+- All solution values MUST be normalized with underscores.
 
 ================================================================================
-4) solution (MANDATORY)
-================================================================================
-- Must be derived exclusively from syntactic_clues + all syntactic reasoning steps.
-- If not uniquely determined, output:
-  "rows": []
-- Otherwise output a full table with unique values per attribute.
-
-================================================================================
-ONE-SHOT EXAMPLE — FALSE SOLUTION VERIFICATION + CORRECTION (RIGOROUS)
+ONE-SHOT EXAMPLE (3 HOUSES, 3 ATTRIBUTES)
 ================================================================================
 
 Example Puzzle:
-There are 4 houses, numbered 1 to 4 from left to right.
-Each house is occupied by a different persons: `Alice`, `Bob`, `Carol`, and `Eric`.
-Each house has a unique pet: `cat`, `dog`, `fish` and `bird`.
-Each person has different jobs: `engineer`, `teacher`, `lawyer` and `doctor`. 
-Each person has a fevorite sports: `baseball`, `tennis, `soccer` and `basketball`.
+There are 3 houses, numbered 1 to 3 from left to right. Each house is occupied by a different person.
+Each house has a unique attribute for each of the following characteristics:
+
+- Each person has a unique name: Peter, Eric, Arnold
+- The people like unique colors: red, white, yellow
+- The people have childern named: Fred, Meredith, Bella
 
 Clues:
-1. The baseball fan is in the first house.
-2. The baseball fan is directly left of the engineer.
-3. The engineer is the dog owner.
-4. There is exactly one house between the dog owner and Alice, and the dog owner is to the left of Alice.
-5. The lawyer is in the fourth house.
-6. Carol is the fish owner.
-7. Eric is not in the first house.
-8. The fish owner is in the third house.
-9. Eric is the engineer.
-10. The bird owner is the lawyer.
-11. The fish owner is the teacher.
-12. The engineer loves tennis.
-13. The teacher loves soccer.
+1. Arnold is the person whose favorite color is red.
+2. The person whose child is named Fred is somewhere to the left of Eric.
+3. The person whose favorite color is red is in the second house.
+4. The person whose child is named Bella is in the first house.
+5. The person who loves white is the person whose child is named Meredith.
 
-
-solution_header = ["House", "Name", "Pet", "Job", "Sport"]
+solution_header = ["House", "Name", "Color", "Children"]
 
 attribute_values = {
-  "Name": ["Alice", "Bob", "Carol", "Eric"],
-  "Pet": ["cat", "dog", "fish", "bird"],
-  "Job": ["engineer", "teacher", "lawyer", "doctor"],
-  "Sport": ["baseball", "tennis", "soccer", "basketball"]
+  "Name": ["Peter", "Eric", "Arnold"],
+  "Color": ["red", "white", "yellow"],
+  "Children": ["Fred", "Meredith", "Bella"]
 }
 
-syntactic_clues = [
-  "C1: baseball == 1.",
-  "C2: baseball + 1 == engineer.",
-  "C3: engineer == dog.",
-  "C4: dog + 2 == Alice.",
-  "C5: lawyer == 4.",
-  "C6: Carol == fish.",
-  "C7: Eric != 1.",
-  "C8: fish == 3.",
-  "C9: Eric == engineer.",
-  "C10: bird == lawyer.",
-  "C11: fish == teacher.",
-  "C12: engineer == tennis.",
-  "C13: teacher == soccer."
-]
-
-passed_reasoning = [
-  "S1: baseball == 1. [C1]",
-  "S2: baseball + 1 == engineer. [C2]",
-  "S3: engineer == 2. [S1+S2]",
-  "S4: dog == 2. [C3+S3]"
-]
-
-false_solution = {
-  "header": ["House", "Name", "Pet", "Job", "Sport"],
-  "rows": [
-    ["1", "Bob", "cat", "doctor", "baseball"],
-    ["2", "Eric", "dog", "engineer", "tennis"],
-    ["3", "Alice", "bird", "teacher", "soccer"],
-    ["4", "Carol", "fish", "lawyer", "basketball"]
-  ]
-}
 
 Correct Example Output:
 <answer>{
-  "n_houses": 4,
+  "n_houses": 3,
   "attribute_values": {
-    "Name": ["Alice", "Bob", "Carol", "Eric"],
-    "Pet": ["cat", "dog", "fish", "bird"],
-    "Job": ["engineer", "teacher", "lawyer", "doctor"],
-    "Sport": ["baseball", "tennis", "soccer", "basketball"]
+  "Name": ["Peter", "Eric", "Arnold"],
+  "Color": ["red", "white", "yellow"],
+  "Children": ["Fred", "Meredith", "Bella"]
   },
   "syntactic_clues": [
-    "C1: baseball == 1.",
-    "C2: baseball + 1 == engineer.",
-    "C3: engineer == dog.",
-    "C4: dog + 2 == Alice.",
-    "C5: lawyer == 4.",
-    "C6: Carol == fish.",
-    "C7: Eric != 1.",
-    "C8: fish == 3.",
-    "C9: Eric == engineer.",
-    "C10: bird == lawyer.",
-    "C11: fish == teacher.",
-    "C12: engineer == tennis.",
-    "C13: teacher == soccer."
+    "C1: Arnold == red.",
+    "C2: Fred < Eric.",
+    "C3: red == 2.",
+    "C4: Bella == 1.",
+    "C5: white == Meredith."
   ],
-  "reasoning": {
-    "contradiction": [
-      "The false solution asserts Alice == 3, but dog is fixed at house 2 and dog + 2 == Alice forces Alice to be in house 4, so Alice cannot be in house 3.",
-      "S5: Alice != 3. [C4+S4]",
-      "The false solution asserts Carol == 4, but fish is fixed at house 3 and Carol == fish forces Carol to be in house 3, so Carol cannot be in house 4.",
-      "S6: Carol != 4. [C6+C8]"
-    ],
-    "repair": [
-      "Since dog is in house 2 and dog + 2 == Alice, Alice is forced into house 4 as the only valid placement.",
-      "S7: Alice == 4. [C4+S4]",
-      "Because fish is fixed in house 3 and Carol == fish, Carol is forced into house 3.",
-      "S8: Carol == 3. [C6+C8]"
-    ],
-    "completion": [
-      "We preserve the passed derivation that baseball is fixed in house 1.",
-      "S1: baseball == 1. [C1]",
-      "We preserve the passed derivation that baseball is directly left of engineer.",
-      "S2: baseball + 1 == engineer. [C2]",
-      "We preserve the passed derivation that engineer is forced to house 2 from the baseball adjacency.",
-      "S3: engineer == 2. [S1+S2]",
-      "We preserve the passed derivation that dog is forced to house 2 because engineer == dog and engineer == 2.",
-      "S4: dog == 2. [C3+S3]",
-
-      "Since Eric == engineer and engineer is in house 2, Eric must be in house 2.",
-      "S9: Eric == 2. [C9+S3]",
-
-      "With Alice fixed to house 4, Carol fixed to house 3, and Eric fixed to house 2, the only remaining name for house 1 is Bob.",
-      "S10: Bob == 1. [S7+S8+S9]",
-
-      "The lawyer is fixed in house 4, and Alice is in house 4, so Alice must be the lawyer.",
-      "S11: Alice == lawyer. [C5+S7]",
-
-      "Since bird == lawyer and lawyer is in house 4, bird must be in house 4.",
-      "S12: bird == 4. [C10+C5]",
-
-      "Since fish == teacher and fish is in house 3, teacher must be in house 3.",
-      "S13: teacher == 3. [C11+C8]",
-
-      "The engineer loves tennis and engineer is in house 2, so tennis must be in house 2.",
-      "S14: tennis == 2. [C12+S3]",
-
-      "The teacher loves soccer and teacher is in house 3, so soccer must be in house 3.",
-      "S15: soccer == 3. [C13+S13]",
-
-      "With baseball in house 1, tennis in house 2, and soccer in house 3, the only remaining sport is basketball for house 4.",
-      "S16: basketball == 4. [S1+S14+S15]"
-    ]
-  },
+  "reasoning": [
+    "Clue 3 immediately anchors the red favorite color in the second house, which is a very strong positional fact to start from.",
+    "S1: red == 2.",
+    "Clue 1 then ties Arnold directly to the red color, so Arnold must be in that same second house."
+    "S2: Arnold == red.",
+    "Putting those two together, Arnold is fixed in house 2. At this point, house 2 is completely identified as “Arnold’s house,” and we know it has the red color.",
+    "S3: Arnold == 2.",
+    "Clue 4 gives us another concrete placement: the child Bella is in the first house. So whatever person lives in house 1, their child must be Bella.",
+    "S4: Bella == 1.",
+    "So far, we know: House 1 has child Bella, House 2 has Arnold and the color red, House 3 is still entirely open. Now we look at Clue 2, which introduces a relative ordering: the person whose child is Fred is somewhere to the left of Eric. This doesn’t give a house yet, but it constrains the ordering.",
+    "S5: Fred < Eric.",
+    "Since houses are only 1 through 3, Eric cannot be in the first house (there would be nothing to the left of him). That means Eric must be in house 2 or house 3.",
+    "S6: Or(Eric == 2, Eric == 3).",
+    "But we already know Arnold occupies house 2, and all people are distinct. So Eric cannot be in house 2 and must therefore be in house 3.",
+    "S7: Eric == 3",
+    "This is a good point to pause and take stock again. House 1: unknown person, child Bella. House 2: Arnold, red. House 3: Eric. Now, going back to the same ordering constraint (Fred < Eric), if Eric is in house 3, then Fred must be in house 1 or house 2.",
+    "S8: Or(Fred == 1, Fred == 2).",
+    "But we already know the child in house 1 is Bella, and children are unique. So Fred cannot be in house 1. That forces Fred into house 2.",
+    "S9: Fred == 2.",
+    "This tells us that Arnold, who is in house 2, is also the parent of Fred. At this stage, all people except Peter are placed: Arnold is in house 2 and Eric is in house 3. Since each house has exactly one person, Peter must be in the remaining house, house 1.",
+    "S10: Peter == 1.",
+    "Let’s summarize again. House 1: Peter, child Bella. House 2: Arnold, red, child Fred. House 3: Eric. Now consider the children again. Bella is in house 1 and Fred is in house 2, so the only remaining child, Meredith, must be in house 3.",
+    "S11: Meredith == 3.",
+    "Clue 5 connects the color white to Meredith’s parent, meaning the white color must be in the same house as Meredith.",
+    "S12: white == Meredith.",
+    "Since Meredith is in house 3, white must be in house 3 as well.",
+    "S13: white == 3.",
+    "At this point, two colors are fixed: red in house 2 and white in house 3. Colors are unique, so the only remaining color, yellow, must belong to house 1.",
+    "S14: yellow == 1.",
+    "With that, everything is now determined: House 1: Peter, yellow, child Bella. House 2: Arnold, red, child Fred. House 3: Eric, white, child Meredith. All clues are satisfied, and no attributes remain unassigned.",
+  ],
   "solution": {
-    "header": ["House", "Name", "Pet", "Job", "Sport"],
+    "header": ["House", "Name", "Color", "Children"],
     "rows": [
-      ["1", "Bob", "cat", "doctor", "baseball"],
-      ["2", "Eric", "dog", "engineer", "tennis"],
-      ["3", "Carol", "fish", "teacher", "soccer"],
-      ["4", "Alice", "bird", "lawyer", "basketball"]
+      ["1", "Peter", "yellow", "Bella"],
+      ["2", "Arnold", "red", "Fred"],
+      ["3", "Eric", "white", "Meredith"]
     ]
   }
 }</answer>
@@ -412,17 +271,14 @@ SOLUTION_PROMPT_1_SHOT_VERIFIER_USER_V2 = """
 PUZZLE TO SOLVE
 --------------------------------
 
-puzzle: {puzzle_text}
+puzzle = {puzzle}
 
-solution_header: {solution_header}
+solution_header = {solution_header}
 
-attribute_values: {attribute_values}
+attribute_values = {attribute_values}
 
-syntactic_clues: {syntactic_clues}
+passed_reasoning = {passed_reasoning}
 
-passed_reasoning: {passed_reasoning}
-
-false_solution: {false_solution}
-
-Solve the puzzle above and provide n_houses, attribute_values, parsed_clues, reasoning and solution for this puzzle in the <answer> </answer> block, with no additional text.
+Solve the puzzle above and provide n_houses, attribute_values, parsed_clues, reasoning, and solution for this puzzle in the <answer> </answer> block, with no additional text.
 """
+

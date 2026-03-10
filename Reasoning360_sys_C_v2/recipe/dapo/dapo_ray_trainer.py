@@ -47,7 +47,7 @@ from verl.trainer.ppo.ray_trainer import (
 from verl.utils.profiler import marked_timer
 
 
-
+puzzle_key = "val-aux/our_zebra_puzzle_new_reward_test/PUZZLE_ACCURACY/mean@1"
 
 job_id = os.getenv("SLURM_JOB_ID")
 
@@ -171,6 +171,7 @@ class RayDAPOTrainer(RayPPOTrainer):
         )
 
         self.global_steps = 0
+        self.puzzle_acc = 0
 
         # load checkpoint before doing anything
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
@@ -197,6 +198,12 @@ class RayDAPOTrainer(RayPPOTrainer):
             ##logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
+
+            puzzle_accuracy = float(val_metrics[puzzle_key])
+            print(f"Puzzle Accuracy = {puzzle_accuracy}")
+            if puzzle_accuracy > self.puzzle_acc:
+                print(f"Replacing Puzzle Accuracy with {puzzle_accuracy}")
+                self.puzzle_acc = puzzle_accuracy
 
         # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
@@ -290,11 +297,15 @@ class RayDAPOTrainer(RayPPOTrainer):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
                             gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
+
                             new_batch = new_batch.union(gen_baseline_output)
                             reward_baseline_tensor = self.reward_fn(new_batch)
                             reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
+
                             new_batch.pop(batch_keys=list(gen_baseline_output.batch.keys()))
+
                             new_batch.batch["reward_baselines"] = reward_baseline_tensor
+
                             del gen_baseline_batch, gen_baseline_output
 
                     new_batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(new_batch.batch))], dtype=object)
@@ -450,9 +461,17 @@ class RayDAPOTrainer(RayPPOTrainer):
                         metrics.update(val_metrics)
                         metrics.update(val_metrics_tr)
                         os.environ["VALID_STATUS"] = "0"
+                        
+                        puzzle_accuracy = float(val_metrics[puzzle_key])
+                        if puzzle_accuracy > self.puzzle_acc:
+                            print(f"New Puzzle Accuracy is higher. Updating Puzzle Accuracy = {puzzle_accuracy}")
+                            print("Updating checkpoint...!")
+                            if self.config.trainer.save_freq > 0 and (self.global_steps % self.config.trainer.save_freq == 0):
+                                with marked_timer("save_checkpoint", timing_raw, "green"):
+                                    self._save_checkpoint()
+                            self.puzzle_acc = puzzle_accuracy
 
-                    if self.config.trainer.save_freq > 0 and current_step % self.config.trainer.save_freq == 0:
-                        self._save_checkpoint()
+
                     metrics["train/step"] = 1
                     metrics["train/step1/epoch"] = epoch + 1
                     print(json.dumps(metrics, indent=2, sort_keys=True))
@@ -806,6 +825,8 @@ class RayDAPOTrainer(RayPPOTrainer):
                         print('Failed to remove feedback path: {}'.format(train_feedback_path))
                 progress_bar.update(1)
                 self.global_steps += 1
+                elapsed = time.perf_counter() - start
+                print(f"Epoch {epoch + 1} Time Lapsed: {elapsed:.2f}s")
 
             # End of Epoch
             print(f"Epoch {epoch + 1} Completed.")

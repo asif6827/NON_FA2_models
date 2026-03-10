@@ -18,8 +18,14 @@ import numpy as np
 # from z3_verifier_v13 import compute_dsl_components
 from typing import Dict, Any, List, Tuple, Optional
 import re
-from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve import solve_and_validate_payload
-from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve import normalize_header, normalize_months_in_rows
+
+
+from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import solve_and_validate_payload
+from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import normalize_header, normalize_months_in_rows
+from verl.utils.reward_score.check_interleved_format import check_interleaved_reasoning
+from verl.utils.reward_score.z3_reasoning_vs_solution_verifier_v2 import verify_solution_two_step
+
+from verl.utils.reward_score.prompt_step_2 import SOLUTION_PROMPT_VERIFIER_V2, SOLUTION_PROMPT_1_SHOT_VERIFIER_USER_V2
 
 
 os.environ.setdefault("CLUE_TIMEOUT_S", "3.0")
@@ -38,6 +44,14 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+#pid_to_puzzle_dic_file = '/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json'
+pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/home/asif/data3/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
+
+with open(pid_to_puzzle_dic_file, "r", encoding="utf-8") as f:
+    pid_to_puzzle_dic = json.load(f)   # this is a dict (if JSON root is an object)
+
 
 
 def parse_answer_tag(solution_str: str) -> Optional[str]:
@@ -500,6 +514,13 @@ def schedule(epoch: int, total_epochs: int):
     return w_puz, alpha, cov_floor, parse_bonus_w
 
 
+
+def _append_jsonl_step2(path: str, record: Dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def curriculum_with_z3(
         cell_acc: float,
         puzzle_acc: float,
@@ -536,6 +557,43 @@ def curriculum_with_z3(
 
     return float(reward)
 
+
+def attribute_values_from_solution(solution: dict) -> dict:
+    import random
+    """
+    Convert a solution table into attribute_values:
+      solution = {"header": [...], "rows": [[...], ...]}
+    Returns:
+      {"Name": [...], "CarModel": [...], ...}   (excludes "House")
+    """
+    header = solution.get("header", [])
+    rows = solution.get("rows", [])
+
+    # column indices, skipping "House"
+    col_indices = [(i, col) for i, col in enumerate(header) if col != "House"]
+
+    values = {col: [] for _, col in col_indices}
+    seen = {col: set() for _, col in col_indices}
+
+    for row in rows:
+        if not isinstance(row, list):
+            continue
+        for i, col in col_indices:
+            if i >= len(row):
+                continue
+            v = "_".join(row[i].split(" "))
+            #v = row[i]
+            if v not in seen[col]:
+                seen[col].add(v)
+                values[col].append(v)
+
+    for key in values:
+        random.shuffle(values[key])
+    return values
+
+def pretty(x):
+    print(json.dumps(x, indent=2, ensure_ascii=False))
+    
 
 def _try_parse_first_json_obj(text: str) -> Optional[Dict[str, Any]]:
     """
@@ -597,14 +655,12 @@ def extract_reasoning_and_solution(solution_str: str):
     if answer_content:
         parsed = _try_parse_first_json_obj(answer_content)
         if parsed is not None:
-            return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses",
-                                                                                                                                                                          None), "success_answer_tag"
+            return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses", None), "success_answer_tag"
         return None, None, None, None, None, "answer_tag_json_error"
 
     parsed = _try_parse_first_json_obj(solution_str)
     if parsed is not None:
-        return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses",
-                                                                                                                                                                      None), "success_direct_json"
+        return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses", None), "success_direct_json"
 
     return None, None, None, None, None, "parsing_failed"
 
@@ -646,10 +702,70 @@ def append_jsonl_pretty(filepath, record):
         f.write(pretty + "\n")
 
 
+
 def _append_jsonl(path: str, record: Dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+from typing import Any, Dict, List, Optional, Tuple
+
+def _to_py_list(x: Any):
+    # Convert numpy arrays (and similar) to python lists safely
+    try:
+        import numpy as np
+        if isinstance(x, np.ndarray):
+            return x.tolist()
+    except Exception:
+        pass
+    return x
+
+def normalize_table(t: Any) -> Optional[Dict[str, Any]]:
+    """
+    Ensures:
+      - dict with keys: header (list[str]), rows (list[list[str]])
+      - rows never contain np.ndarray elements
+      - avoids boolean checks on arrays
+    """
+    if t is None or not isinstance(t, dict):
+        return None
+
+    header = _to_py_list(t.get("header", []))
+    rows = _to_py_list(t.get("rows", []))
+
+    # Important: DO NOT do `if rows:` before this normalization.
+    if header is None:
+        header = []
+    if rows is None:
+        rows = []
+
+    # Make sure header is a list
+    if not isinstance(header, list):
+        header = _to_py_list(header)
+        if not isinstance(header, list):
+            header = []
+
+    # Make sure rows is a list of lists
+    if not isinstance(rows, list):
+        rows = _to_py_list(rows)
+        if not isinstance(rows, list):
+            rows = []
+
+    norm_rows: List[List[str]] = []
+    for r in rows:
+        r = _to_py_list(r)
+        if isinstance(r, tuple):
+            r = list(r)
+        if not isinstance(r, list):
+            # last resort: wrap scalar as single-cell row
+            r = [r]
+        # stringify cells to make comparisons stable
+        norm_rows.append([str(c) for c in r])
+
+    return {
+        "header": [str(h) for h in header],
+        "rows": norm_rows,
+    }
 
 def compute_score(
         solution_str,
@@ -671,86 +787,103 @@ def compute_score(
     import logging
     import time
 
-    #print("\n" * 10)
-    #print("In scoring script type of ground_truth:", type(ground_truth))
-    #print("In Scoring script ground_truth:", (ground_truth))
-    #print("\n"*10)
-
-    start_t = time.monotonic()
-    #print("SOlution STR = ", solution_str)
-
-    if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
-        print(f"DEBUG-MODE: IN COMPUTE-SCORE, SCORING_METHOD = {score_method}")
-
-    def time_left() -> float:
-        return max(0.0, float(timeout) - (time.monotonic() - start_t))
-
-    # puzzle_text = extract_puzzle_text(solution_str).strip()
-
-
-
-    epoch = int(os.getenv("CURRENT_EPOCH", "90"))
-    total_epochs = int(os.getenv("TOTAL_EPOCH", "100"))
-    switch_epoch = int(os.environ.get("SWITCH_EPOCH", "25"))
-    feedback_path = os.path.join(os.environ.get("PUZZLE_FEEDBACK_PATH", "./"), f"jobid_{job_id}")
-    #feedback_path = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_feedback.jsonl")
-
-
-    ground_truth = normalize_ground_truth(ground_truth)
-    ground_truth = normalize_header(ground_truth)
-    #ground_truth = normalize_months_in_rows(ground_truth)
-    norm_pred = None
-    cell_acc_score = 0.0
-    puzzle_acc_score = 0.0
-
-    parse_error = ""
-    acc_error = ""
-    z3_error = ""
-    reward_error = ""
-
-    final_result = {}
-    payload = {}
-    final_result["base_sat_raw"] = 0.0
-    final_result["base_sat_full"] = 0.0
-    final_result["base_sat_raw_GT"] = 0.0
-    final_result["base_sat_full_GT"] = 0.0
-    final_result["n_steps_total"] = 0.0
-    final_result["n_steps_parsed_ok"] = 0.0
-    final_result["n_steps_entailed_strict"] = 0.0
-    final_result["n_steps_entailed_chain"] = 0.0
-    final_result["n_steps_contradiction_chain"] = 0.0
-    final_result["missed_data"] = 0.0
-    final_result["pass_rate_strict_gt_validated"] = 0.0
-    final_result["pass_rate_chain_gt_validated"] = 0.0
-    final_result["gt_valid"] = 0.0
-    final_result["n_steps_total_unfiltered"] = 0.0
-
-
-    final_result["acc"] = 0.0
-    final_result["PUZZLE_ACCURACY"] = 0.0
-    final_result["CELL_ACCURACY"] = 0.0
-    final_result["score"] = 0.0
-    final_result["epoch"] = epoch
-    final_result["total_epochs"] = total_epochs
-    final_result["reward_logged"] = 0.0
-
     try:
-        parsed_clues, parsed_reasoning, predicted_arrangement, attribute_values, n_houses, parse_status = extract_reasoning_and_solution(solution_str=solution_str)
+        epoch = int(os.getenv("CURRENT_EPOCH", "90"))
+        total_epochs = int(os.getenv("TOTAL_EPOCH", "100"))
+        switch_epoch = int(os.environ.get("SWITCH_EPOCH", "25"))
+        feedback_path = os.path.join(os.environ.get("PUZZLE_FEEDBACK_PATH", "./"), f"jobid_{job_id}")
+        #feedback_path = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_feedback.jsonl")
+
+        puzzle_id = ""
+
+        puzzle_id = None
+        if isinstance(extra_info, dict):
+            puzzle_id = extra_info.get("id") or extra_info.get("puzzle_id")
+        if puzzle_id is None and isinstance(meta, dict):
+            puzzle_id = meta.get("id") or meta.get("puzzle_id")
+
+
+
+        ground_truth = normalize_ground_truth(ground_truth)
+        ground_truth = normalize_header(ground_truth)
+        #ground_truth = normalize_months_in_rows(ground_truth)
+        norm_pred = None
+        cell_acc_score = 0.0
+        puzzle_acc_score = 0.0
+        n_houses = 1
+        verification = []
+        parse_error = ""
+        acc_error = ""
+        z3_error = ""
+        reward_error = ""
+
+        final_result = {}
+        z3_out = {}
+        payload = {}
+        final_result["BASE_sat_full_GT"] = 0.0
+        final_result["missed_data"] = 0.0
+        final_result["BASE_n_steps_total"] = 0.0
+        final_result["BASE_n_steps_parsed_ok"] = 0.0
+        final_result["BASE_n_steps_valid"] = 0.0
+        final_result["BASE_n_steps_novel_inc_clues"] = 0.0
+        final_result["BASE_n_non_valid_contradiction"] = 0.0
+        final_result["Normalizer"] = 0.0
+
+
+        final_result["acc"] = 0.0
+        final_result["PUZZLE_ACCURACY"] = 0.0
+        final_result["CELL_ACCURACY"] = 0.0
+        final_result["score"] = 0.0
+        final_result["epoch"] = epoch
+        final_result["total_epochs"] = total_epochs
+        final_result["reward_logged"] = 0.0
+
+    except Exception as e:
+        #logger.exception(f"Failed to get puzzle id from extra_info: {e}")
+        logger.error(f"Failed to get puzzle id from extra_info: {e}")
+        final_result = {}
+        payload = {}
+        z3_out = {}
+        final_result["BASE_sat_full_GT"] = 0.0
+        final_result["missed_data"] = 0.0
+
+        final_result["BASE_n_steps_total"] = 0.0
+        final_result["BASE_n_steps_parsed_ok"] = 0.0
+        final_result["BASE_n_steps_valid"] = 0.0
+        final_result["BASE_n_steps_novel_inc_clues"] = 0.0
+        final_result["BASE_n_non_valid_contradiction"] = 0.0
+        final_result["BASE_n_novel_inc_clues_contradiction"] = 0.0
+
+        final_result["acc"] = 0.0
+        final_result["PUZZLE_ACCURACY"] = 0.0
+        final_result["CELL_ACCURACY"] = 0.0
+        final_result["score"] = 0.0
+        final_result["epoch"] = epoch
+        final_result["total_epochs"] = total_epochs
+        final_result["reward_logged"] = 0.0
+
+    parsing_reward = 0.0
+    try:
+        syntactic_clues, parsed_reasoning, predicted_arrangement, attribute_values, n_houses, parse_status = extract_reasoning_and_solution(solution_str=solution_str)
         if parse_status != "success_answer_tag":
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 log_case("non_boxed_answer", solution_str, ground_truth, logger)
 
-
+        if parse_status == "success_direct_json" or parse_status == "success_answer_json":
+            parsing_reward = 1.0
         # meta selection
         meta_used = meta
         if meta_used is None and isinstance(extra_info, dict):
             meta_used = extra_info.get("meta") or extra_info
     except Exception as parse_error:
         logger.error(f"Error in solution parsing: {parse_error}")
-        n_houses = None
+        n_houses = 1
+        parsing_reward = 0.0
+        num_blocks = 0
         attribute_values = None
-        parsed_clues = None
+        syntactic_clues = None
         parsed_reasoning = None
+        #final_result["missed_data"] = 1.0
 
     # ---------------- ACC ----------------
     if predicted_arrangement:
@@ -758,8 +891,8 @@ def compute_score(
             pred_conv = convert_numpy_arrays(predicted_arrangement)
             gt_conv = convert_numpy_arrays(ground_truth)
 
-            norm_pred = normalize_grid(pred_conv)
-            norm_gt = normalize_grid(gt_conv)
+            norm_pred = normalize_table(pred_conv)  # normalize_grid(pred_conv)
+            norm_gt = normalize_table(gt_conv)  # normalize_grid(gt_conv)
 
             if norm_pred and norm_gt:
                 norm_pred = normalize_header(norm_pred)
@@ -774,144 +907,202 @@ def compute_score(
             #print()
             #print('Failed case ground-truth:', gt_conv)
             #print()
-            logger.exception("Crash in ACC Scoring")
-            logger.error(f"Error calculating ACC score: {acc_error}")
+            #logger.exception("Crash in ACC Scoring")
+            #logger.error(f"Error calculating ACC score: {acc_error}")
             cell_acc_score = 0.0
             puzzle_acc_score = 0.0
+    # -----------------------
+    # Z3 scoring (base metrics)
+    # -----------------------
 
-    # ---------------- Z3 ----------------
-    z3_out = {
-        "base_sat_raw": None,
-        "base_sat_full": None,
-        "base_sat_full_GT": None,
-        "base_sat_raw_GT": None,
+    MISSING_BASE_DEFAULTS = {
+        "BASE_sat_full_GT": 0.0,
         "n_steps_total": 0,
         "n_steps_parsed_ok": 0,
-        "n_steps_entailed_strict": 0,
-        "n_steps_entailed_chain": 0,
-        "n_steps_contradiction_chain": 0,
-        "gt_valid": None,
-        "pass_rate_strict_gt_validated": 0.0,
-        "pass_rate_chain_gt_validated": 0.0,
-        "log_compute_distinct_steps": None,
+        "n_steps_valid": 0,
+        "n_steps_novel_inc_clues": 0,
+        "n_non_valid_contradiction": 0,
+        # Optional lists for downstream debugging
+        "list_steps_non_valid": [],
+        "list_novel_steps_inc_clues": [],
     }
-    if n_houses and attribute_values and parsed_clues and parsed_reasoning:
-        final_result["n_steps_total_unfiltered"] = len(parsed_reasoning)
+
+    FINAL_BASE_KEYS_MAP = {
+        "n_steps_total": "BASE_n_steps_total",
+        "n_steps_parsed_ok": "BASE_n_steps_parsed_ok",
+        "n_steps_valid": "BASE_n_steps_valid",
+        "n_steps_novel_inc_clues": "BASE_n_steps_novel_inc_clues",
+        "n_non_valid_contradiction": "BASE_n_non_valid_contradiction",
+    }
+
+    def _normalize_binary(value) -> float:
+        """Normalize any truthy/falsy value to 1.0 or 0.0."""
+        return 1.0 if bool(value) else 0.0
+
+    def _apply_base_results(final_result: dict, z3_out: dict, *, missed_data: float) -> None:
+        """Write Z3 base results into final_result with consistent keys."""
+        final_result["missed_data"] = float(missed_data)
+
+        for src_key, dst_key in FINAL_BASE_KEYS_MAP.items():
+            final_result[dst_key] = z3_out.get(
+                src_key,
+                MISSING_BASE_DEFAULTS[src_key],)
+
+    def _is_sat_check_failure(z3_out: dict) -> bool:
+        """Return True if the Z3 solver failed its SAT check."""
+        return z3_out.get("parse_status") == "SAT_CHECK_FAIL"
+
+    required_inputs_present = all([
+        n_houses,
+        attribute_values,
+        syntactic_clues,
+        parsed_reasoning,
+    ])
+
+    if required_inputs_present:
         payload = {
             "n_houses": n_houses,
             "attribute_values": attribute_values,
-            "syntactic_clues": parsed_clues,
+            "syntactic_clues": syntactic_clues,
             "reasoning": parsed_reasoning,
             "ground_truth": ground_truth,
         }
+
         try:
             z3_out = solve_and_validate_payload(payload, timeout_s=5.0, conflict_tolerant_clues=False,)
+            logger.debug("Z3 parse_status=%s", z3_out.get("parse_status"))
+        except Exception:
+            z3_out = dict(MISSING_BASE_DEFAULTS)
+            #logger.error("Crash while calculating Z3 score")
 
-        except Exception as z3_error:
-            z3_out = {
-                "base_sat_raw": None,
-                "base_sat_full": None,
-                "base_sat_raw_GT": None,
-                "base_sat_full_GT": None,
-                "n_steps_total": 0,
-                "n_steps_parsed_ok": 0,
-                "n_steps_entailed_strict": 0,
-                "n_steps_entailed_chain": 0,
-                "n_steps_contradiction_chain": 0,
-                "gt_valid": None,
-                "pass_rate_strict_gt_validated": 0.0,
-                "pass_rate_chain_gt_validated": 0.0,
-                "log_compute_distinct_steps": None,
-            }
-            logger.error(f"Error calculating Z3 score: {z3_error}")
-            #logger.exception("Crash in Z3 Scoring")
-            #logger.exception("Crash in Z3 Scoring")
-            #logger.error(f"Error calculating Z3 score: {e}")
-
-        final_result["base_sat_raw"] = 1.0 if z3_out["base_sat_raw"] else 0.0
-        final_result["base_sat_full"] = 1.0 if z3_out["base_sat_full"] else 0.0
-        final_result["base_sat_raw_GT"] = 1.0 if z3_out["base_sat_raw_GT"] else 0.0
-        final_result["base_sat_full_GT"] = 1.0 if z3_out["base_sat_full_GT"] else 0.0
-        final_result["n_steps_total"] = z3_out["n_steps_total"]
-        final_result["n_steps_parsed_ok"] = z3_out["n_steps_parsed_ok"]
-        final_result["n_steps_entailed_strict"] = z3_out["n_steps_entailed_strict"]
-        final_result["n_steps_entailed_chain"] = z3_out["n_steps_entailed_chain"]
-        final_result["n_steps_contradiction_chain"] = z3_out["n_steps_contradiction_chain"]
-        final_result["missed_data"] = 0.0
-        final_result["pass_rate_strict_gt_validated"] = z3_out["pass_rate_strict_gt_validated"]
-        final_result["pass_rate_chain_gt_validated"] = z3_out["pass_rate_chain_gt_validated"]
-        final_result["gt_valid"] = 1.0 if z3_out["gt_valid"] else 0.0
+        if _is_sat_check_failure(z3_out):
+            final_result["BASE_sat_full_GT"] = 0.0
+            _apply_base_results(final_result, MISSING_BASE_DEFAULTS, missed_data=1.0)
+        else:
+            final_result["BASE_sat_full_GT"] = _normalize_binary(z3_out.get("base_sat_full_GT", 0.0))
+            _apply_base_results(final_result, z3_out, missed_data=0.0)
 
     else:
-        final_result["base_sat_raw"] =  0.0
-        final_result["base_sat_full"] = 0.0
-        final_result["base_sat_raw_GT"] = 0.0
-        final_result["base_sat_full_GT"] = 0.0
-        final_result["n_steps_total"] = 0.0
-        final_result["n_steps_parsed_ok"] = 0.0
-        final_result["n_steps_entailed_strict"] = 0.0
-        final_result["n_steps_entailed_chain"] = 0.0
-        final_result["n_steps_contradiction_chain"] = 0.0
-        final_result["missed_data"] = 0.0
-        final_result["pass_rate_strict_gt_validated"] = 0.0
-        final_result["pass_rate_chain_gt_validated"] = 0.0
-        final_result["gt_valid"] = 0.0
-        final_result["n_steps_total_unfiltered"] = 0.0
+        final_result["BASE_sat_full_GT"] = 0.0
+        _apply_base_results(final_result, MISSING_BASE_DEFAULTS, missed_data=1.0)
+
+    # -----------------------
+    # Format Reward
+    # -----------------------
+    format_ok = False
+    #if num_blocks==1 and parsed_reasoning:
+    if parsed_reasoning:
+        try:
+            format_ok = check_interleaved_reasoning(parsed_reasoning, n_houses=int(n_houses))
+            #print(parsed_reasoning)
+            #print(format_ok)
+        except Exception:
+            #logger.error("Error computing format penalty..!")
+            format_ok = False
+    else:
+        format_ok = False
+    #print('Format reward = {}'.format(format_ok))
 
 
+    # ---------------------------
+    # Reasoning + Clues vs Solution Validator
+    # ---------------------------
+    consistency_score = 0
+    reasoning_vs_sol_validate = {}
+    if syntactic_clues and predicted_arrangement and z3_out:
+        try:
+            list_novel_steps_inc_clues = z3_out.get("list_novel_steps_inc_clues", [])
+            reasoning_vs_sol_validate = verify_solution_two_step(syntactic_clues, list_novel_steps_inc_clues, predicted_arrangement)
+            consistency_score = reasoning_vs_sol_validate['reward']
+        except Exception:
+            consistency_score = 0
+    #print("Consistency score:", consistency_score)
+
+
+
+
+    # -----------------------
+    # Reward components (safe defaults)
+    # -----------------------
     try:
-        #reward, metrics = compute_rl_reward_from_z3(z3_out=z3_out, puzzle_accuracy=puzzle_acc_score, cell_accuracy=cell_acc_score)
-        '''
-        reward, reward_metrics = compute_rl_reward_from_z3(
-            z3_out=z3_out,
-            puzzle_accuracy=puzzle_acc_score,
-            cell_accuracy=cell_acc_score,
-            epoch=epoch,
-            total_epochs=total_epochs,
-            switch_epoch=switch_epoch,
-        )
-        '''
 
-        #reward = 1.0 if puzzle_acc_score == 1.0 else min(0.95, 0.2 + 0.25 * cell_acc_score + 0.50 * final_result["pass_rate_strict_gt_validated"])
-        #reward = 0.6 * puzzle_acc_score + 0.4 * final_result["n_steps_entailed_chain"]
-        if attribute_values is not None:
-            normalizer = 2 * int(n_houses) * int(len(attribute_values.keys()))
-            reward = 0.6 * puzzle_acc_score + 0.4 * (final_result["n_steps_entailed_strict"] / normalizer)
-            #reward = 0.5 * puzzle_acc_score + 0.2 * cell_acc_score + 0.3 * (final_result["n_steps_entailed_strict"] / normalizer)
+        reward = 0.0
+        normalizer = 1.0  # will be overwritten if inputs are valid
+
+        has_required_inputs = (attribute_values is not None) and (n_houses is not None)
+
+        if has_required_inputs:
+            n_houses_i = max(int(n_houses), 0)
+            n_attrs_i = max(len(attribute_values), 0)
+
+            # Keep strictly positive to avoid division by zero.
+            normalizer = max(5.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
+
+            n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
+            n_novel_steps = float(final_result.get("BASE_n_steps_novel_inc_clues", 0.0))
+            sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))  # expected 1.0 or 0.0
+
+            if format_ok:
+                format_reward = 1.0
+            else:
+                format_reward = 0.0
+            #print("Format reward = {}".format(format_reward))
+
+            if sat_ok == 0.0:
+                reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
+            else:
+                #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
+                #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
+                #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
+                reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score) + 0.1 * consistency_score
+                #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
+        
+        
         else:
             reward = 0.0
 
+
+        #reward = 0.6 * float(puzzle_acc_score)
+        #normalizer = 0.0
+
+        # -----------------------
+        # Log / persist to final_result
+        # -----------------------
+        final_result["Normalizer"] = float(normalizer)
+        final_result["acc"] = float(reward)
+        final_result["PUZZLE_ACCURACY"] = float(puzzle_acc_score)
+        final_result["CELL_ACCURACY"] = float(cell_acc_score)
+        final_result["score"] = float(reward)
+        final_result["epoch"] = epoch
+        final_result["total_epochs"] = total_epochs
+        final_result["reward_logged"] = float(reward)
+
+
+    except Exception:
+        reward = 0.0
+        # Hard fail-safe: never crash reward computation pipeline.
+        logger.exception("Crash in Final Reward Scoring")
+
+        final_result["Normalizer"] = 0.0
         final_result["acc"] = reward
-        final_result["PUZZLE_ACCURACY"] = puzzle_acc_score
-        final_result["CELL_ACCURACY"] = cell_acc_score
+        final_result["PUZZLE_ACCURACY"] = 0.0
+        final_result["CELL_ACCURACY"] = 0.0
         final_result["score"] = reward
         final_result["epoch"] = epoch
         final_result["total_epochs"] = total_epochs
         final_result["reward_logged"] = reward
 
-    except Exception as reward_error:
-        reward = 0.0
-        final_result["acc"] = 0.0
-        final_result["PUZZLE_ACCURACY"] = 0.0
-        final_result["CELL_ACCURACY"] = 0.0
-        final_result["score"] = 0.0
-        final_result["epoch"] = epoch
-        final_result["total_epochs"] = total_epochs
-        final_result["reward_logged"] = 0.0
 
-        logger.exception("Crash in Final Reward Scoring")  # includes line number + stack
-        logger.error(f"Error calculating Reward score: {reward_error}")
+
 
 
     if os.environ.get("VALID_STATUS", "0") == "1":
-        feedback_path = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_valid_feedback.jsonl")
+        feedback_path_valid = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_valid_feedback_step1.jsonl")
         try:
             example_ = {}
-            example_["log_compute_distinct_steps"] = z3_out["log_compute_distinct_steps"]
-            example_["parse_error"] = str(parse_error)
-            example_["acc_error"] = str(acc_error)
-            example_["z3_error"] = str(z3_error)
-            example_["reward_error"] = str(reward_error)
+            example_["pid"] = puzzle_id
+            example_["puzzle_text"] = pid_to_puzzle_dic[puzzle_id]
+            example_["z3_out"] = z3_out
             example_["payload"] = payload
             example_["ground_truth"] = ground_truth
             example_["original_prediction"] = predicted_arrangement
@@ -920,24 +1111,28 @@ def compute_score(
             else:
                 example_["processed_prediction"] = "WRONG OUTPUT FORMAT"
             example_["z3_out"] = z3_out
+            example_["reasoning_vs_sol_validate"] = reasoning_vs_sol_validate
             example_["reward"] = reward
+            example_["Format_Check"] = format_ok
             example_["final_result"] = final_result
             if example_:
-                os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
-                _append_jsonl(feedback_path, example_)
+                os.makedirs(os.path.dirname(feedback_path_valid), exist_ok=True)
+                _append_jsonl(feedback_path_valid, example_)
 
         except Exception as e:
             logger.exception("Crash in Writing Feedback")
+
+
+
+
 
     elif os.environ.get("VALID_STATUS", "0") == "2":
-        feedback_path = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_train_feedback.jsonl")
+        feedback_path_tr = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_train_feedback_step1.jsonl")
         try:
             example_ = {}
-            example_ ["log_compute_distinct_steps"] = z3_out["log_compute_distinct_steps"]
-            example_["parse_error"] = str(parse_error)
-            example_["acc_error"] = str(acc_error)
-            example_["z3_error"] = str(z3_error)
-            example_["reward_error"] = str(reward_error)
+            example_["pid"] = puzzle_id
+            example_["puzzle_text"] = pid_to_puzzle_dic[puzzle_id]
+            example_ ["z3_out"] = z3_out
             example_["payload"] = payload
             example_["ground_truth"] = ground_truth
             example_["original_prediction"] = predicted_arrangement
@@ -946,17 +1141,113 @@ def compute_score(
             else:
                 example_["processed_prediction"] = "WRONG OUTPUT FORMAT"
             example_["z3_out"] = z3_out
+            example_["reasoning_vs_sol_validate"] = reasoning_vs_sol_validate
             example_["reward"] = reward
+            example_["Format_Check"] = format_ok
             example_["final_result"] = final_result
             if example_:
-                os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
-                _append_jsonl(feedback_path, example_)
+                os.makedirs(os.path.dirname(feedback_path_tr), exist_ok=True)
+                _append_jsonl(feedback_path_tr, example_)
 
         except Exception as e:
             logger.exception("Crash in Writing Feedback")
+
+
+
+
+
+    elif os.environ.get("VALID_STATUS", "0") == "3":
+        feedback_path_valid = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_valid_feedback_step2.jsonl")
+        try:
+            example_ = {}
+            example_["pid"] = puzzle_id
+            example_["puzzle_text"] = pid_to_puzzle_dic[puzzle_id]
+            example_ ["z3_out"] = z3_out
+            example_["payload"] = payload
+            example_["ground_truth"] = ground_truth
+            example_["original_prediction"] = predicted_arrangement
+            if norm_pred != None:
+                example_["processed_prediction"] = norm_pred
+            else:
+                example_["processed_prediction"] = "WRONG OUTPUT FORMAT"
+            example_["z3_out"] = z3_out
+            example_["reasoning_vs_sol_validate"] = reasoning_vs_sol_validate
+            example_["reward"] = reward
+            example_["Format_Check"] = format_ok
+            example_["final_result"] = final_result
+            if example_:
+                os.makedirs(os.path.dirname(feedback_path_valid), exist_ok=True)
+                _append_jsonl(feedback_path_valid, example_)
+
+        except Exception as e:
+            logger.exception("Crash in Writing Feedback")
+
+
+
+
+
+    elif os.environ.get("VALID_STATUS", "0") == "4":
+        feedback_path_tr = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_train_feedback_step2.jsonl")
+        try:
+            example_ = {}
+            example_["pid"] = puzzle_id
+            example_["puzzle_text"] = pid_to_puzzle_dic[puzzle_id]
+            example_ ["z3_out"] = z3_out
+            example_["payload"] = payload
+            example_["ground_truth"] = ground_truth
+            example_["original_prediction"] = predicted_arrangement
+            if norm_pred != None:
+                example_["processed_prediction"] = norm_pred
+            else:
+                example_["processed_prediction"] = "WRONG OUTPUT FORMAT"
+            example_["z3_out"] = z3_out
+            example_["reasoning_vs_sol_validate"] = reasoning_vs_sol_validate
+            example_["reward"] = reward
+            example_["Format_Check"] = format_ok
+            example_["final_result"] = final_result
+            if example_:
+                os.makedirs(os.path.dirname(feedback_path_tr), exist_ok=True)
+                _append_jsonl(feedback_path_tr, example_)
+
+        except Exception as e:
+            logger.exception("Crash in Writing Feedback")
+
+
+
+    if os.environ.get("STEP1_STATUS", "0") == "1":
+        feedback_path_fb = os.path.join(feedback_path, f"feedback_jobid_{job_id}_epoch_{epoch}.jsonl")
+        try:
+            if puzzle_acc_score != 1.0:
+                puzzle_text = pid_to_puzzle_dic[puzzle_id]
+                grid = pid_to_puzzle_dic[puzzle_id + '_sol']
+
+                example_ = {
+                    "prompt": SOLUTION_PROMPT_VERIFIER_V2 + SOLUTION_PROMPT_1_SHOT_VERIFIER_USER_V2.format(
+                        puzzle=puzzle_text,
+                        solution_header = grid['header'],
+                        attribute_values = attribute_values_from_solution(grid),
+                        passed_reasoning = [step for step in  z3_out["list_steps_valid"]]
+                    ),
+                    "id": puzzle_id,
+                    "solution": grid,
+                    "puzzle": puzzle_text,
+                }
+
+                if example_:
+                    os.makedirs(os.path.dirname(feedback_path_fb), exist_ok=True)
+                    _append_jsonl_step2(feedback_path_fb, example_)
+
+        except Exception as e:
+            #print(f"Failing example = {example_}")
+            logger.exception("Crash in Writing Feedback")
+            print(f"[FEEDBACK] Failed to write feedback file: {e}")
+            print(f"[FEEDBACK] Error details: {str(e)}")
+            print(f"[FEEDBACK] Feedback path: {feedback_path_fb}")
+            print(f"[FEEDBACK] Record: {json.dumps(example_, ensure_ascii=False, indent=2)}")
 
 
     #os.environ["VALID_STATUS"] = "0"
+    #sorted_result = dict(sorted(final_result.items(), key=lambda x: x[0]))
     return final_result
 
 
@@ -966,105 +1257,66 @@ def pretty(x):
 
 
 
-def make_solution_str() -> str:
-    """
-    This is the LLM output format your pipeline expects:
-    a single <answer>...</answer> block with JSON inside.
-    """
-    payload = {
+if __name__ == "__main__":
+    # Minimal smoke test
+    example_solution_str = """```json
+    {
         "n_houses": 3,
         "attribute_values": {
-            "Name": ["Arnold", "Peter", "Eric"],
-            "Drink": ["tea", "water", "milk"]
+            "Name": ["Peter", "Eric", "Arnold"],
+            "Color": ["red", "white", "yellow"],
+            "Children": ["Fred", "Meredith", "Bella"]
         },
-        "parsed_clues": [
-            "C1 = set(2,Name,Peter).",
-            "C2 = immediately_left_of(Name=Arnold,Drink=water).",
-            "C3 = immediately_left_of(Drink=water,Drink=milk)."
+        "syntactic_clues": [
+            "C1: Arnold == red.",
+            "C2: red == 2.",
+            "C3: Bella == 1.",
+            "C4: Fred < Eric.",
+            "C5: white == Meredith."
         ],
-        "parsed_reasoning": [
-            "S1 [C1] set(2,Name,Peter).",
-            "S2 [C3] not_set(3,Drink,water).",
-            "S3 [C3] not_set(1,Drink,milk).",
-            "S4 [C2] not_set(3,Name,Arnold).",
-            "S5 [C2+C3] set(1,Name,Arnold)."
+        "reasoning": [
+            "I am NL",
+            "S1: Or(eric ==1, Eric ==2, Eric == 3).",
+            "I am NL.",
+            "S2: Not(Eric == 1).",
+            "I am NL",
+            "S3: Arnold == 2."
         ],
-        "solution": {
-            "header": ["House", "Name", "Drink"],
-            "rows": [
-                ["1", "Arnold", "tea"],
-                ["2", "Peter", "water"],
-                ["3", "Eric", "milk"]
-            ]
-        }
+      "solution": {
+        "header": ["House", "Name", "Color", "Children"],
+        "rows": [
+          ["1", "Arnold", "yellow", "Bella"],
+          ["2", "Peter", "red", "Fred"],
+          ["3", "Eric", "white", "Meredith"]
+        ]
+      }
+    }
+    ```"""
+
+    example_ground_truth =  {
+        "header": ["House", "Name", "Color", "Children"],
+        "rows": [
+            ["1", "Peter", "yellow", "Bella"],
+            ["2", "Arnold", "red", "Fred"],
+            ["3", "Eric", "white", "Meredith"],
+        ]
     }
 
-    # IMPORTANT: solution_str must be wrapped in <answer> ... </answer>
-    return "<answer>" + json.dumps(payload, ensure_ascii=False) + "</answer>"
-
-
-def make_ground_truth() -> dict:
-    """
-    Your GT format: the same 'solution' table shape.
-    """
-    ground_truth = {
-        "header": np.array(["House", "Name", "Drink"], dtype=object),
-        "rows": np.array([
-            np.array(["1", "Arnold", "tea"], dtype=object),
-            np.array(["2", "Peter", "water"], dtype=object),
-            np.array(["3", "Eric", "milk"], dtype=object),
-        ], dtype=object),
-    }
-    return ground_truth
-
-def main():
-    import pprint
-    solution_str = make_solution_str()
-    ground_truth = make_ground_truth()
-    #ground_truth = json.dumps(ground_truth, ensure_ascii=False)
-    #ground_truth = json.loads(ground_truth)
-
-    #pred_conv = convert_numpy_arrays(predicted_arrangement)
-    #gt_conv = convert_numpy_arrays(ground_truth)
-
-    #norm_pred = normalize_grid(pred_conv)
-    #norm_gt = normalize_grid(gt_conv)
-
-    #ground_truth = convert_numpy_arrays(ground_truth)
-
-    # 2) CALL compute_score
-    # -----
-    # IMPORTANT: adjust params to match YOUR compute_score signature.
-    #
-    # Common patterns I’ve seen in your code:
-    #   compute_score(solution_str=..., ground_truth=..., timeout_s=..., conflict_tolerant_clues=...)
-    #
-    # If your signature is different, just rename/remove args accordingly.
-    final_result = compute_score(
-        solution_str=solution_str,
-        ground_truth=ground_truth)
-
-    # 3) PRINT KEY FIELDS
-    print("\n=== compute_score output (selected) ===")
-    keys = [
-        "CELL_ACCURACY",
-        "PUZZLE_ACCURACY",
-        "z3_base_sat_raw",
-        "z3_base_sat_full",
-        "pass_rate_strict_gt_validated",
-        "pass_rate_chain_gt_validated",
-        "n_steps_total",
-        "n_steps_parsed_ok",
-        "n_steps_entailed_strict",
-        "n_steps_entailed_chain",
-    ]
-    for k in keys:
-        if k in final_result:
-            print(f"{k}: {final_result[k]}")
-
-    print("\n=== Full final_result (pretty) ===")
-    pprint.pprint(final_result)
-
-
-if __name__ == "__main__":
-    main()
+    scores = compute_score(
+        example_solution_str,
+        example_ground_truth,
+        extra_info={
+            "puzzle_id": "lgp-test-5x6-16",
+            "enable_step_feedback": True,
+            "step_timeout_ms": 800,
+            "base_timeout_ms": 2000,
+            # If you don't want ACC to affect training, set acc_weight to 0.0 (you can also pass it in the training framework).
+        },
+        meta={
+            "feedback_path": "./reasoning_feedback.jsonl",
+            "enable_step_feedback": True,
+            "step_timeout_ms": 800,
+            "base_timeout_ms": 2000,
+            # If you don't want ACC to affect training, set acc_weight to 0.0 (you can also pass it in the training framework).
+        },
+    )
