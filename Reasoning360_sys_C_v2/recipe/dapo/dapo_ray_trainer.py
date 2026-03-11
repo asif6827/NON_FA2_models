@@ -449,6 +449,11 @@ class RayDAPOTrainer(RayPPOTrainer):
                             metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=self.resource_pool_manager.get_n_gpus()))
                         timing_raw = defaultdict(float)
 
+
+
+
+                    metrics["train/step"] = 1
+                    metrics["train/step1/epoch"] = epoch + 1
                     # validate
                     if (self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and current_step % self.config.trainer.test_freq == 0):
                         with marked_timer("testing", timing_raw, "green"):
@@ -456,12 +461,12 @@ class RayDAPOTrainer(RayPPOTrainer):
                             val_metrics: dict = self._validate()
                             os.environ["VALID_STATUS"] = "2"
                             val_metrics_tr: dict = self._validate_tr()
-                            #if is_last_step:
+                            # if is_last_step:
                             #    last_val_metrics = val_metrics
                         metrics.update(val_metrics)
                         metrics.update(val_metrics_tr)
                         os.environ["VALID_STATUS"] = "0"
-                        
+
                         puzzle_accuracy = float(val_metrics[puzzle_key])
                         if puzzle_accuracy > self.puzzle_acc:
                             print(f"New Puzzle Accuracy is higher. Updating Puzzle Accuracy = {puzzle_accuracy}")
@@ -471,10 +476,20 @@ class RayDAPOTrainer(RayPPOTrainer):
                                     self._save_checkpoint()
                             self.puzzle_acc = puzzle_accuracy
 
+                    with marked_timer("stop_profile", timing_raw):
+                        if do_profile:
+                            self.actor_rollout_wg.stop_profile()
+                            if self.use_reference_policy:
+                                self.ref_policy_wg.stop_profile()
+                            if self.use_critic:
+                                self.critic_wg.stop_profile()
+                            if self.use_rm:
+                                self.rm_wg.stop_profile()
 
-                    metrics["train/step"] = 1
-                    metrics["train/step1/epoch"] = epoch + 1
                     print(json.dumps(metrics, indent=2, sort_keys=True))
+
+                    progress_bar.update(1)
+                    self.global_steps += 1
 
 
 
@@ -557,6 +572,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                 # print("FEEDBACK DATALOADER DONE")
                 step2_iter = 0
                 for batch_dict in self.feedback_dataloader:
+                    start2 = time.perf_counter()
                     print(f"Batch size of step-2 batch = {batch_dict["input_ids"].shape[0]}")
                     step2_iter += 1
                     feedback_metrics = {}
@@ -823,10 +839,9 @@ class RayDAPOTrainer(RayPPOTrainer):
                 except Exception as e:
                     print('Failed to remove feedback path: {}'.format(feedback_path))
                     print('Failed to remove feedback path: {}'.format(train_feedback_path))
-                progress_bar.update(1)
-                self.global_steps += 1
-                elapsed = time.perf_counter() - start
-                print(f"Epoch {epoch + 1} Time Lapsed: {elapsed:.2f}s")
+
+                elapsed = time.perf_counter() - start2
+                print(f"Epoch {epoch + 1} Step-2; Time Lapsed: {elapsed:.2f}s")
 
             # End of Epoch
             print(f"Epoch {epoch + 1} Completed.")
