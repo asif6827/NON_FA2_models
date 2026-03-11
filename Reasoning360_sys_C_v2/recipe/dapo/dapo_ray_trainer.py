@@ -240,7 +240,7 @@ class RayDAPOTrainer(RayPPOTrainer):
 
         for epoch in range(self.config.trainer.total_epochs):
             os.environ["CURRENT_EPOCH"] = str(epoch+1)
-            start = time.perf_counter()
+            start1 = time.perf_counter()
 
             print(f"\n{'=' * 60}")
             print(f"Epoch {epoch + 1}: Starting Training Loop")
@@ -477,6 +477,9 @@ class RayDAPOTrainer(RayPPOTrainer):
                             self.puzzle_acc = puzzle_accuracy
 
                     print(json.dumps(metrics, indent=2, sort_keys=True))
+
+                    elapsed = time.perf_counter() - start1
+                    print(f"Epoch {epoch + 1} Step-1; Time Lapsed: {elapsed:.2f}s")
 
                     progress_bar.update(1)
                     self.global_steps += 1
