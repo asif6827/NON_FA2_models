@@ -476,16 +476,6 @@ class RayDAPOTrainer(RayPPOTrainer):
                                     self._save_checkpoint()
                             self.puzzle_acc = puzzle_accuracy
 
-                    with marked_timer("stop_profile", timing_raw):
-                        if do_profile:
-                            self.actor_rollout_wg.stop_profile()
-                            if self.use_reference_policy:
-                                self.ref_policy_wg.stop_profile()
-                            if self.use_critic:
-                                self.critic_wg.stop_profile()
-                            if self.use_rm:
-                                self.rm_wg.stop_profile()
-
                     print(json.dumps(metrics, indent=2, sort_keys=True))
 
                     progress_bar.update(1)
