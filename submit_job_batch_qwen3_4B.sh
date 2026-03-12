@@ -10,6 +10,10 @@ cd "$BASE_DIR/Reasoning360_sys_C_v2"
 bash submit_job_qwen3.sh
 
 
+echo "Submitting Reasoning360_sys_B_v22..."
+cd "$BASE_DIR/Reasoning360_sys_B_v22"
+bash submit_job_qwen3.sh
+
 
 
 
