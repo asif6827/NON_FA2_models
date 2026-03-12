@@ -661,7 +661,7 @@ class RayPPOTrainer:
         self.feedback_data = create_rl_dataset(data_path, self.config.data, self.tokenizer, self.processor)
 
         print(f"LENGTH OF Feedback DATA SET = {len(self.feedback_data)}\n")
-        print(f" Number of step-2 iterations = {math.ceil(len(self.feedback_data)/self.config.data.get("gen_batch_size", self.config.data.train_batch_size))}")
+        print(f" Number of step-2 iterations = {math.ceil(len(self.feedback_data)/ (8 * self.config.data.get("gen_batch_size", self.config.data.train_batch_size)))}")
         if train_sampler is None:
             train_sampler = create_rl_sampler(self.config.data, self.feedback_data)
         if collate_fn is None:
@@ -673,7 +673,7 @@ class RayPPOTrainer:
 
         self.feedback_dataloader = StatefulDataLoader(
             dataset=self.feedback_data,
-            batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+            batch_size=8 * self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
             num_workers=num_workers,
             drop_last=True,
             collate_fn=collate_fn,

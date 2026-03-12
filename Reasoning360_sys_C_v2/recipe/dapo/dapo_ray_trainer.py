@@ -208,8 +208,8 @@ class RayDAPOTrainer(RayPPOTrainer):
         # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
 
-        # we start from step 1
-        self.global_steps += 1
+
+
         last_val_metrics = None
 
         timing_raw = defaultdict(float)
@@ -247,6 +247,8 @@ class RayDAPOTrainer(RayPPOTrainer):
             print(f"{'=' * 60}")
             num_gen_batches = 0
             for batch_dict in self.train_dataloader:
+                # we start from step 1
+                self.global_steps += 1
                 metrics = {}
 
                 # ==================================
@@ -454,36 +456,12 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                     metrics["train/step"] = 1
                     metrics["train/step1/epoch"] = epoch + 1
-                    # validate
-                    if (self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and current_step % self.config.trainer.test_freq == 0):
-                        with marked_timer("testing", timing_raw, "green"):
-                            os.environ["VALID_STATUS"] = "1"
-                            val_metrics: dict = self._validate()
-                            os.environ["VALID_STATUS"] = "2"
-                            val_metrics_tr: dict = self._validate_tr()
-                            # if is_last_step:
-                            #    last_val_metrics = val_metrics
-                        metrics.update(val_metrics)
-                        metrics.update(val_metrics_tr)
-                        os.environ["VALID_STATUS"] = "0"
-
-                        puzzle_accuracy = float(val_metrics[puzzle_key])
-                        if puzzle_accuracy > self.puzzle_acc:
-                            print(f"New Puzzle Accuracy is higher. Updating Puzzle Accuracy = {puzzle_accuracy}")
-                            print("Updating checkpoint...!")
-                            if self.config.trainer.save_freq > 0 and (self.global_steps % self.config.trainer.save_freq == 0):
-                                with marked_timer("save_checkpoint", timing_raw, "green"):
-                                    self._save_checkpoint()
-                            self.puzzle_acc = puzzle_accuracy
-
                     print(json.dumps(metrics, indent=2, sort_keys=True))
 
                     elapsed = time.perf_counter() - start1
                     print(f"Epoch {epoch + 1} Step-1; Time Lapsed: {elapsed:.2f}s")
 
                     progress_bar.update(1)
-                    self.global_steps += 1
-
 
 
                 # ==================================
@@ -530,6 +508,32 @@ class RayDAPOTrainer(RayPPOTrainer):
                             df_step1[col] = df_step1[col].apply(lambda x: json.dumps(x, ensure_ascii=False) if x is not None else "")
                     df_step1.to_parquet(parquet_path)
                     print(f"Written Step-1 outputs to {jsonl_path} and {parquet_path}")
+
+            # validate
+            if self.val_reward_fn is not None and self.config.trainer.test_freq > 0:
+                with marked_timer("testing", timing_raw, "green"):
+                    os.environ["VALID_STATUS"] = "1"
+                    val_metrics: dict = self._validate()
+                    os.environ["VALID_STATUS"] = "2"
+                    val_metrics_tr: dict = self._validate_tr()
+                    # if is_last_step:
+                    #    last_val_metrics = val_metrics
+                metrics.update(val_metrics)
+                metrics.update(val_metrics_tr)
+                os.environ["VALID_STATUS"] = "0"
+
+                puzzle_accuracy = float(val_metrics[puzzle_key])
+                if puzzle_accuracy > self.puzzle_acc:
+                    print(f"New Puzzle Accuracy is higher. Updating Puzzle Accuracy = {puzzle_accuracy}")
+                    print("Updating checkpoint...!")
+                    if self.config.trainer.save_freq > 0 and (self.global_steps % self.config.trainer.save_freq == 0):
+                        with marked_timer("save_checkpoint", timing_raw, "green"):
+                            self._save_checkpoint()
+                    self.puzzle_acc = puzzle_accuracy
+
+
+                print(json.dumps(val_metrics, indent=2, sort_keys=True))
+                print(json.dumps(val_metrics_tr, indent=2, sort_keys=True))
 
             # ==================================
             # Step-2: In-Memory Iteration
@@ -815,8 +819,11 @@ class RayDAPOTrainer(RayPPOTrainer):
 
                         if step2_iter >= step2_mini_batch_iteration:
                             break
+                    elapsed = time.perf_counter() - start2
+                    print(f"Epoch {epoch + 1} Step-2; Time Lapsed: {elapsed:.2f}s")
+
                 # Validate & Save
-                if self.val_reward_fn and self.config.trainer.test_freq > 0 and current_step % self.config.trainer.test_freq == 0:
+                if self.val_reward_fn and self.config.trainer.test_freq > 0:
                     os.environ["VALID_STATUS"] = "3"
                     feedback_metrics.update(self._validate())
                     os.environ["VALID_STATUS"] = "4"
@@ -833,8 +840,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                     print('Failed to remove feedback path: {}'.format(feedback_path))
                     print('Failed to remove feedback path: {}'.format(train_feedback_path))
 
-                elapsed = time.perf_counter() - start2
-                print(f"Epoch {epoch + 1} Step-2; Time Lapsed: {elapsed:.2f}s")
+
 
             # End of Epoch
             print(f"Epoch {epoch + 1} Completed.")
