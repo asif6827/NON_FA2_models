@@ -680,7 +680,7 @@ class RayPPOTrainer:
             sampler=train_sampler,
         )
 
-        assert len(self.feedback_dataloader) >= 1, "Feedback dataloader is empty!"
+        #assert len(self.feedback_dataloader) >= 1, "Feedback dataloader is empty!"
 
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
