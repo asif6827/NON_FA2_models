@@ -532,8 +532,8 @@ class RayDAPOTrainer(RayPPOTrainer):
                     self.puzzle_acc = puzzle_accuracy
 
 
-                print(json.dumps(val_metrics, indent=2, sort_keys=True))
                 print(json.dumps(val_metrics_tr, indent=2, sort_keys=True))
+                print(json.dumps(val_metrics, indent=2, sort_keys=True))
 
             # ==================================
             # Step-2: In-Memory Iteration
