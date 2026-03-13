@@ -9,6 +9,16 @@ echo "Submitting Reasoning360_sys_C_v3..."
 cd "$BASE_DIR/Reasoning360_sys_C_v3"
 bash submit_job_qwen3.sh
 
+echo "Submitting Reasoning360_sys_C_v3..."
+cd "$BASE_DIR/Reasoning360_sys_C_v3"
+bash submit_job_qwen3.sh
+
+
+
+echo "Submitting Reasoning360_sys_C_v4..."
+cd "$BASE_DIR/Reasoning360_sys_C_v4"
+bash submit_job_qwen3.sh
+
 
 
 echo "Submitting Reasoning360_sys_C_v4..."
@@ -20,6 +30,10 @@ echo "Submitting Reasoning360_sys_C_v5..."
 cd "$BASE_DIR/Reasoning360_sys_C_v5"
 bash submit_job_qwen3.sh
 
+
+echo "Submitting Reasoning360_sys_C_v5..."
+cd "$BASE_DIR/Reasoning360_sys_C_v5"
+bash submit_job_qwen3.sh
 
 
 
