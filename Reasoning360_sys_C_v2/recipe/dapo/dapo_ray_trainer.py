@@ -182,7 +182,7 @@ class RayDAPOTrainer(RayPPOTrainer):
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-            os.environ["STEP1_STATUS"] = "1"
+            os.environ["STEP1_STATUS"] = "0"
             os.environ["CURRENT_EPOCH"] = str(0)
             print(f"VALIDATE BEFORE MODEL TRAINING")
             os.environ["VALID_STATUS"] = "1"
@@ -510,6 +510,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                     print(f"Written Step-1 outputs to {jsonl_path} and {parquet_path}")
 
             # validate
+            os.environ["STEP1_STATUS"] = "0"
             if self.val_reward_fn is not None and self.config.trainer.test_freq > 0:
                 with marked_timer("testing", timing_raw, "green"):
                     os.environ["VALID_STATUS"] = "1"
@@ -823,6 +824,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                     print(f"Epoch {epoch + 1} Step-2; Time Lapsed: {elapsed:.2f}s")
 
                 # Validate & Save
+                os.environ["STEP1_STATUS"] = "0"
                 if self.val_reward_fn and self.config.trainer.test_freq > 0:
                     os.environ["VALID_STATUS"] = "3"
                     feedback_metrics.update(self._validate())
