@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -J MTMT-C-v2-A100 #job name
-#SBATCH -p gpu-H200 # queue used
+#SBATCH -p gpu-A100 # queue used
 #SBATCH --nodelist=crirdchpxd004
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
