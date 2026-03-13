@@ -166,7 +166,35 @@ def _trim_dataproto_to_multiple_of_chunks(dp, chunks: int):
 
     return dp
 
+def _trim_batch_dict_to_multiple(batch_dict, chunks: int):
+    # infer batch size from first tensor-like value
+    first_key = next(iter(batch_dict))
+    size = batch_dict[first_key].shape[0]
 
+    if size == 0:
+        print("[WARN] Empty batch_dict encountered.")
+        return batch_dict, False
+
+    valid_size = (size // chunks) * chunks
+
+    if valid_size == 0:
+        print(f"[WARN] Batch too small for chunks={chunks}. size={size}. Skipping batch.")
+        return batch_dict, False
+
+    if valid_size != size:
+        print(f"[WARN] Trimming batch_dict from {size} to {valid_size} for equal chunking.")
+        trimmed = {}
+        for k, v in batch_dict.items():
+            try:
+                if hasattr(v, "shape") and len(v.shape) > 0 and v.shape[0] == size:
+                    trimmed[k] = v[:valid_size]
+                else:
+                    trimmed[k] = v
+            except Exception:
+                trimmed[k] = v
+        return trimmed, True
+
+    return batch_dict, True
 
 
 class RayDAPOTrainer(RayPPOTrainer):
@@ -593,6 +621,9 @@ class RayDAPOTrainer(RayPPOTrainer):
                 step2_iter = 0
                 if self.feedback_dataloader is not None:
                     for batch_dict in self.feedback_dataloader:
+                        batch_dict, keep_batch = _trim_batch_dict_to_multiple(batch_dict, chunks=4)
+                        if not keep_batch:
+                            continue
                         start2 = time.perf_counter()
                         print(f"Batch size of step-2 batch = {batch_dict["input_ids"].shape[0]}")
                         step2_iter += 1
@@ -629,7 +660,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         with marked_timer("step", timing_raw):
                             # generate a batch
                             with marked_timer("gen", timing_raw, "red"):
-                                gen_batch = _trim_dataproto_to_multiple_of_chunks(gen_batch, chunks=4)
+                                #gen_batch = _trim_dataproto_to_multiple_of_chunks(gen_batch, chunks=4)
                                 gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
                                 timing_raw.update(gen_batch_output.meta_info["timing"])
                                 gen_batch_output.meta_info.pop("timing", None)
