@@ -2,7 +2,7 @@
 
 #SBATCH -J ZTZT-B-v21-H200 #job name
 #SBATCH -p gpu-H200 # queue used
-#SBATCH --exclude=crirdchpxd005
+#SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
@@ -212,7 +212,7 @@ clip_ratio_low=0.2
 clip_ratio_high=0.2
 
 max_prompt_length=$((1024 * 8))
-max_response_length=$((1024 * 4))
+max_response_length=$((1024 * 8))
 enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
@@ -230,11 +230,10 @@ max_num_gen_batches=10
 #train_prompt_mini_bsz=4  # model grad update batchsize
 
 
-train_prompt_bsz=56  # on-policy model update batchsize: train_prompt_bsz * rollout.n
+train_prompt_bsz=120  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
 n_resp_per_prompt=8
-train_prompt_mini_bsz=14  # model grad update batchsize
-
+train_prompt_mini_bsz=15  # model grad update batchsize
 
 
 # Algorithm
