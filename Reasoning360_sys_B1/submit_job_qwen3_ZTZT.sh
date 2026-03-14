@@ -2,155 +2,6 @@
 
 #echo " I am only this..!"
 
-#echo "Job submitted A100"
-#sbatch ./Prompts_System/run_prompts_A100.sh
-
-
-#echo "Downloading LLM"
-#sbatch ./scripts_data_etc/download_hub.sh
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess.sh
-
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed.sh
-
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v2.sh
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v4.sh
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v5.sh
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v5a.sh
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v5b.sh
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v5c.sh
-
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v5d_STST.sh
-
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v5e_STST.sh
-
-
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v5g_STST.sh
-
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v5h_STST.sh
-
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v5i_STST.sh
-
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v5j_STST.sh
-
-
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v5d_MTMT.sh
-
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v6.sh
-
-
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/v6a/data_preprocess_parsed_v6a_ALL.sh
-
-
-
-
-#echo "Data Pre-Processing Runing"
-#sbatch ./data_preprocess/logic/data_preprocess_parsed_v7.sh
-
-
-#echo "Data spliting code Runing"
-#sbatch ./scripts_data_etc/data_spliting.sh
-
-
-#echo "Job submitted H200"
-#sbatch ./scripts/train/RL_testing_guru.sh
-
-
-#echo "Job submitted A100"
-#sbatch ./scripts/train/RL_testing_zebra_A100.sh
-
-#echo "Job submitted H200"
-#sbatch ./scripts/train/RL_testing_zebra_H200.sh
-
-
-#echo "Job submitted GPU-ALL"
-#sbatch ./scripts/train/RL_testing_zebra_GPU_ALL.sh
-
-
-#echo "Job submitted H200"
-#sbatch ./scripts/train/RL_testing_real.sh
-
-
-#echo "Job submitted H200"
-#sbatch ./scripts/train/guru_rl_qwen25_1_5b_fsdp_logic_H200.sh
-
-
-#echo "Job submitted H200 STMT"
-#sbatch ./scripts/train/zebra_rl_fsdp_logic_H200_STMT_1_1shot.sh
-
-
-
-#echo "Job submitted A100 STST"
-#sbatch ./scripts/train/STST_1_A100_zebra_rl_fsdp.sh
-
-
-#####echo "Job submitted A100 STST"
-#####sbatch ./scripts/train/zebra_rl_fsdp_logic_A100_STST_1_1shot.sh
-
-
-#echo "Job submitted H200 STST"
-#sbatch ./scripts/train/STST_1_1shot_H200_zebra_rl_fsdp.sh
-
-
-#echo "Job submitted H200"
-#sbatch ./scripts/train/zebra_rl_fsdp_logic_H200_STMT_1.sh
-
-
-#sbatch ./scripts/train/Natural_Language/zebra_rl_fsdp_logic_A100_STST_4.sh
-
-#sbatch ./scripts/train/Natural_Language/zebra_rl_fsdp_logic_A100_STST_4.sh
-
-
-#sbatch ./scripts/train/singlenode_rl_qwen25_1_5b_fsdp_3K_test.sh
-
-
-#sbatch ./scripts_Qwen2_5-1_5B_Instruct/ray_eval_singlenode_Qwen2_5-1_5B_Instruct_20_samples.sh
-
-#echo "Job submitted GPU-ALL"
-#sbatch ./Prompts_System/run_prompts_GPU_ALL.sh
-
-#echo "Job submitted GPU-ALL"
-#SLURM_SCRIPT_H200="./run_prompts_A100.sh"
-
-#echo "Job submitted GPU-ALL"
-#SLURM_SCRIPT_H200="./run_prompts_H200.sh"
-
-#echo "Job submitted GPU-ALL"
-#SLURM_SCRIPT_H200="./run_prompts_GPU_ALL.sh"
-
 
 
 
@@ -199,7 +50,7 @@ fi
 
 
 #if false; then
-ACRONYM="MTMT"
+ACRONYM="ZTZT"
 echo "Submitting Training job H200 + GT"
 TRAIN_TEMP_LIST=(0.8)
 TEST_TEMP_LIST=(0.0)
@@ -210,8 +61,8 @@ ACC_W_LIST=(0.8)
 Z3_W_LIST=(0.2)
 SWITCH_EPOCH_LIST=(80)
 SYSTEM_NAME_LIST=("Reasoning360_sys_B1")
-EVAL_PATH_LIST=("med_train_med_test_1_parsed_v6a_${ACRONYM}")
-DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v6a_${ACRONYM}/med_train_med_test")
+EVAL_PATH_LIST=("zl_train_zl_test_1_parsed_v6a_${ACRONYM}")
+DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v6a_${ACRONYM}/zl_train_zl_test")
 
 
 
