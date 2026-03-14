@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+
 BASE_DIR="$HOME/NON_FA2_models"
 
 
