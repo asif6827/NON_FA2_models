@@ -28,6 +28,7 @@
 #echo "Data Pre-Processing Runing"
 #sbatch ./data_preprocess/logic/data_preprocess_parsed_v_A_MTMT.sh
 
+
 echo "Data Pre-Processing Runing"
 sbatch ./data_preprocess/logic/data_preprocess_parsed_v_A_ZTZT.sh
 
