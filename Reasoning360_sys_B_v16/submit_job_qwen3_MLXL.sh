@@ -4,19 +4,19 @@
 
 
 #if false; then
-ACRONYM="MLT_MLT"
+ACRONYM="MLXL"
 echo "Submitting Training job H200 + GT"
 TRAIN_TEMP_LIST=(0.8)
 TEST_TEMP_LIST=(0.0)
 SCORING_LIST=("gt")
 EPOCH_LIST=(40)
-TEST_LIST=(2)
+TEST_LIST=(3)
 ACC_W_LIST=(0.8)
 Z3_W_LIST=(0.2)
 SWITCH_EPOCH_LIST=(80)
 SYSTEM_NAME_LIST=("Reasoning360_sys_B_v16")
-EVAL_PATH_LIST=("ml_train_ml_test_1_parsed_v6a_${ACRONYM}")
-DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v6a_${ACRONYM}/ml_train_ml_test")
+EVAL_PATH_LIST=("mlxl_train_mlxl_test_1_parsed_v6a_${ACRONYM}")
+DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v6a_${ACRONYM}/mlxl_train_mlxl_test")
 
 
 
