@@ -27,11 +27,11 @@ def merge_json_list(paths):
 
 def main():
     json_paths = [
-        "/home/asif/data3/HF_cache/ZebraLogic/Zebra_Puzzle_medium_280.json",
-        "/home/asif/data3/HF_cache/ZebraLogic/Zebra_Puzzle_large_200.json"
+        "/home/asif/data3/HF_cache/ZebraLogic/Zebra_Puzzle_ML_480.json",
+        "/home/asif/data3/HF_cache/ZebraLogic/Zebra_Puzzle_xl_200.json"
     ]
 
-    output_path = "/home/asif/data3/HF_cache/ZebraLogic/Zebra_Puzzle_ML_480.json"
+    output_path = "/home/asif/data3/HF_cache/ZebraLogic/Zebra_Puzzle_MLXL_680.json"
 
     merged_data = merge_json_list(json_paths)
 
