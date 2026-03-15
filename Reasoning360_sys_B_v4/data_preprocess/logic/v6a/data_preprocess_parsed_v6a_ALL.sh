@@ -31,6 +31,8 @@ python ./data_preprocess/logic/v6a/our_pre_process_zebrapuzzle_to_guru_parsed_v6
 
 python ./data_preprocess/logic/v6a/our_pre_process_zebrapuzzle_to_guru_parsed_v6a_ZTZT.py --data_path '/export/home/asifali/HF_cache/ZebraLogic' --data_setting 'zl_train_zl_test' --output_dir '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru_parsed_v6a_ZTZT'
 
+python ./data_preprocess/logic/v6a/our_pre_process_zebrapuzzle_to_guru_parsed_v6a_MLT_MLT.py --data_path '/export/home/asifali/HF_cache/ZebraLogic' --data_setting 'ml_train_ml_test' --output_dir '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru_parsed_v6a_MLT_MLT'
+
 
 #python ./data_preprocess/logic/our_pre_process_guru_readjust_parsed_v2.py --input_path '/export/home/asifali/HF_cache/guru_data' --output_dir '/export/home/asifali/HF_cache/guru_data_adjusted_parsed_v2'
 
