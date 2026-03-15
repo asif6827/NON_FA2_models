@@ -4,9 +4,6 @@
 
 
 
-
-
-
 #if false; then
 ACRONYM="MLT_MLT"
 echo "Submitting Training job H200 + GT"
