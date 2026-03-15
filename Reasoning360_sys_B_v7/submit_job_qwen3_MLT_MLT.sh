@@ -5,7 +5,7 @@
 
 
 #if false; then
-ACRONYM="ZTZT"
+ACRONYM="MLT_MLT"
 echo "Submitting Training job H200 + GT"
 TRAIN_TEMP_LIST=(0.8)
 TEST_TEMP_LIST=(0.0)
