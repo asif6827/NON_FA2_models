@@ -1015,7 +1015,7 @@ def compute_score(
         
         
         else:
-            reward = -0.8
+            reward = -0.6
 
 
 
