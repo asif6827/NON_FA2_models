@@ -1026,8 +1026,7 @@ def compute_score(
             )
 
             solution_score = (
-                    0.7 * puzzle_acc +
-                    0.3 * cell_acc
+                    0.6 * puzzle_acc
             )
 
             process_score = (
