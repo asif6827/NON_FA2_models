@@ -3,7 +3,7 @@
 #SBATCH -J MLXL-B-v26-H200 #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
-#SBATCH --gres gpu:4 #number of gpus needed, default is 1
+#SBATCH --gres gpu:8 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
 #SBATCH --output=./all_logs/%j-%x.out
@@ -17,7 +17,7 @@ module load cuda12.4/toolkit
 nvidia-smi
 source activate zebrapuzzles
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 unset ROCR_VISIBLE_DEVICES
 
 #### MY Parameters
@@ -85,7 +85,7 @@ echo "Python Path = ${PYTHONPATH}"
 
 # =================== User-Configurable Settings ===================
 # --- Execution Environment ---
-NUM_GPUS=4 # Set the number of GPUs to use on this node
+NUM_GPUS=8 # Set the number of GPUs to use on this node
 gpu_memory_utilization=0.8
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
