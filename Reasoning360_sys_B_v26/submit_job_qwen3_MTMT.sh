@@ -58,7 +58,7 @@ TEST_LIST=(3)
 ACC_W_LIST=(0.8)
 Z3_W_LIST=(0.2)
 SWITCH_EPOCH_LIST=(80)
-SYSTEM_NAME_LIST=("Reasoning360_sys_B_v25")
+SYSTEM_NAME_LIST=("Reasoning360_sys_B_v26")
 EVAL_PATH_LIST=("med_train_med_test_1_parsed_v6a_${ACRONYM}")
 DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v6a_${ACRONYM}/med_train_med_test")
 

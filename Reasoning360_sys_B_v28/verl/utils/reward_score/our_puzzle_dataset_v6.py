@@ -11,6 +11,7 @@ Reward scoring for Zebra/Logic puzzles with triple scoring:
 import re
 import os
 import json
+import math
 from typing import Dict, List, Any, Optional, Tuple
 import logging
 import sys
@@ -1004,16 +1005,56 @@ def compute_score(
                 format_reward = 0.0
             #print("Format reward = {}".format(format_reward))
 
+            #if sat_ok == 0.0:
+            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
+            #else:
+            #    #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
+            #    #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
+            #    #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
+            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)  + 0.2 * float(cell_acc_score) + 0.4 * (n_novel_steps / normalizer) + 0.2 * format_reward + 0.4 * consistency_score
+            #    #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
+
+            puzzle_acc = float(puzzle_acc_score)
+            cell_acc = float(cell_acc_score)
+
+            novel_step_score = math.tanh(n_novel_steps / normalizer)
+            contradiction_ratio = min(n_contradictions / normalizer, 1.0)
+
+            validity_score = (
+                    0.6 * parsing_reward +
+                    0.4 * format_reward
+            )
+
+            solution_score = (
+                    0.7 * puzzle_acc +
+                    0.3 * cell_acc
+            )
+
+            process_score = (
+                    0.6 * novel_step_score +
+                    0.4 * consistency_score
+            )
+
             if sat_ok == 0.0:
-                reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
+                # unsat branch: mostly punish, but keep learning signal
+                reward = (
+                        0.20 * validity_score +
+                        0.25 * solution_score -
+                        0.35 * contradiction_ratio -
+                        0.25
+                )
             else:
-                #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
-                #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
-                #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
-                reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)  + 0.2 * float(cell_acc_score) + 0.4 * (n_novel_steps / normalizer) + 0.2 * format_reward + 0.4 * consistency_score
-                #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
-        
-        
+                # process reward only matters when solution is somewhat correct
+                gated_process = solution_score * process_score
+
+                reward = (
+                        0.15 * validity_score +
+                        0.60 * solution_score +
+                        0.20 * gated_process -
+                        0.20 * contradiction_ratio
+                )
+
+            reward = max(-1.0, min(1.0, reward))
         else:
             reward = -0.5
 
