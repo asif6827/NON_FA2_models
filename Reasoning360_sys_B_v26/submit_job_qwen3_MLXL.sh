@@ -1,0 +1,44 @@
+#!/bin/bash
+
+#echo " I am only this..!"
+
+
+#if false; then
+ACRONYM="MLXL"
+echo "Submitting Training job H200 + GT"
+TRAIN_TEMP_LIST=(0.8)
+TEST_TEMP_LIST=(0.0)
+SCORING_LIST=("gt")
+EPOCH_LIST=(40)
+TEST_LIST=(3)
+ACC_W_LIST=(0.8)
+Z3_W_LIST=(0.2)
+SWITCH_EPOCH_LIST=(80)
+SYSTEM_NAME_LIST=("Reasoning360_sys_B_v26")
+EVAL_PATH_LIST=("mlxl_train_mlxl_test_1_parsed_v6a_${ACRONYM}")
+DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v6a_${ACRONYM}/mlxl_train_mlxl_test")
+
+
+
+SLURM_SCRIPT_H200="./scripts_Qwen3_4B/train/Parsed_v2/${ACRONYM}_1_1shot_H200_zebra_rl_fsdp_parsed_v2.sh"
+for i in "${!TRAIN_TEMP_LIST[@]}"; do
+    TRAIN_TEMP=${TRAIN_TEMP_LIST[$i]}
+    TEST_TEMP=${TEST_TEMP_LIST[$i]}
+    SCORING_METHOD=${SCORING_LIST[$i]}
+    EPOCH=${EPOCH_LIST[$i]}
+    TEST_FREQUENCY=${TEST_LIST[$i]}
+    ACC_W=${ACC_W_LIST[$i]}
+    Z3_W=${Z3_W_LIST[$i]}
+    SWITCH_EPOCH=${SWITCH_EPOCH_LIST[$i]}
+    SYSTEM_NAME=${SYSTEM_NAME_LIST[$i]}
+    EVAL_PATH=${EVAL_PATH_LIST[$i]}
+    DATA_PATH=${DATA_PATH_LIST[$i]}
+
+    echo "Submitting job: TRAIN-TEMP=$TRAIN_TEMP, TEST-TEMP=$TEST_TEMP, SCORING-METHOD=$SCORING_METHOD, EPOCH=$EPOCH, TEST-FREQUENCY=$TEST_FREQUENCY,
+    ACC_W=$ACC_W, Z3_W=$Z3_W, EPOCH_SWITCH=$SWITCH_EPOCH SYSTEM_NAME=$SYSTEM_NAME EVAL_PATH=$EVAL_PATH DATA_PATH=$DATA_PATH"
+    sbatch $SLURM_SCRIPT_H200 $TRAIN_TEMP $TEST_TEMP $SCORING_METHOD $EPOCH $TEST_FREQUENCY $ACC_W $Z3_W $SWITCH_EPOCH $SYSTEM_NAME $EVAL_PATH $DATA_PATH
+done
+echo "All jobs submitted H200."
+#fi
+
+
