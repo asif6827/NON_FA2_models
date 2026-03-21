@@ -4,44 +4,46 @@ set -euo pipefail
 
 BASE_DIR="$HOME/NON_FA2_models"
 
-echo "Submitting Reasoning360_sys_B_v29..."
-cd "$BASE_DIR/Reasoning360_sys_B_v29"
+echo "Submitting Reasoning360_sys_B_v31..."
+cd "$BASE_DIR/Reasoning360_sys_B_v31"
 bash submit_job_qwen3_MLXL.sh
-
-
-echo "Submitting Reasoning360_sys_B_v30..."
-cd "$BASE_DIR/Reasoning360_sys_B_v30"
-bash submit_job_qwen3_MLXL.sh
-
-
-echo "Submitting Reasoning360_sys_B_v18..."
-cd "$BASE_DIR/Reasoning360_sys_B_v18"
-bash submit_job_qwen3_MLXL.sh
-
-
-echo "Submitting Reasoning360_sys_B_v19..."
-cd "$BASE_DIR/Reasoning360_sys_B_v19"
-bash submit_job_qwen3_MLXL.sh
-
-
-echo "Submitting Reasoning360_sys_B_v20..."
-cd "$BASE_DIR/Reasoning360_sys_B_v20"
-bash submit_job_qwen3_MLXL.sh
-
-
-echo "Submitting Reasoning360_sys_B_v21..."
-cd "$BASE_DIR/Reasoning360_sys_B_v21"
-bash submit_job_qwen3_MLXL.sh
-
-
-echo "Submitting Reasoning360_sys_B_v22..."
-cd "$BASE_DIR/Reasoning360_sys_B_v22"
-bash submit_job_qwen3_MLXL.sh
-
-
 
 
 if false; then
+
+    echo "Submitting Reasoning360_sys_B_v30..."
+    cd "$BASE_DIR/Reasoning360_sys_B_v30"
+    bash submit_job_qwen3_MLXL.sh
+
+
+    echo "Submitting Reasoning360_sys_B_v18..."
+    cd "$BASE_DIR/Reasoning360_sys_B_v18"
+    bash submit_job_qwen3_MLXL.sh
+
+
+    echo "Submitting Reasoning360_sys_B_v19..."
+    cd "$BASE_DIR/Reasoning360_sys_B_v19"
+    bash submit_job_qwen3_MLXL.sh
+
+
+    echo "Submitting Reasoning360_sys_B_v20..."
+    cd "$BASE_DIR/Reasoning360_sys_B_v20"
+    bash submit_job_qwen3_MLXL.sh
+
+
+    echo "Submitting Reasoning360_sys_B_v21..."
+    cd "$BASE_DIR/Reasoning360_sys_B_v21"
+    bash submit_job_qwen3_MLXL.sh
+
+
+    echo "Submitting Reasoning360_sys_B_v22..."
+    cd "$BASE_DIR/Reasoning360_sys_B_v22"
+    bash submit_job_qwen3_MLXL.sh
+
+
+
+
+
 
     echo "Submitting Reasoning360_sys_B_v11..."
     cd "$BASE_DIR/Reasoning360_sys_B_v11"
