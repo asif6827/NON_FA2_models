@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J STST-B-v31-H200 #job name
+#SBATCH -J STST-B-v32-H200 #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1

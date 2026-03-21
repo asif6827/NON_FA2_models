@@ -4,8 +4,8 @@ set -euo pipefail
 
 BASE_DIR="$HOME/NON_FA2_models"
 
-echo "Submitting Reasoning360_sys_B_v31..."
-cd "$BASE_DIR/Reasoning360_sys_B_v31"
+echo "Submitting Reasoning360_sys_B_v32..."
+cd "$BASE_DIR/Reasoning360_sys_B_v32"
 bash submit_job_qwen3_MLXL.sh
 
 
