@@ -1007,14 +1007,15 @@ def compute_score(
 
             if sat_ok == 0.0:
                 reward = (
-                        0.15 * parsing_reward
+                        0.20 * parsing_reward
                         + 0.10 * format_reward
                         + 0.60 * float(puzzle_acc_score)
-                        - 0.20 * contradiction_ratio
+                        - 0.50 * contradiction_ratio
                 )
+                reward = min(reward, 0.35)
             else:
                 base_quality = (
-                        0.60 * float(puzzle_acc_score)
+                        0.70 * float(puzzle_acc_score)
                         + 0.20 * parsing_reward
                         + 0.20 * format_reward
                 )
@@ -1022,21 +1023,13 @@ def compute_score(
                 process_bonus = (
                         0.40 * novel_step_score
                         + 0.30 * consistency_score
-                        - 0.15 * contradiction_ratio
+                        - 0.25 * contradiction_ratio
                 )
 
                 # gate process reward by solution quality
-                reward = base_quality + float(puzzle_acc_score) * process_bonus
+                #reward = base_quality + float(puzzle_acc_score) * process_bonus
+                reward = base_quality + (0.5 + 0.5 * float(puzzle_acc_score)) * process_bonus
 
-            #if sat_ok == 0.0:
-            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
-            #else:
-            #    #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
-            #    #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
-            #    #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
-            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)  + 0.2 * float(cell_acc_score) + 0.4 * (n_novel_steps / normalizer) + 0.2 * format_reward + 0.4 * consistency_score
-            #    #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
-        
         
         else:
             reward = -0.5
