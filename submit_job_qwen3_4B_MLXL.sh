@@ -13,6 +13,7 @@ echo "Submitting Reasoning360_sys_A..."
 cd "$BASE_DIR/Reasoning360_sys_A"
 bash submit_job_qwen3_MLXL.sh
 
+
 echo "Submitting Reasoning360_sys_A..."
 cd "$BASE_DIR/Reasoning360_sys_A"
 bash submit_job_qwen3_MLXL.sh
@@ -21,6 +22,7 @@ bash submit_job_qwen3_MLXL.sh
 echo "Submitting Reasoning360_sys_A..."
 cd "$BASE_DIR/Reasoning360_sys_A"
 bash submit_job_qwen3_MLXL.sh
+
 
 
 
