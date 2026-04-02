@@ -985,7 +985,7 @@ def compute_score(
     final_reward = 0.0
     try:
 
-        final_reward = 0.6 * float(puzzle_acc_score) + 0.2 * float(parsing_reward)
+        final_reward = 0.6 * float(puzzle_acc_score) #+ 0.2 * float(parsing_reward)
         normalizer = 0.0
 
         # -----------------------
