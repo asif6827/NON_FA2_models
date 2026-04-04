@@ -6,29 +6,31 @@ BASE_DIR="$HOME/NON_FA2_models"
 
 
 
-echo "Submitting Reasoning360_sys_B_v29_a1..."
-cd "$BASE_DIR/Reasoning360_sys_B_v29_a1"
+echo "Submitting Reasoning360_sys_B_v29_a6..."
+cd "$BASE_DIR/Reasoning360_sys_B_v29_a6"
 bash submit_job_qwen3_MLXL.sh
 
-echo "Submitting Reasoning360_sys_B_v29_a2..."
-cd "$BASE_DIR/Reasoning360_sys_B_v29_a2"
+echo "Submitting Reasoning360_sys_B_v29_a7..."
+cd "$BASE_DIR/Reasoning360_sys_B_v29_a7"
 bash submit_job_qwen3_MLXL.sh
 
-echo "Submitting Reasoning360_sys_B_v29_a3..."
-cd "$BASE_DIR/Reasoning360_sys_B_v29_a3"
+echo "Submitting Reasoning360_sys_B_v29_a8..."
+cd "$BASE_DIR/Reasoning360_sys_B_v29_a8"
 bash submit_job_qwen3_MLXL.sh
 
-echo "Submitting Reasoning360_sys_B_v29_a4..."
-cd "$BASE_DIR/Reasoning360_sys_B_v29_a4"
+echo "Submitting Reasoning360_sys_B_v29_a9..."
+cd "$BASE_DIR/Reasoning360_sys_B_v29_a9"
 bash submit_job_qwen3_MLXL.sh
 
 
-echo "Submitting Reasoning360_sys_B_v29_a5..."
-cd "$BASE_DIR/Reasoning360_sys_B_v29_a5"
-bash submit_job_qwen3_MLXL.sh
 
 
 if false; then
+
+    echo "Submitting Reasoning360_sys_B_v29_a5..."
+    cd "$BASE_DIR/Reasoning360_sys_B_v29_a5"
+    bash submit_job_qwen3_MLXL.sh
+
 
     echo "Submitting Reasoning360_sys_A..."
     cd "$BASE_DIR/Reasoning360_sys_A"
