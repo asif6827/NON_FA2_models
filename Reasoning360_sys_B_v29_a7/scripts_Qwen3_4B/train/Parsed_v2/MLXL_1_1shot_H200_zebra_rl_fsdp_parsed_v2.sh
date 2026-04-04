@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J MLXL-B-v29-a5-H200 #job name
+#SBATCH -J MLXL-B-v29-a7-H200 #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --nodelist=crirdchpxd002
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
@@ -28,6 +28,15 @@ export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 
 #export RAY_TMPDIR="/export/home/asifali/HF_cache/RAY_TMP"
 #mkdir -p RAY_TMPDIR
+
+
+# Clean old temp files (avoid disk full issue)
+if [ -d "/var/tmp/asifali" ]; then
+    echo "Cleaning old temp files in /var/tmp/asifali..."
+    rm -rf /var/tmp/asifali/*
+fi
+
+
 
 # ===============================
 # Force ALL temp/cache off /tmp
