@@ -1,8 +1,8 @@
 #!/bin/bash -l
 
-#SBATCH -J MLXL-B-v29-H200-QWEN25-15B #job name
+#SBATCH -J MLXL-B1-H200-QWEN3-17B #job name
 #SBATCH -p gpu-H200 # queue used
-#SBATCH --nodelist=crirdchpxd002
+#SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
@@ -89,7 +89,7 @@ NUM_GPUS=4 # Set the number of GPUs to use on this node
 gpu_memory_utilization=0.8
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
-WANDB_PROJECT="Sys_B_v29_Qwen25_15B_MLXL_1_1shot_H200" # Your wandb project name
+WANDB_PROJECT="Sys_B1_Qwen3_17B_MLXL_1_1shot_H200" # Your wandb project name
 
 # --- External Services ---
 export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as-judge hosted URL for 'STEM' domain evaluation
@@ -142,7 +142,7 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 #BASE_MODEL=Qwen/Qwen2.5-1.5B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-7B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-1.5B-Instruct
-BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-1.5B-Instruct
+BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-1.7B
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-1.7B
 MODEL_NAME=$(basename "$BASE_MODEL" | tr -s ' ' '_' | tr -d -c '[:alnum:]_')
 MODEL_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]')
@@ -234,7 +234,6 @@ train_prompt_bsz=68  # on-policy model update batchsize: train_prompt_bsz * roll
 gen_prompt_bsz=$((train_prompt_bsz * 1))
 n_resp_per_prompt=8
 train_prompt_mini_bsz=17  # model grad update batchsize
-
 
 
 # Algorithm
