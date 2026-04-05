@@ -1009,8 +1009,7 @@ def compute_score(
                 reward = (
                         0.15 * parsing_reward
                         + 0.10 * format_reward
-                        + 0.60 * float(puzzle_acc_score)
-                        - 0.20 * contradiction_ratio
+                        + 0.30 * float(puzzle_acc_score)
                 )
             else:
                 base_quality = (
