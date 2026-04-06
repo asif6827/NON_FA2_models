@@ -19,8 +19,3 @@ path = snapshot_download(
 
 print("Downloaded to:", path)
 
-
-from huggingface_hub import whoami
-import os
-
-print(whoami(token=os.environ["HF_TOKEN"]))
