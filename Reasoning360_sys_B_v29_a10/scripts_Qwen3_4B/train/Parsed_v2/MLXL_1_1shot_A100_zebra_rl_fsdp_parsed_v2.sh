@@ -19,6 +19,7 @@ source activate zebrapuzzles
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 unset ROCR_VISIBLE_DEVICES
 
+
 #### MY Parameters
 export USE_Thinking=1
 #export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
