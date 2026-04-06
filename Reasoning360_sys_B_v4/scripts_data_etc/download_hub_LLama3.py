@@ -7,6 +7,8 @@ repo_id = "meta-llama/Llama-3.2-3B-Instruct"
 # Change path as needed
 target = Path("/export/home/asifali/HF_cache/Llama-3.2-3B-Instruct")
 
+hf_token = "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"  # <-- your token here
+
 path = snapshot_download(
     repo_id=repo_id,
     repo_type="model",
