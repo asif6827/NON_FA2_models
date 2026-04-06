@@ -4,6 +4,7 @@ import os
 
 repo_id = "meta-llama/Llama-3.2-3B-Instruct"
 target = Path("/export/home/asifali/HF_cache/Llama-3.2-3B-Instruct")
+
 token = os.environ["HF_TOKEN"]
 
 path = snapshot_download(
@@ -12,7 +13,14 @@ path = snapshot_download(
     local_dir=target,
     local_dir_use_symlinks=False,
     resume_download=True,
+    local_files_only=False,
     token=token,
 )
 
 print("Downloaded to:", path)
+
+
+from huggingface_hub import whoami
+import os
+
+print(whoami(token=os.environ["HF_TOKEN"]))
