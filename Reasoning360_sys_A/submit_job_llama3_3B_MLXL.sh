@@ -39,7 +39,7 @@ DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v_A_${ACRONYM}/mlxl_train_mlxl_test"
 
 
 
-SLURM_SCRIPT_H200="./scripts_Qwen3_17/train/Parsed_v2/${ACRONYM}_1_1shot_H200_zebra_rl_fsdp_parsed_v2.sh"
+SLURM_SCRIPT_H200="./scripts_Llama32_3B_Instruct/train/Parsed_v2/${ACRONYM}_1_1shot_H200_zebra_rl_fsdp_parsed_v2.sh"
 for i in "${!TRAIN_TEMP_LIST[@]}"; do
     TRAIN_TEMP=${TRAIN_TEMP_LIST[$i]}
     TEST_TEMP=${TEST_TEMP_LIST[$i]}
