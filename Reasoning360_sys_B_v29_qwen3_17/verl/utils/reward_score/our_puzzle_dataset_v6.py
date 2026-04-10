@@ -1005,6 +1005,7 @@ def compute_score(
                 format_reward = 0.0
             #print("Format reward = {}".format(format_reward))
 
+
             if sat_ok == 0.0:
                 reward = (
                         0.15 * parsing_reward
