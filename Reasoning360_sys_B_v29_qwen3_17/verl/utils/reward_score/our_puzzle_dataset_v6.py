@@ -1007,10 +1007,8 @@ def compute_score(
 
             if sat_ok == 0.0:
                 reward = (
-                        0.15 * parsing_reward
-                        + 0.10 * format_reward
-                        + 0.40 * float(puzzle_acc_score)
-                        + 0.20 * consistency_score
+                        0.10 * format_reward
+                        + 0.50 * float(puzzle_acc_score)
                 )
             else:
                 base_quality = (
@@ -1022,7 +1020,6 @@ def compute_score(
                 process_bonus = (
                         0.40 * novel_step_score
                         + 0.30 * consistency_score
-                        - 0.05 * contradiction_ratio
                 )
 
                 # gate process reward by solution quality
