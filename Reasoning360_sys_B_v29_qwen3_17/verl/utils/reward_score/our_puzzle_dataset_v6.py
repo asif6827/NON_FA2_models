@@ -1006,10 +1006,7 @@ def compute_score(
             #print("Format reward = {}".format(format_reward))
 
             if sat_ok == 0.0:
-                reward = (
-                        0.10 * format_reward
-                        + 0.50 * float(puzzle_acc_score)
-                )
+                reward = 0.60 * float(puzzle_acc_score)
             else:
                 base_quality = (
                         0.60 * float(puzzle_acc_score)
@@ -1018,8 +1015,8 @@ def compute_score(
                 )
 
                 process_bonus = (
-                        0.40 * novel_step_score
-                        + 0.30 * consistency_score
+                        0.20 * novel_step_score
+                        + 0.10 * consistency_score
                 )
 
                 # gate process reward by solution quality
