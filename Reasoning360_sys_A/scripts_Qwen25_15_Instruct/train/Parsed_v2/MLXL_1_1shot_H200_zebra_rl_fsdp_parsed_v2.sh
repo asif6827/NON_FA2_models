@@ -2,7 +2,7 @@
 
 #SBATCH -J MLXL-A-H200-QWEN25-15B #job name
 #SBATCH -p gpu-H200 # queue used
-#SBATCH --nodelist=crirdchpxd002,crirdchpxd004,crirdchpxd006
+#SBATCH --nodelist=crirdchpxd002,crirdchpxd004
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
