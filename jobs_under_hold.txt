@@ -2,6 +2,7 @@ scontrol hold 273545 273546 273547 273548   ---> All ablation variations
 
 scontrol hold 274083 274084 274085 274086   ---> All variants on 004
 
-scontrol hold 273990 --> Updated v29
 
-scontrol hold 274627 274628 274629  ---> All LLama3
+scontrol release 273990 --> Updated v29
+
+scontrol release 274627 274628 274629  ---> All LLama3 jobs released
