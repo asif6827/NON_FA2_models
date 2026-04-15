@@ -603,7 +603,7 @@ def compute_score(
 
 
     #reward = 1.0 if puzzle_acc_score == 1.0 else min(0.95, 0.2 + 0.75 * cell_acc_score)
-    reward = 0.6 * puzzle_acc_score + 0.2 * parsing_reward + 0.1 * cell_acc_score
+    reward = 0.6 * puzzle_acc_score + 0.2 * parsing_reward + 0.005 * cell_acc_score
 
     final_result = {"epoch": epoch,
                     "total-epoch": total_epochs,
