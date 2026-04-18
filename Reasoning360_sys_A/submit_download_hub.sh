@@ -6,6 +6,6 @@
 #sbatch ./Prompts_System/run_prompts_A100.sh
 
 
-echo "Downloading LLM"
-sbatch ./scripts_data_etc/download_hub.sh
+echo "Downloading DeepSeek LLM"
+sbatch ./scripts_data_etc/download_hub_Deep_seek.sh
 
