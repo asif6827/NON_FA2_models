@@ -165,10 +165,10 @@ TEST_DATA_DIR=${SHARED_DATA_PATH}/test
 
 
 ### Logic (train)
-zebra_train_path=${TRAIN_DATA_DIR}/logic_our_zebra_puzzle_new_reward_204.parquet
+zebra_train_path=${TRAIN_DATA_DIR}/logic_our_zebra_puzzle_new_reward_300.parquet
 
 ### Logic (test)
-zebralogic_test_path=${TEST_DATA_DIR}/logic_our_zebra_puzzle_new_reward_test_476.parquet
+zebralogic_test_path=${TEST_DATA_DIR}/logic_our_zebra_puzzle_new_reward_test_700.parquet
 
 
 train_files="['${zebra_train_path}']"  # Use math as example, add to more tasks as needed
@@ -230,10 +230,10 @@ max_num_gen_batches=10
 #train_prompt_mini_bsz=4  # model grad update batchsize
 
 
-train_prompt_bsz=68  # on-policy model update batchsize: train_prompt_bsz * rollout.n
+train_prompt_bsz=100  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
 n_resp_per_prompt=8
-train_prompt_mini_bsz=17  # model grad update batchsize
+train_prompt_mini_bsz=20  # model grad update batchsize
 
 
 # Algorithm
