@@ -1,0 +1,7 @@
+git init
+git add .
+git commit -m "message"
+git push -u origin master
+
+
+ps aux | grep -E "run_copy_loop\.sh|copy\.sh|while true" | grep -v grep
