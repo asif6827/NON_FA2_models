@@ -259,7 +259,7 @@ if __name__ == '__main__':
     elif args.data_setting == 'med_train_med_test':
         args.data_file = os.path.join(args.data_path, 'Zebra_Puzzle_medium_280.json')
     elif args.data_setting == 'mlxl_train_mlxl_test':
-        args.data_file = os.path.join(args.data_path, 'Zebra_Puzzle_MLXL_680.json')
+        args.data_file = os.path.join(args.data_path, 'Zebra_Puzzle_complete_1000.json')
     else:
         raise ValueError('Invalid data_setting')
     args.output_dir = os.path.join(args.output_dir, args.data_setting)

@@ -97,7 +97,7 @@ done
 
 
 REMOTE_BASE="/export/home/asifali/Noise_math_data"
-LOCAL_BASE="/mnt/c/Users/asif6/Dropbox (Personal)/Shared_Wenqing/Noise_math_data"
+LOCAL_BASE="/mnt/c/Users/asif6/Dropbox/Shared_Wenqing/Noise_math_data"
 
 
 REMOTE_PATH="${REMOTE_BASE}/all_logs"
