@@ -247,7 +247,7 @@ top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 # gen_tp: Tensor Parallelism size for vLLM generation.
 # For a 32B model on 8 GPUs, TP=2 is a reasonable starting point. Adjust if you have memory issues.
 sp_size=1
-gen_tp=${NUM_GPUS}
+gen_tp=1
 gen_max_num_seqs=1024
 infer_micro_batch_size=null
 train_micro_batch_size=null
@@ -342,7 +342,7 @@ python -m recipe.dapo.main_dapo \
     trainer.n_gpus_per_node=${NUM_GPUS} \
     trainer.nnodes=1 \
     trainer.test_freq=${TEST_FREQUENCY} \
-    trainer.save_freq=1 \
+    trainer.save_freq=1000 \
     trainer.max_actor_ckpt_to_keep=1 \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.total_epochs=${EPOCH} \
