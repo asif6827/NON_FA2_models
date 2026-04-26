@@ -246,7 +246,7 @@ top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 # gen_tp: Tensor Parallelism size for vLLM generation.
 # For a 32B model on 8 GPUs, TP=2 is a reasonable starting point. Adjust if you have memory issues.
 sp_size=1
-gen_tp=${NUM_GPUS}
+gen_tp=1
 gen_max_num_seqs=1024
 infer_micro_batch_size=null
 train_micro_batch_size=null
