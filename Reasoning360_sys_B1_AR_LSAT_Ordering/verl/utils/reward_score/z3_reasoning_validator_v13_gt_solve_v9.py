@@ -1173,99 +1173,408 @@ def validate_reasoning_steps_syntactic_only(
 
 # ----------------------------- Top-level solve/validate -----------------------------
 
+# ============================================================
+# AR-LSAT ORDERING VALIDATOR OVERRIDE
+# ============================================================
+
+def _ar_extract_s_expr(line: str):
+    m = re.match(r"^\s*S(\d+)\s*:\s*(.*?)\s*$", str(line or "").strip(), re.IGNORECASE)
+    if not m:
+        return None
+    expr = m.group(2).strip()
+    if expr.endswith("."):
+        expr = expr[:-1].strip()
+    return int(m.group(1)), expr
+
+
+def _ar_make_ordering_base(world_model: Dict[str, Any], timeout_s: float):
+    entities = world_model.get("entities") or []
+    domains = world_model.get("domains") or {}
+    positions = domains.get("positions") or domains.get("position") or []
+
+    if not positions:
+        # Fallback: one unique integer position per entity.
+        positions = [str(i) for i in range(1, len(entities) + 1)]
+
+    pos_ints = []
+    for p in positions:
+        try:
+            pos_ints.append(int(p))
+        except Exception:
+            pass
+    if not pos_ints:
+        pos_ints = list(range(1, len(entities) + 1))
+
+    lo, hi = min(pos_ints), max(pos_ints)
+
+    var_map: Dict[str, Any] = {}
+    used = set()
+    for ent in entities:
+        name = _sanitize_var_name(str(ent))
+        if not name:
+            continue
+        base = name
+        k = 2
+        while name in used:
+            name = f"{base}_{k}"
+            k += 1
+        used.add(name)
+        var_map[str(ent)] = Int(name)
+        var_map[str(ent).lower()] = var_map[str(ent)]
+        var_map[name] = var_map[str(ent)]
+
+    s = Solver()
+    s.set("timeout", int(float(timeout_s) * 1000))
+    unique_vars = list({id(v): v for v in var_map.values()}.values())
+    for v in unique_vars:
+        s.add(And(v >= lo, v <= hi))
+
+    structural = " ".join(str(x).lower() for x in world_model.get("structural_assumptions", []))
+    if "each position" in structural or "exactly one" in structural or "distinct" in structural or len(unique_vars) == len(entities):
+        if len(unique_vars) >= 2:
+            s.add(Distinct(*unique_vars))
+
+    return s, var_map
+
+
+def _ar_parse_expr(expr: str, var_map: Dict[str, Any]):
+    """Parse AR-LSAT ordering expressions using a restricted Python/Z3 environment."""
+    expr = str(expr or "").strip()
+    if expr.endswith("."):
+        expr = expr[:-1].strip()
+
+    env = {
+        "And": Z3And,
+        "Or": Z3Or,
+        "Not": Z3Not,
+        "Implies": Z3Implies,
+        "Xor": Z3Xor,
+        "Distinct": Distinct,
+        "Abs": z3.Abs,
+    }
+    env.update(var_map)
+
+    # Add sanitized aliases for entity tokens.
+    for k, v in list(var_map.items()):
+        env[_sanitize_var_name(str(k))] = v
+
+    return eval(expr, {"__builtins__": {}}, env)
+
+
+def _ar_solver_status(assertions, phi=None, timeout_s: float = 2.0):
+    s = Solver()
+    s.set("timeout", int(float(timeout_s) * 1000))
+    s.add(assertions)
+    if phi is not None:
+        s.add(phi)
+    return s.check()
+
+
+def _ar_entailment_status(assertions, phi, timeout_s: float = 2.0) -> str:
+    # Avoid explosion from inconsistent premises.
+    if _ar_solver_status(assertions, timeout_s=timeout_s) != sat:
+        return "PREMISES_UNSAT"
+
+    if _ar_solver_status(assertions, phi, timeout_s=timeout_s) == unsat:
+        return "CONTRADICTION"
+
+    if _ar_solver_status(assertions, Z3Not(phi), timeout_s=timeout_s) == unsat:
+        return "ENTAILED"
+
+    return "NOT_ENTAILED"
+
+
+def _ar_is_tautology(base_assertions, phi, timeout_s: float = 2.0) -> bool:
+    return _ar_solver_status(base_assertions, Z3Not(phi), timeout_s=timeout_s) == unsat
+
+
+def _ar_equiv_under_base(base_assertions, a, b, timeout_s: float = 2.0) -> bool:
+    return _ar_solver_status(base_assertions, Z3Xor(a, b), timeout_s=timeout_s) == unsat
+
+
+def _ar_check_option(base_solver: Solver, option_phi, timeout_s: float = 2.0) -> bool:
+    return _ar_solver_status(base_solver.assertions(), option_phi, timeout_s=timeout_s) == sat
+
+
+def _ar_validate_reasoning_ordering(
+    *,
+    reasoning: List[str],
+    base_solver: Solver,
+    base_only_solver: Solver,
+    var_map: Dict[str, Any],
+    rules_phis: List[Any],
+    options_phis: Dict[str, Any],
+    timeout_s: float,
+) -> Dict[str, Any]:
+    n_total = 0
+    n_parsed_ok = 0
+    n_valid = 0
+    n_novel = 0
+    n_contra = 0
+
+    list_steps_valid = []
+    list_steps_non_valid = []
+    list_novel_steps_inc_clues = []
+    list_step_parse_errors = []
+    skipped = []
+
+    seen_sexprs = set()
+    accepted_step_phis = []
+
+    steps_solver = Solver()
+    steps_solver.set("timeout", int(float(timeout_s) * 1000))
+    steps_solver.add(base_only_solver.assertions())
+
+    for raw in reasoning or []:
+        parsed = _ar_extract_s_expr(raw)
+        if parsed is None:
+            continue
+
+        n_total += 1
+        k, expr = parsed
+
+        # Option feasibility steps are special: Sat(Option_A), Unsat(Option_A)
+        m_opt = re.match(r"^\s*(Sat|Unsat)\s*\(\s*Option_([A-Z])\s*\)\s*$", expr, re.IGNORECASE)
+        if m_opt:
+            n_parsed_ok += 1
+            op = m_opt.group(1).lower()
+            label = m_opt.group(2).upper()
+            option_phi = options_phis.get(label)
+
+            if option_phi is None:
+                entry = {"k": k, "raw": raw, "expr": expr, "validity_status": "OPTION_NOT_FOUND"}
+                list_steps_non_valid.append(entry)
+                skipped.append(entry)
+                continue
+
+            is_sat = _ar_check_option(base_solver, option_phi, timeout_s)
+            is_valid = (op == "sat" and is_sat) or (op == "unsat" and not is_sat)
+
+            if is_valid:
+                n_valid += 1
+                n_novel += 1
+                list_steps_valid.append(expr)
+                list_novel_steps_inc_clues.append(expr)
+            else:
+                entry = {
+                    "k": k,
+                    "raw": raw,
+                    "expr": expr,
+                    "validity_status": "BAD_OPTION_STATUS",
+                    "reason": f"Expected {op.upper()} but solver SAT={is_sat}.",
+                }
+                list_steps_non_valid.append(entry)
+                skipped.append(entry)
+            continue
+
+        try:
+            phi = _ar_parse_expr(expr, var_map)
+            n_parsed_ok += 1
+        except Exception as e:
+            entry = {"k": k, "raw": raw, "expr": expr, "status": "PARSE_ERROR", "error": f"{type(e).__name__}: {e}"}
+            list_step_parse_errors.append(entry)
+            list_steps_non_valid.append({"k": k, "raw": raw, "expr": expr, "validity_status": "PARSE_ERROR", "reason": entry["error"]})
+            skipped.append(entry)
+            continue
+
+        sexpr = phi.sexpr()
+
+        if sexpr in seen_sexprs:
+            skipped.append({"k": k, "raw": raw, "expr": expr, "status": "DUPLICATE_STEP"})
+            continue
+
+        # Exclude direct or semantic restatement of passage rules/facts.
+        try:
+            if any(_ar_equiv_under_base(base_only_solver.assertions(), phi, c, timeout_s) for c in rules_phis):
+                status = _ar_entailment_status(base_solver.assertions(), phi, timeout_s)
+                if status == "ENTAILED":
+                    n_valid += 1
+                    list_steps_valid.append(expr)
+                skipped.append({"k": k, "raw": raw, "expr": expr, "status": "RESTATES_RULE_OR_FACT"})
+                seen_sexprs.add(sexpr)
+                continue
+        except Exception:
+            pass
+
+        if _ar_is_tautology(base_only_solver.assertions(), phi, timeout_s):
+            skipped.append({"k": k, "raw": raw, "expr": expr, "status": "TAUTOLOGY"})
+            seen_sexprs.add(sexpr)
+            continue
+
+        validity_status = _ar_entailment_status(base_solver.assertions(), phi, timeout_s)
+        if validity_status == "ENTAILED":
+            n_valid += 1
+            list_steps_valid.append(expr)
+        else:
+            reason = "not entailed by rules + facts"
+            if validity_status == "CONTRADICTION":
+                n_contra += 1
+                reason = "contradicts rules + facts"
+            list_steps_non_valid.append({
+                "k": k,
+                "raw": raw,
+                "expr": expr,
+                "validity_status": validity_status,
+                "sexpr": sexpr,
+                "reason": reason,
+            })
+
+        steps_status = _ar_entailment_status(steps_solver.assertions(), phi, timeout_s)
+        is_novel = steps_status != "ENTAILED" and steps_status != "CONTRADICTION"
+        if validity_status == "ENTAILED" and is_novel:
+            n_novel += 1
+            list_novel_steps_inc_clues.append(expr)
+
+        if steps_status != "CONTRADICTION":
+            steps_solver.add(phi)
+            accepted_step_phis.append(phi)
+
+        seen_sexprs.add(sexpr)
+
+    return {
+        "n_steps_total": n_total,
+        "n_steps_parsed_ok": n_parsed_ok,
+        "n_steps_valid": n_valid,
+        "n_steps_novel_inc_clues": n_novel,
+        "n_non_valid_contradiction": n_contra,
+        "list_steps_valid": list_steps_valid,
+        "list_steps_non_valid": list_steps_non_valid,
+        "list_novel_steps_inc_clues": list_novel_steps_inc_clues,
+        "list_step_parse_errors": list_step_parse_errors,
+        "list_skipped_steps_inc_clues": skipped,
+    }
+
+
 def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.0, conflict_tolerant_clues: bool = False) -> Dict[str, Any]:
     """
-    Computes both FULL and RAW builds:
-      FULL: add all parseable clues (no conflict-tolerant skipping unless parse error / oov / underconstrained).
-      RAW:  add clues with conflict-tolerant skipping (always enabled for RAW, independent of passed flag).
-    Reasoning is validated against FULL if FULL is SAT; else against RAW if RAW is SAT.
+    AR-LSAT ordering validator.
+
+    Expected payload format:
+      {
+        "problem_type": "ordering",
+        "world_model": {"entities": [...], "domains": {"positions": [...]}, ...},
+        "rules": ["Distinct(A,B,C)", "A < B", ...],
+        "facts": ["B == 4", ...],
+        "question_semantics": {"question_type": "could_be_true", ...},
+        "options": {"A": "A == 2", ...},
+        "reasoning": [...],
+        "solution": {"selected_option": "A"},
+        "ground_truth": "A" or {"answer": "A"}
+      }
     """
-    report: Dict[str, Any] = {}
+    report: Dict[str, Any] = {
+        "parse_status": "INIT",
+        "base_sat_full_GT": 0.0,
+        "option_correct": 0.0,
+        "base_rules_facts_sat": 0.0,
+        "selected_option": None,
+        "ground_truth_option": None,
+        "n_steps_total": 0,
+        "n_steps_parsed_ok": 0,
+        "n_steps_valid": 0,
+        "n_steps_novel_inc_clues": 0,
+        "n_non_valid_contradiction": 0,
+        "list_steps_non_valid": [],
+        "list_novel_steps_inc_clues": [],
+    }
 
-    n = int(payload["n_houses"])
-    attribute_values = payload["attribute_values"]
-    syntactic_clues = payload.get("syntactic_clues") or []
-    reasoning = payload.get("reasoning") or []
-    ground_truth = payload.get("ground_truth")
-    ground_truth = normalize_header(ground_truth)
-    base_solver, var_map, attr_vars = _build_base_solver(n, attribute_values, timeout_s)
-
-
-    # Check Validity of the base solver
     try:
-        full_build = _add_clues(
-            base_solver=base_solver,
-            n=n,
+        if payload.get("problem_type") != "ordering":
+            report["parse_status"] = "UNSUPPORTED_PROBLEM_TYPE"
+            return report
+
+        world_model = payload.get("world_model") or {}
+        rules = payload.get("rules") or []
+        facts = payload.get("facts") or []
+        reasoning = payload.get("reasoning") or []
+        options = payload.get("options") or {}
+        solution = payload.get("solution") or {}
+
+        selected = solution.get("selected_option")
+        gt = payload.get("ground_truth")
+        if isinstance(gt, dict):
+            gt = gt.get("answer") or gt.get("selected_option")
+        if gt is not None:
+            gt = str(gt).strip().upper()
+        if selected is not None:
+            selected = str(selected).strip().upper()
+
+        report["selected_option"] = selected
+        report["ground_truth_option"] = gt
+        report["option_correct"] = 1.0 if selected and gt and selected == gt else 0.0
+
+        base_only_solver, var_map = _ar_make_ordering_base(world_model, timeout_s)
+        full_solver = Solver()
+        full_solver.set("timeout", int(float(timeout_s) * 1000))
+        full_solver.add(base_only_solver.assertions())
+
+        rule_fact_phis = []
+        parse_errors = []
+
+        for expr in list(rules) + list(facts):
+            try:
+                phi = _ar_parse_expr(expr, var_map)
+                full_solver.add(phi)
+                rule_fact_phis.append(phi)
+            except Exception as e:
+                parse_errors.append({"expr": expr, "error": f"{type(e).__name__}: {e}"})
+
+        report["rule_fact_parse_errors"] = parse_errors
+
+        base_sat = full_solver.check() == sat
+        report["base_rules_facts_sat"] = 1.0 if base_sat else 0.0
+
+        options_phis = {}
+        option_parse_errors = []
+        for label, expr in options.items():
+            try:
+                options_phis[str(label).upper()] = _ar_parse_expr(expr, var_map)
+            except Exception as e:
+                option_parse_errors.append({"option": label, "expr": expr, "error": f"{type(e).__name__}: {e}"})
+
+        report["option_parse_errors"] = option_parse_errors
+
+        if not base_sat:
+            report["parse_status"] = "BASE_UNSAT"
+            return report
+
+        # Validate that selected option has the expected feasibility behavior.
+        question_type = ((payload.get("question_semantics") or {}).get("question_type") or "").strip()
+        selected_phi = options_phis.get(selected) if selected else None
+        selected_semantics_ok = False
+        if selected_phi is not None:
+            if question_type in ("could_be_true", "acceptability", "partial_acceptability", "other"):
+                selected_semantics_ok = _ar_check_option(full_solver, selected_phi, timeout_s)
+            elif question_type in ("cannot_be_true", "must_be_false"):
+                selected_semantics_ok = not _ar_check_option(full_solver, selected_phi, timeout_s)
+            elif question_type in ("must_be_true", "must_follow"):
+                selected_semantics_ok = _ar_solver_status(full_solver.assertions(), Z3Not(selected_phi), timeout_s=timeout_s) == unsat
+            elif question_type == "could_be_false":
+                selected_semantics_ok = _ar_check_option(full_solver, Z3Not(selected_phi), timeout_s)
+            else:
+                selected_semantics_ok = _ar_check_option(full_solver, selected_phi, timeout_s)
+
+        report["selected_option_semantics_ok"] = 1.0 if selected_semantics_ok else 0.0
+
+        reason_out = _ar_validate_reasoning_ordering(
+            reasoning=reasoning,
+            base_solver=full_solver,
+            base_only_solver=base_only_solver,
             var_map=var_map,
-            syntactic_clues=syntactic_clues,
+            rules_phis=rule_fact_phis,
+            options_phis=options_phis,
             timeout_s=timeout_s,
-            conflict_tolerant=bool(conflict_tolerant_clues),
         )
-        full_build.attr_vars = attr_vars
+        report.update(reason_out)
 
-        # base SAT flags
-        base_sat_full = (full_build.solver.check() == sat)
-        #print("base sat full = {}".format(base_sat_full))
-        # Solve and compare against GT for FULL and RAW
-        z3_solution_full = None
-        gt_valid_full = False
-        gt_details_full: Dict[str, Any] = {}
-        if base_sat_full:
-            m = full_build.solver.model()
-            z3_solution_full = _model_to_solution_table(m, n, attribute_values, var_map)
-            z3_solution_full = normalize_header(z3_solution_full)
-            gt_valid_full, gt_details_full = validate_solution_against_ground_truth(z3_solution_full, ground_truth)
-
-
-        report["z3_solution"] = z3_solution_full if z3_solution_full is not None else {}
-        report["gt_solution_details"] = gt_details_full if base_sat_full else []
-        report["base_sat_full_GT"] = bool(base_sat_full and gt_valid_full)
-        report["parse_status"] = "SAT_CHECK_SUCCESS"
+        report["base_sat_full_GT"] = 1.0 if (report["option_correct"] == 1.0 and selected_semantics_ok) else 0.0
+        report["parse_status"] = "AR_LSAT_ORDERING_SUCCESS"
+        return report
 
     except Exception as e:
-        logger.error(f"Error in validity of the base solver: {e}")
-        report["z3_solution"] = {}
-        report["gt_solution_details"] = {}
-        report["base_sat_full_GT"] = 0.0
-        report["parse_status"] = "SAT_CHECK_FAIL"
-
-    if report["base_sat_full_GT"]:
-        try:
-            out_distinct_steps = count_distinct_reasoning_steps_v13_relaxed(
-                reasoning_lines=reasoning,
-                n_houses=n,
-                attribute_values=attribute_values,
-                syntactic_clues=syntactic_clues,
-                distinct_from_syntactic_clues_semantic_xor=True,  # enable semantic (UNSAT(Xor)) clue equivalence too
-                entailed_only=True,
-                require_token_novelty=False,
-                omit_tautologies=True,)
-
-            report["n_steps_total"] =  out_distinct_steps["n_steps_total"]
-            report["n_steps_parsed_ok"] = out_distinct_steps["n_steps_parsed_ok"]
-            report["n_steps_valid"] = out_distinct_steps["n_steps_valid"]
-            report["n_steps_novel_inc_clues"] = out_distinct_steps["n_steps_novel_inc_clues"]
-            report["list_steps_non_valid"] = out_distinct_steps["list_steps_non_valid"]
-            report["list_novel_steps_inc_clues"] = out_distinct_steps["list_novel_steps_inc_clues"]
-            report["n_non_valid_contradiction"] = out_distinct_steps["n_non_valid_contradiction"]
-            report["parse_status"] = "NOVELTY_CHECK_SUCCESS"
-
-            #print("selected steps = ", reasoning)
-        except Exception as dis_Error:
-            logger.error("Error in computing distinct reasoning steps = {}".format(dis_Error))
-
-            #report["base_sat_full_GT"] = 0.0
-            report["n_steps_total"] =  0
-            report["n_steps_parsed_ok"] = 0
-            report["n_steps_valid"] = 0
-            report["n_steps_novel_inc_clues"] = 0
-            report["list_steps_non_valid"] = []
-            report["list_novel_steps_inc_clues"] = []
-            report["n_non_valid_contradiction"] = 0
-            report["parse_status"] = "NOVELTY_CHECK_FAIL"
-
-    return report
-
+        report["parse_status"] = "AR_LSAT_ORDERING_FAIL"
+        report["error"] = f"{type(e).__name__}: {e}"
+        return report
 
 # ----------------------------- Self-tests -----------------------------
 
