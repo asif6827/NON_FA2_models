@@ -11,6 +11,11 @@
 #batch ./scripts_data_etc/download_hub_llama.sh
 
 
+echo "Model Downloading...!"
+sbatch ./scripts_data_etc/download_hub_ibex.sh
+
+
+
 #cho "Data Pre-Processing Runing"
 #sbatch ./data_preprocess/logic/data_preprocess_parsed_v7.sh
 
