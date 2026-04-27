@@ -274,7 +274,7 @@ def compute_score(
     consistency_score = float(z3_out.get("consistency_score", 0.0) or 0.0)
     final_result["z3_reward"] = sat_ok
     final_result["consistency_score"] = consistency_score
-    final_result["solution_support_steps"] = z3_out.get("solution_support_steps", [])
+    #final_result["solution_support_steps"] = z3_out.get("solution_support_steps", [])
     final_result["BASE_sat_full_GT"] = sat_ok
     final_result["BASE_n_steps_total"] = float(z3_out.get("n_steps_total", 0) or 0)
     final_result["BASE_n_steps_parsed_ok"] = float(z3_out.get("n_steps_parsed_ok", 0) or 0)

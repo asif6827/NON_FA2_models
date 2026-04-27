@@ -120,11 +120,9 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     BASE_n_steps_novel_inc_clues = torch.from_numpy(batch.non_tensor_batch["BASE_n_steps_novel_inc_clues"])
     BASE_n_non_valid_contradiction = torch.from_numpy(batch.non_tensor_batch["BASE_n_non_valid_contradiction"])
 
-    Normalizer = torch.from_numpy(batch.non_tensor_batch["Normalizer"])
 
     acc = torch.from_numpy(batch.non_tensor_batch["acc"])
-    PUZZLE_ACCURACY = torch.from_numpy(batch.non_tensor_batch["PUZZLE_ACCURACY"])
-    CELL_ACCURACY = torch.from_numpy(batch.non_tensor_batch["CELL_ACCURACY"])
+    ACCURACY = torch.from_numpy(batch.non_tensor_batch["ACCURACY"])
     score = torch.from_numpy(batch.non_tensor_batch["score"])
     epoch = torch.from_numpy(batch.non_tensor_batch["epoch"])
     total_epochs = torch.from_numpy(batch.non_tensor_batch["total_epochs"])
@@ -179,8 +177,9 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     #"Z3-solver/score/max": torch.max(sequence_score).detach().item(),
         #"Z3/solver/min": torch.min(sequence_score).detach().item(),
         # ACC-Metrics:
-        "TRAIN/ACC-Metrics/Normalizer/mean": torch.mean(Normalizer.float()).detach().item(),
+
         "TRAIN/ACC-Metrics/acc/mean": torch.mean(acc.float()).detach().item(),
+        "TRAIN/ACC-Metrics/ACCURACY/mean": torch.mean(ACCURACY.float()).detach().item(),
         "TRAIN/ACC-Metrics/score/mean": torch.mean(score.float()).detach().item(),
         "TRAIN/ACC-Metrics/epoch/mean": torch.mean(epoch.float()).detach().item(),
         "TRAIN/ACC-Metrics/total_epochs/mean": torch.mean(total_epochs.float()).detach().item(),
