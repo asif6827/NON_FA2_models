@@ -3,11 +3,11 @@
 #!/bin/bash
 #SBATCH --time=6-05:30:00
 #SBATCH --nodes=1
-#SBATCH --gpus-per-node=a100:8
+#SBATCH --gpus-per-node=a100:4
 #SBATCH --cpus-per-gpu=6
 #SBATCH --mem=400G
 #SBATCH --partition=batch
-#SBATCH --job-name=a100_8
+#SBATCH --job-name=a100_4
 #SBATCH --mail-type=ALL
 #SBATCH --output=./all_logs/%x-%j-slurm-ibex.out
 #SBATCH --error=./all_logs/%x-%j-slurm-ibex.err
@@ -17,7 +17,7 @@ module load cuda12.4.1
 nvidia-smi
 source activate zebrapuzzles
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 unset ROCR_VISIBLE_DEVICES
 
 #### MY Parameters
@@ -85,7 +85,7 @@ echo "Python Path = ${PYTHONPATH}"
 
 # =================== User-Configurable Settings ===================
 # --- Execution Environment ---
-NUM_GPUS=8 # Set the number of GPUs to use on this node
+NUM_GPUS=4 # Set the number of GPUs to use on this node
 gpu_memory_utilization=0.8
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
