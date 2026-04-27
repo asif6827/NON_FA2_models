@@ -346,7 +346,22 @@ def compute_score(
         final_result["score"] = 0.0
         final_result["reward_logged"] = 0.0
 
-    return final_result
+    numeric_result = {}
+
+    for k, v in final_result.items():
+        try:
+            if isinstance(v, bool):
+                numeric_result[k] = 1.0 if v else 0.0
+            elif isinstance(v, (int, float)):
+                numeric_result[k] = float(v)
+            else:
+                numeric_result[k] = float(v)
+        except Exception:
+            numeric_result[k] = 0.0
+
+    return numeric_result
+
+
 
 
 def _make_answer(selected: str = "A", bad_format: bool = False) -> str:
