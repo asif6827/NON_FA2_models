@@ -3,6 +3,9 @@
 
 Expected model output is one JSON object inside <answer>...</answer> with fields:
 problem_type, world_model, rules, facts, question_semantics, options, reasoning, solution.
+
+This is adapted from the ZebraPuzzle process-reward formulation, but replaces
+Puzzle/Cell Accuracy with answer-option accuracy: selected option vs ground truth.
 """
 from __future__ import annotations
 
@@ -24,17 +27,14 @@ try:
 except Exception:
     from verl.utils.reward_score.check_interleved_format import check_interleaved_reasoning
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s", handlers=[logging.StreamHandler(sys.stdout)], force=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True,
+)
 logger = logging.getLogger(__name__)
 job_id = os.getenv("SLURM_JOB_ID", "local")
-
-
-def _clamp01(x: Any) -> float:
-    try:
-        v = float(x)
-    except Exception:
-        return 0.0
-    return 0.0 if v < 0 else 1.0 if v > 1 else v
 
 
 def find_last_answer_block(text: str) -> Optional[str]:
@@ -57,6 +57,7 @@ def _try_parse_first_json_obj(text: str) -> Optional[Dict[str, Any]]:
         return obj if isinstance(obj, dict) else None
     except Exception:
         pass
+
     starts = [m.start() for m in re.finditer(r"\{", raw)]
     for st in starts:
         for ed in range(len(raw), st, -1):
@@ -78,6 +79,7 @@ def parse_ar_lsat_answer(solution_str: str):
         if parsed is not None:
             return parsed, "success_answer_tag"
         return None, "answer_tag_json_error"
+
     parsed = _try_parse_first_json_obj(solution_str)
     if parsed is not None:
         return parsed, "success_direct_json"
@@ -103,9 +105,9 @@ def _selected_from_prediction(payload: Optional[Dict[str, Any]]) -> Optional[str
     return None
 
 
-def _infer_n_positions(payload: Optional[Dict[str, Any]]) -> int:
+def _infer_n_positions(payload: Optional[Dict[str, Any]]) -> Optional[int]:
     if not isinstance(payload, dict):
-        return 1
+        return None
     wm = payload.get("world_model") or {}
     domains = wm.get("domains", {}) if isinstance(wm, dict) else {}
     positions = domains.get("positions") or domains.get("position") or []
@@ -118,21 +120,34 @@ def _infer_n_positions(payload: Optional[Dict[str, Any]]) -> int:
     if vals:
         return max(vals)
     entities = wm.get("entities", []) if isinstance(wm, dict) else []
-    return max(1, len(entities))
+    if entities:
+        return len(entities)
+    return None
 
 
-def _infer_n_entities(payload: Optional[Dict[str, Any]]) -> int:
+def _infer_n_entities(payload: Optional[Dict[str, Any]]) -> Optional[int]:
     if not isinstance(payload, dict):
-        return 1
+        return None
     wm = payload.get("world_model") or {}
     entities = wm.get("entities", []) if isinstance(wm, dict) else []
-    return max(1, len(entities))
+    if isinstance(entities, list) and entities:
+        return len(entities)
+    return None
 
 
 def _schema_ok(payload: Optional[Dict[str, Any]]) -> bool:
     if not isinstance(payload, dict):
         return False
-    required = ["problem_type", "world_model", "rules", "facts", "question_semantics", "options", "reasoning", "solution"]
+    required = [
+        "problem_type",
+        "world_model",
+        "rules",
+        "facts",
+        "question_semantics",
+        "options",
+        "reasoning",
+        "solution",
+    ]
     if any(k not in payload for k in required):
         return False
     if payload.get("problem_type") != "ordering":
@@ -167,11 +182,11 @@ def compute_score(
 ) -> Dict[str, Any]:
     """Compute reward for AR-LSAT ordering answer-option tasks.
 
-    This uses the Zebra-style process reward formula, replacing:
-      puzzle_acc_score -> AR_OPTION_ACCURACY
-      n_houses -> number of ordering positions
-      len(attribute_values) -> number of ordered entities
-      consistency_score -> Z3 selected-option consistency
+    Zebra mapping:
+      puzzle_acc_score -> ACCURACY = 1 iff selected_option == ground_truth option else 0.
+      n_houses -> number of ordering positions.
+      n_attrs -> number of ordered entities.
+      consistency_score -> valid reasoning option-status step supports final selected_option.
     """
     epoch = int(os.getenv("CURRENT_EPOCH", "0"))
     total_epochs = int(os.getenv("TOTAL_EPOCH", "1"))
@@ -180,9 +195,7 @@ def compute_score(
         "acc": 0.0,
         "score": 0.0,
         "reward_logged": 0.0,
-        "AR_OPTION_ACCURACY": 0.0,
-        "PUZZLE_ACCURACY": 0.0,
-        "CELL_ACCURACY": 0.0,
+        "ACCURACY": 0.0,
         "parsing_reward": 0.0,
         "schema_reward": 0.0,
         "format_reward": 0.0,
@@ -196,12 +209,15 @@ def compute_score(
         "BASE_n_steps_valid": 0.0,
         "BASE_n_steps_novel_inc_clues": 0.0,
         "BASE_n_non_valid_contradiction": 0.0,
+        "novel_step_score": 0.0,
+        "contradiction_ratio": 0.0,
         "selected_option": None,
         "ground_truth_option": _selected_from_ground_truth(ground_truth),
         "parse_status": "INIT",
         "z3_parse_status": "NOT_RUN",
         "z3_error": "",
         "format_error": "",
+        "reward_error": "",
         "epoch": epoch,
         "total_epochs": total_epochs,
     }
@@ -220,11 +236,10 @@ def compute_score(
     selected = _selected_from_prediction(payload)
     gt_selected = final_result["ground_truth_option"]
     final_result["selected_option"] = selected
-    puzzle_acc_score = 1.0 if (selected is not None and gt_selected is not None and selected == gt_selected) else 0.0
-    cell_acc_score = puzzle_acc_score
-    final_result["AR_OPTION_ACCURACY"] = puzzle_acc_score
-    final_result["PUZZLE_ACCURACY"] = puzzle_acc_score
-    final_result["CELL_ACCURACY"] = cell_acc_score
+
+    # AR-LSAT answer-option accuracy replaces Zebra Puzzle/Cell accuracy.
+    accuracy = 1.0 if (selected is not None and gt_selected is not None and selected == gt_selected) else 0.0
+    final_result["ACCURACY"] = float(accuracy)
 
     schema_reward = 1.0 if _schema_ok(payload) else 0.0
     final_result["schema_reward"] = schema_reward
@@ -234,7 +249,7 @@ def compute_score(
     n_entities = _infer_n_entities(payload)
 
     try:
-        format_ok = check_interleaved_reasoning(reasoning, n_houses=int(n_positions))
+        format_ok = check_interleaved_reasoning(reasoning, n_houses=int(n_positions or 0))
     except Exception as e:
         final_result["format_error"] = f"{type(e).__name__}: {e}"
         format_ok = False
@@ -256,8 +271,10 @@ def compute_score(
     final_result["z3_error"] = z3_out.get("error", "")
 
     sat_ok = 1.0 if bool(z3_out.get("base_sat_full_GT", False)) else 0.0
+    consistency_score = float(z3_out.get("consistency_score", 0.0) or 0.0)
     final_result["z3_reward"] = sat_ok
-    final_result["consistency_score"] = sat_ok
+    final_result["consistency_score"] = consistency_score
+    final_result["solution_support_steps"] = z3_out.get("solution_support_steps", [])
     final_result["BASE_sat_full_GT"] = sat_ok
     final_result["BASE_n_steps_total"] = float(z3_out.get("n_steps_total", 0) or 0)
     final_result["BASE_n_steps_parsed_ok"] = float(z3_out.get("n_steps_parsed_ok", 0) or 0)
@@ -272,7 +289,12 @@ def compute_score(
         reward = 0.0
         normalizer = 1.0
         n_novel_steps = float(final_result.get("BASE_n_steps_novel_inc_clues", 0.0))
-        has_required_inputs = (isinstance(payload, dict) and n_positions is not None and n_entities is not None and n_novel_steps > 0)
+        has_required_inputs = (
+            isinstance(payload, dict)
+            and n_positions is not None
+            and n_entities is not None
+            and n_novel_steps > 0
+        )
 
         if has_required_inputs:
             n_houses_i = max(int(n_positions), 0)
@@ -289,12 +311,12 @@ def compute_score(
                 reward = (
                     0.15 * parsing_reward
                     + 0.10 * format_reward
-                    + 0.60 * float(puzzle_acc_score)
+                    + 0.60 * float(accuracy)
                     - 0.20 * contradiction_ratio
                 )
             else:
                 base_quality = (
-                    0.60 * float(puzzle_acc_score)
+                    0.60 * float(accuracy)
                     + 0.20 * parsing_reward
                     + 0.20 * format_reward
                 )
@@ -303,7 +325,7 @@ def compute_score(
                     + 0.30 * consistency_score
                     - 0.15 * contradiction_ratio
                 )
-                reward = base_quality + float(puzzle_acc_score) * process_bonus
+                reward = base_quality + float(accuracy) * process_bonus
 
             final_result["novel_step_score"] = float(novel_step_score)
             final_result["contradiction_ratio"] = float(contradiction_ratio)
@@ -312,7 +334,6 @@ def compute_score(
             final_result["missed_data"] = 1.0
             final_result["novel_step_score"] = 0.0
             final_result["contradiction_ratio"] = 0.0
-
 
         final_result["Normalizer"] = float(normalizer)
         final_result["acc"] = float(reward)

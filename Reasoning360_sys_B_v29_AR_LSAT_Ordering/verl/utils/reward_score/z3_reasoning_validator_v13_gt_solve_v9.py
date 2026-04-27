@@ -2,18 +2,12 @@
 # -*- coding: utf-8 -*-
 """AR-LSAT ordering Z3 validator.
 
-Expected payload:
-{
-  "problem_type": "ordering",
-  "world_model": {"entities": [...], "domains": {"positions": [...]}, ...},
-  "rules": [...],
-  "facts": [...],
-  "question_semantics": {"question_type": "could_be_true|must_be_true|..."},
-  "options": {"A": "...", ...},
-  "reasoning": [...],
-  "solution": {"selected_option": "A"},
-  "ground_truth": "A" or {"answer": "A"}
-}
+Expected payload fields: problem_type, world_model, rules, facts,
+question_semantics, options, reasoning, solution, and ground_truth.
+
+This validator also computes a reasoning-solution consistency score:
+consistency_score = 1.0 iff the reasoning contains a VALID option-status
+step that supports the final selected option under the question semantics.
 """
 from __future__ import annotations
 
@@ -23,8 +17,11 @@ import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-import z3
-from z3 import And, Distinct, Implies, Int, Not, Or, Solver, Xor, sat, unsat
+try:
+    import z3
+    from z3 import And, Distinct, Implies, Int, Not, Or, Solver, Xor, sat, unsat
+except Exception:  # pragma: no cover
+    z3 = None
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s", handlers=[logging.StreamHandler(sys.stdout)], force=True)
 logger = logging.getLogger(__name__)
@@ -109,7 +106,9 @@ def _extract_entities_positions(world_model: Dict[str, Any]) -> Tuple[List[str],
     return entities, sorted(set(positions))
 
 
-def _make_base(world_model: Dict[str, Any], timeout_s: float) -> Tuple[Solver, Dict[str, Any], List[Any], int, int]:
+def _make_base(world_model: Dict[str, Any], timeout_s: float):
+    if z3 is None:
+        raise RuntimeError("z3-solver is not installed")
     entities, positions = _extract_entities_positions(world_model)
     if not entities:
         raise ValueError("world_model.entities is empty")
@@ -146,9 +145,7 @@ def _term(raw: str, var_map: Dict[str, Any]):
 
 
 def _parse_atomic(expr: str, var_map: Dict[str, Any]):
-    e = expr.strip()
-    if e.endswith("."):
-        e = e[:-1].strip()
+    e = expr.strip().rstrip(".")
 
     m = re.match(r"^(.+?)\s*\+\s*(-?\d+)\s*==\s*(.+?)$", e)
     if m:
@@ -178,10 +175,7 @@ def _parse_atomic(expr: str, var_map: Dict[str, Any]):
 
 
 def _parse_expr(expr: str, var_map: Dict[str, Any]):
-    e = expr.strip()
-    if e.endswith("."):
-        e = e[:-1].strip()
-
+    e = str(expr).strip().rstrip(".")
     m = _FUNC_RE.match(e)
     if m:
         fn = m.group(1).lower()
@@ -209,6 +203,27 @@ def _parse_expr(expr: str, var_map: Dict[str, Any]):
     return _parse_atomic(e, var_map)
 
 
+def _parse_constraints(lines: List[str], var_map: Dict[str, Any]):
+    phis, errors = [], []
+    for raw in lines or []:
+        try:
+            phis.append(_parse_expr(str(raw), var_map))
+        except Exception as e:
+            errors.append({"raw": str(raw), "error": f"{type(e).__name__}: {e}"})
+    return phis, errors
+
+
+def _parse_options(options: Dict[str, str], var_map: Dict[str, Any]):
+    out, errs = {}, []
+    for label, expr in (options or {}).items():
+        lab = str(label).strip().upper()
+        try:
+            out[lab] = _parse_expr(str(expr), var_map)
+        except Exception as e:
+            errs.append({"label": lab, "raw": str(expr), "error": f"{type(e).__name__}: {e}"})
+    return out, errs
+
+
 def _extract_step_expr(line: str) -> Optional[Tuple[int, str]]:
     m = _STEP_RE.match((line or "").strip())
     if not m:
@@ -217,8 +232,7 @@ def _extract_step_expr(line: str) -> Optional[Tuple[int, str]]:
     expr = m.group(2).strip()
     if "[" in expr:
         expr = expr.split("[", 1)[0].strip()
-    if expr.endswith("."):
-        expr = expr[:-1].strip()
+    expr = expr.rstrip(".").strip()
     return (k, expr) if expr else None
 
 
@@ -258,17 +272,6 @@ def _equiv_to_any_rule(base_assertions: List[Any], phi: Any, rule_phis: List[Any
     return False
 
 
-def _parse_constraints(lines: List[str], var_map: Dict[str, Any]) -> Tuple[List[Any], List[Dict[str, str]]]:
-    phis: List[Any] = []
-    errors: List[Dict[str, str]] = []
-    for raw in lines or []:
-        try:
-            phis.append(_parse_expr(str(raw), var_map))
-        except Exception as e:
-            errors.append({"raw": str(raw), "error": f"{type(e).__name__}: {e}"})
-    return phis, errors
-
-
 def _evaluate_option(question_type: str, option_phi: Any, base_plus_rules_facts: List[Any], timeout_s: float) -> bool:
     qt = (question_type or "").strip().lower()
     if qt in {"could_be_true", "acceptability", "partial_acceptability", "valid_complete_assignment"}:
@@ -279,28 +282,68 @@ def _evaluate_option(question_type: str, option_phi: Any, base_plus_rules_facts:
         return _is_unsat(base_plus_rules_facts + [option_phi], timeout_s)
     if qt == "could_be_false":
         return _is_sat(base_plus_rules_facts + [Not(option_phi)], timeout_s)
-    # fallback: feasibility
     return _is_sat(base_plus_rules_facts + [option_phi], timeout_s)
 
 
-def _option_status_expr(expr: str) -> Optional[Tuple[str, str]]:
-    m = re.fullmatch(r"\s*(Sat|Unsat)\(Option_([A-Z])\)\s*", expr, flags=re.IGNORECASE)
+def _option_status_expr(expr: str) -> Optional[Tuple[str, bool, str]]:
+    """Parse Sat/Unsat option-status reasoning steps.
+
+    Supports:
+      Sat(Option_A), Unsat(Option_A), Sat(Not(Option_A)), Unsat(Not(Option_A)).
+    Returns: (status, is_negated, option_label).
+    """
+    e = (expr or "").strip().rstrip(".")
+    m = re.fullmatch(r"\s*(Sat|Unsat)\(\s*(Not\()?\s*Option_([A-Z])\s*\)?\s*\)\s*", e, flags=re.IGNORECASE)
     if not m:
         return None
-    return m.group(1).lower(), m.group(2).upper()
+    return m.group(1).lower(), bool(m.group(2)), m.group(3).upper()
 
 
-def _validate_reasoning_steps(reasoning: List[str], *, base_assertions: List[Any], rule_fact_phis: List[Any], rule_phis: List[Any], option_phis: Dict[str, Any], timeout_s: float) -> Dict[str, Any]:
+def _option_status_is_true(status: str, is_negated: bool, option_phi: Any, gamma: List[Any], timeout_s: float) -> bool:
+    phi = Not(option_phi) if is_negated else option_phi
+    if status == "sat":
+        return _is_sat(gamma + [phi], timeout_s)
+    if status == "unsat":
+        return _is_unsat(gamma + [phi], timeout_s)
+    return False
+
+
+def _supports_selected_solution(question_type: str, status: str, is_negated: bool, label: str, selected: Optional[str]) -> bool:
+    if not selected or label != selected:
+        return False
+    qt = (question_type or "").strip().lower()
+    if qt in {"could_be_true", "acceptability", "partial_acceptability", "valid_complete_assignment"}:
+        return status == "sat" and not is_negated
+    if qt in {"must_be_true", "must_follow"}:
+        return status == "unsat" and is_negated
+    if qt in {"cannot_be_true", "must_be_false"}:
+        return status == "unsat" and not is_negated
+    if qt == "could_be_false":
+        return status == "sat" and is_negated
+    return status == "sat" and not is_negated
+
+
+def _validate_reasoning_steps(
+    reasoning: List[str],
+    *,
+    var_map: Dict[str, Any],
+    base_assertions: List[Any],
+    rule_fact_phis: List[Any],
+    rule_phis: List[Any],
+    option_phis: Dict[str, Any],
+    question_type: str,
+    selected_option: Optional[str],
+    timeout_s: float,
+) -> Dict[str, Any]:
     gamma_valid = base_assertions + rule_fact_phis
     gamma_steps = list(base_assertions)
     seen = set()
-
-    n_total = 0
-    n_parsed = 0
+    n_total = n_parsed = 0
     valid_steps: List[Dict[str, Any]] = []
     novel_steps: List[Dict[str, Any]] = []
     non_valid: List[Dict[str, Any]] = []
     parse_errors: List[Dict[str, Any]] = []
+    solution_support_steps: List[Dict[str, Any]] = []
 
     for line in reasoning or []:
         parsed = _extract_step_expr(line)
@@ -312,64 +355,30 @@ def _validate_reasoning_steps(reasoning: List[str], *, base_assertions: List[Any
         status_expr = _option_status_expr(expr)
         if status_expr:
             n_parsed += 1
-            status, label = status_expr
-            opt_phi = option_phis.get(label)
-            if opt_phi is None:
-                non_valid.append({"k": k, "expr": expr, "validity_status": "UNKNOWN_OPTION"})
-                continue
-            is_sat_now = _is_sat(gamma_valid + [opt_phi], timeout_s)
-            option_valid = (status == "sat" and is_sat_now) or (status == "unsat" and not is_sat_now)
-            if option_valid:
-                valid_steps.append({"k": k, "expr": expr, "validity_status": "OPTION_STATUS_VALID"})
-            else:
-                non_valid.append({"k": k, "expr": expr, "validity_status": "OPTION_STATUS_INVALID"})
-            # Option status steps are useful but not counted as novel deductions.
-            continue
-
-        try:
-            phi = _parse_expr(expr, {v.decl().name(): v for v in []})  # never used; replaced below
-        except Exception:
-            pass
-        # parse with vars by closing over external parser requires var_map, so we pass parsed phi in caller by monkey simple fallback
-        # This branch is overwritten by injecting parser below.
-
-    # This function is replaced by _validate_reasoning_steps_with_var_map for clarity.
-    return {}
-
-
-def _validate_reasoning_steps_with_var_map(reasoning: List[str], *, var_map: Dict[str, Any], base_assertions: List[Any], rule_fact_phis: List[Any], rule_phis: List[Any], option_phis: Dict[str, Any], timeout_s: float) -> Dict[str, Any]:
-    gamma_valid = base_assertions + rule_fact_phis
-    gamma_steps = list(base_assertions)
-    seen = set()
-
-    n_total = 0
-    n_parsed = 0
-    valid_steps: List[Dict[str, Any]] = []
-    novel_steps: List[Dict[str, Any]] = []
-    non_valid: List[Dict[str, Any]] = []
-    parse_errors: List[Dict[str, Any]] = []
-
-    for line in reasoning or []:
-        parsed = _extract_step_expr(line)
-        if parsed is None:
-            continue
-        n_total += 1
-        k, expr = parsed
-
-        status_expr = _option_status_expr(expr)
-        if status_expr:
-            n_parsed += 1
-            status, label = status_expr
+            status, is_negated, label = status_expr
             opt_phi = option_phis.get(label)
             if opt_phi is None:
                 non_valid.append({"k": k, "raw": line, "expr": expr, "validity_status": "UNKNOWN_OPTION"})
                 continue
-            is_sat_now = _is_sat(gamma_valid + [opt_phi], timeout_s)
-            option_valid = (status == "sat" and is_sat_now) or (status == "unsat" and not is_sat_now)
+            option_valid = _option_status_is_true(status, is_negated, opt_phi, gamma_valid, timeout_s)
+            supports_solution = bool(option_valid and _supports_selected_solution(question_type, status, is_negated, label, selected_option))
+            entry = {
+                "k": k,
+                "raw": line,
+                "expr": expr,
+                "option_label": label,
+                "status_operator": status,
+                "is_negated": is_negated,
+                "supports_selected_solution": supports_solution,
+            }
             if option_valid:
-                valid_steps.append({"k": k, "raw": line, "expr": expr, "validity_status": "OPTION_STATUS_VALID"})
+                entry["validity_status"] = "OPTION_STATUS_VALID"
+                valid_steps.append(entry)
+                if supports_solution:
+                    solution_support_steps.append(entry)
             else:
-                non_valid.append({"k": k, "raw": line, "expr": expr, "validity_status": "OPTION_STATUS_INVALID"})
+                entry["validity_status"] = "OPTION_STATUS_INVALID"
+                non_valid.append(entry)
             continue
 
         try:
@@ -402,8 +411,7 @@ def _validate_reasoning_steps_with_var_map(reasoning: List[str], *, var_map: Dic
         step_status = _status_under_gamma(gamma_steps, phi, timeout_s)
         if step_status == "CONTRADICTION":
             continue
-        is_novel = step_status != "ENTAILED"
-        if validity == "ENTAILED" and is_novel:
+        if validity == "ENTAILED" and step_status != "ENTAILED":
             novel_steps.append({"k": k, "raw": line, "expr": expr, "validity_status": validity, "steps_status": step_status})
         gamma_steps.append(phi)
 
@@ -417,6 +425,8 @@ def _validate_reasoning_steps_with_var_map(reasoning: List[str], *, var_map: Dic
         "list_steps_non_valid": non_valid,
         "list_novel_steps_inc_clues": [x.get("expr") for x in novel_steps],
         "list_step_parse_errors": parse_errors,
+        "consistency_score": 1.0 if solution_support_steps else 0.0,
+        "solution_support_steps": solution_support_steps,
     }
 
 
@@ -429,16 +439,17 @@ def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.
         "n_steps_valid": 0,
         "n_steps_novel_inc_clues": 0,
         "n_non_valid_contradiction": 0,
+        "consistency_score": 0.0,
+        "solution_support_steps": [],
     }
     try:
         if payload.get("problem_type") != "ordering":
             raise ValueError("This validator only supports problem_type='ordering'.")
 
-        base_solver, var_map, base_assertions, n_positions, n_entities = _make_base(payload.get("world_model") or {}, timeout_s)
+        _, var_map, base_assertions, n_positions, n_entities = _make_base(payload.get("world_model") or {}, timeout_s)
         rule_phis, rule_errors = _parse_constraints(payload.get("rules") or [], var_map)
         fact_phis, fact_errors = _parse_constraints(payload.get("facts") or [], var_map)
-        option_phis, option_errors_list = _parse_options(payload.get("options") or {}, var_map)
-
+        option_phis, option_errors = _parse_options(payload.get("options") or {}, var_map)
         rule_fact_phis = rule_phis + fact_phis
         base_plus_rules_facts = base_assertions + rule_fact_phis
         base_sat = _is_sat(base_plus_rules_facts, timeout_s)
@@ -450,27 +461,31 @@ def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.
         solver_selected_ok = False
         if selected_phi is not None and base_sat:
             solver_selected_ok = _evaluate_option(question_type, selected_phi, base_plus_rules_facts, timeout_s)
-
         gt_match = bool(selected and gt and selected == gt)
-        report["base_sat_full_GT"] = bool(base_sat and solver_selected_ok and gt_match)
-        report["base_sat"] = bool(base_sat)
-        report["solver_selected_ok"] = bool(solver_selected_ok)
-        report["selected_option"] = selected
-        report["ground_truth_option"] = gt
-        report["question_type"] = question_type
-        report["rule_parse_errors"] = rule_errors
-        report["fact_parse_errors"] = fact_errors
-        report["option_parse_errors"] = option_errors_list
-        report["n_positions"] = n_positions
-        report["n_entities"] = n_entities
 
-        step_report = _validate_reasoning_steps_with_var_map(
+        report.update({
+            "base_sat_full_GT": bool(base_sat and solver_selected_ok and gt_match),
+            "base_sat": bool(base_sat),
+            "solver_selected_ok": bool(solver_selected_ok),
+            "selected_option": selected,
+            "ground_truth_option": gt,
+            "question_type": question_type,
+            "rule_parse_errors": rule_errors,
+            "fact_parse_errors": fact_errors,
+            "option_parse_errors": option_errors,
+            "n_positions": n_positions,
+            "n_entities": n_entities,
+        })
+
+        step_report = _validate_reasoning_steps(
             payload.get("reasoning") or [],
             var_map=var_map,
             base_assertions=base_assertions,
             rule_fact_phis=rule_fact_phis,
             rule_phis=rule_phis,
             option_phis=option_phis,
+            question_type=question_type,
+            selected_option=selected,
             timeout_s=timeout_s,
         )
         report.update(step_report)
@@ -480,18 +495,6 @@ def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.
         report["parse_status"] = "Z3_EXCEPTION"
         report["error"] = f"{type(e).__name__}: {e}"
         return report
-
-
-def _parse_options(options: Dict[str, str], var_map: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Dict[str, str]]]:
-    out: Dict[str, Any] = {}
-    errs: List[Dict[str, str]] = []
-    for label, expr in (options or {}).items():
-        lab = str(label).strip().upper()
-        try:
-            out[lab] = _parse_expr(str(expr), var_map)
-        except Exception as e:
-            errs.append({"label": lab, "raw": str(expr), "error": f"{type(e).__name__}: {e}"})
-    return out, errs
 
 
 if __name__ == "__main__":

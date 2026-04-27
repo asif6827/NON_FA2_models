@@ -181,12 +181,11 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
         # ACC-Metrics:
         "TRAIN/ACC-Metrics/Normalizer/mean": torch.mean(Normalizer.float()).detach().item(),
         "TRAIN/ACC-Metrics/acc/mean": torch.mean(acc.float()).detach().item(),
-        "TRAIN/ACC-Metrics/PUZZLE_ACCURACY/mean": torch.mean(PUZZLE_ACCURACY.float()).detach().item(),
-        "TRAIN/ACC-Metrics/CELL_ACCURACY/mean": torch.mean(CELL_ACCURACY.float()).detach().item(),
         "TRAIN/ACC-Metrics/score/mean": torch.mean(score.float()).detach().item(),
         "TRAIN/ACC-Metrics/epoch/mean": torch.mean(epoch.float()).detach().item(),
         "TRAIN/ACC-Metrics/total_epochs/mean": torch.mean(total_epochs.float()).detach().item(),
         "TRAIN/ACC-Metrics/reward_logged/mean": torch.mean(reward_logged.float()).detach().item(),
+
         # score
         "critic/score/mean": torch.mean(sequence_score).detach().item(),
         "critic/score/max": torch.max(sequence_score).detach().item(),
