@@ -1,15 +1,14 @@
 #!/bin/bash -l
 
-#SBATCH -J MLXL-B-v29-H200-Qwen3-4B-ARLSAT-Grouping #job name
-#SBATCH -p gpu-H200 # queue used
-#SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
+#SBATCH -J MLXL-B-v29-A100-Qwen3-4B-ARLSAT-Grouping #job name
+#SBATCH -p gpu-A100 # queue used
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
 #SBATCH --output=./all_logs/%j-%x.out
 #SBATCH --error=./all_logs/%j-%x.err
-#SBATCH -A H200
-#SBATCH -q h200_qos
+#SBATCH -A A100
+#SBATCH -q a100_qos
 #SBATCH --mail-user=asif6827@gmail.com
 
 
