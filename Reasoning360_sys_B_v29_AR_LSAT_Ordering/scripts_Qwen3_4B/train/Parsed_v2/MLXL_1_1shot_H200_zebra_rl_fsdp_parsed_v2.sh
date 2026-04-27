@@ -3,7 +3,7 @@
 #SBATCH -J MLXL-B-v29-H200-Qwen3-4B-ARLSAT-Ordering #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
-#SBATCH -c 128  #number of CPUs needed, default is 1
+#SBATCH -c 60  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
 #SBATCH --output=./all_logs/%j-%x.out
 #SBATCH --error=./all_logs/%j-%x.err
