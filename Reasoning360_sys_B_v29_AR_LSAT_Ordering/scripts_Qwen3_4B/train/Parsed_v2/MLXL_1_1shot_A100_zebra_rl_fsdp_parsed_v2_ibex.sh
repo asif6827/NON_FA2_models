@@ -9,8 +9,8 @@
 #SBATCH --partition=batch
 #SBATCH --job-name=a100_8
 #SBATCH --mail-type=ALL
-#SBATCH --output=%x-%j-slurm.out
-#SBATCH --error=%x-%j-slurm.err
+#SBATCH --output=./all_logs/%x-%j-slurm-ibex.out
+#SBATCH --error=./all_logs/%x-%j-slurm-ibex.err
 
 
 module load cuda12.4.1
@@ -23,8 +23,8 @@ unset ROCR_VISIBLE_DEVICES
 #### MY Parameters
 export USE_Thinking=1
 #export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
-export HF_HOME="/export/home/asifali/HF_cache"
-export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
+export HF_HOME="/ibex/scratch/zakroum/lab-asif/HF_cache"
+export HF_DATASETS_CACHE="/ibex/scratch/zakroum/lab-asif/HF_cache"
 
 #export RAY_TMPDIR="/export/home/asifali/HF_cache/RAY_TMP"
 #mkdir -p RAY_TMPDIR
@@ -79,13 +79,13 @@ ACC_W=$ACC_W, Z3_W=$Z3_W, EPOCH_SWITCH=$SWITCH_EPOCH SYSTEM_NAME=$SYSTEM_NAME EV
 
 # ===============================================================
 #SYSTEM_NAME="Reasoning360_sys_B_v2"
-export PYTHONPATH="/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}:${PYTHONPATH:-}"
+export PYTHONPATH="/ibex/scratch/zakroum/lab-asif/NON_FA2_models/${SYSTEM_NAME}:${PYTHONPATH:-}"
 echo "Python Path = ${PYTHONPATH}"
 
 
 # =================== User-Configurable Settings ===================
 # --- Execution Environment ---
-NUM_GPUS=2 # Set the number of GPUs to use on this node
+NUM_GPUS=8 # Set the number of GPUs to use on this node
 gpu_memory_utilization=0.8
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
@@ -142,17 +142,17 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 #BASE_MODEL=Qwen/Qwen2.5-1.5B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-7B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-1.5B-Instruct
-BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-4B-Thinking-2507
+BASE_MODEL=/ibex/scratch/zakroum/lab-asif/HF_cache/Qwen3-4B-Thinking-2507
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-1.7B
 MODEL_NAME=$(basename "$BASE_MODEL" | tr -s ' ' '_' | tr -d -c '[:alnum:]_')
 MODEL_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]')
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-1.7B
 
-export REWARD_LOG_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
-SHARED_DATA_PATH=/export/home/asifali/HF_cache/${DATA_PATH}
-VALID_GENERATION_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
-export PUZZLE_FEEDBACK_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
-export PUZZLE_DIC_PATH=/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json
+export REWARD_LOG_PATH=/ibex/scratch/zakroum/lab-asif/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+SHARED_DATA_PATH=/ibex/scratch/zakroum/lab-asif/HF_cache/${DATA_PATH}
+VALID_GENERATION_PATH=/ibex/scratch/zakroum/lab-asif/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+export PUZZLE_FEEDBACK_PATH=/ibex/scratch/zakroum/lab-asif/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+export PUZZLE_DIC_PATH=/ibex/scratch/zakroum/lab-asif/HF_cache/ZebraLogic/pid_to_puzzle_dic.json
 
 
 
