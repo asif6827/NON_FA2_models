@@ -162,15 +162,11 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
             n_contradictions = float(final_result.get('BASE_n_non_valid_contradiction', 0.0))
             novel_step_score = float(min(n_novel_steps / normalizer, 1.0)); contradiction_ratio = float(min(n_contradictions / normalizer, 1.0))
             sat_ok = float(final_result.get('BASE_sat_full_GT', 0.0)); consistency_score = float(final_result.get('consistency_score', 0.0))
-            if sat_ok == 0.0:
-                reward = 0.15 * parsing_reward + 0.10 * format_reward + 0.60 * float(accuracy) - 0.20 * contradiction_ratio
-            else:
-                base_quality = 0.60 * float(accuracy) + 0.20 * parsing_reward + 0.20 * format_reward
-                process_bonus = 0.40 * novel_step_score + 0.30 * consistency_score - 0.15 * contradiction_ratio
-                reward = base_quality + float(accuracy) * process_bonus
+
+            reward = 0.15 * parsing_reward + 0.10 * format_reward + 0.60 * float(accuracy)
             final_result['novel_step_score'] = novel_step_score; final_result['contradiction_ratio'] = contradiction_ratio
         else:
-            reward = -0.5; final_result['missed_data'] = 1.0; final_result['novel_step_score'] = 0.0; final_result['contradiction_ratio'] = 0.0
+            reward = 0.0; final_result['missed_data'] = 1.0; final_result['novel_step_score'] = 0.0; final_result['contradiction_ratio'] = 0.0
         final_result['Normalizer'] = normalizer; final_result['acc'] = float(reward); final_result['score'] = float(reward); final_result['reward_logged'] = float(reward)
     except Exception:
         logger.exception('Crash in final reward scoring')

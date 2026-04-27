@@ -226,17 +226,10 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
             contradiction_ratio = float(min(n_contradictions / normalizer, 1.0))
             sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))
             consistency_score = float(final_result.get("consistency_score", 0.0))
-            if sat_ok == 0.0:
-                reward = 0.15 * parsing_reward + 0.10 * format_reward + 0.60 * float(accuracy) - 0.20 * contradiction_ratio
-            else:
-                base_quality = 0.60 * float(accuracy) + 0.20 * parsing_reward + 0.20 * format_reward
-                process_bonus = 0.40 * novel_step_score + 0.30 * consistency_score - 0.15 * contradiction_ratio
-                reward = base_quality + float(accuracy) * process_bonus
-            reward = max(-1.0, min(float(reward), 1.0))
-            final_result["novel_step_score"] = float(novel_step_score)
-            final_result["contradiction_ratio"] = float(contradiction_ratio)
+
+            reward = 0.15 * parsing_reward + 0.10 * format_reward + 0.60 * float(accuracy)
         else:
-            reward = -0.5
+            reward = 0.0
             final_result["missed_data"] = 1.0
         final_result["Normalizer"] = float(normalizer)
         final_result["acc"] = float(reward)
