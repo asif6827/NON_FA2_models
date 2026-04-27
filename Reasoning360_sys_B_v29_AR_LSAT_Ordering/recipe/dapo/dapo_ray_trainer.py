@@ -44,7 +44,7 @@ from verl.trainer.ppo.ray_trainer import (
 )
 from verl.utils.profiler import marked_timer
 
-puzzle_key = "val-aux/our_zebra_puzzle_new_reward_test/PUZZLE_ACCURACY/mean@1"
+puzzle_key = "val-aux/our_ar_lsat_ordering_new_reward_test/ACCURACY/mean@1"
 
 class RayDAPOTrainer(RayPPOTrainer):
     """
@@ -98,9 +98,9 @@ class RayDAPOTrainer(RayPPOTrainer):
                 return
 
             puzzle_accuracy = float(val_metrics[puzzle_key])
-            print(f"Puzzle Accuracy = {puzzle_accuracy}")
+            print(f"Accuracy = {puzzle_accuracy}")
             if puzzle_accuracy > self.puzzle_acc:
-                print(f"Replacing Puzzle Accuracy with {puzzle_accuracy}")
+                print(f"Replacing Accuracy with {puzzle_accuracy}")
                 self.puzzle_acc = puzzle_accuracy
 
         # add tqdm
