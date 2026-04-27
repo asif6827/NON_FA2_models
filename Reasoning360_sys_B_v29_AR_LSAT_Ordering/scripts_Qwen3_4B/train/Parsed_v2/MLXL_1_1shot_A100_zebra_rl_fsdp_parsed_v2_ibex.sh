@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=a100:4
 #SBATCH --cpus-per-gpu=6
-#SBATCH --mem=400G
+#SBATCH --mem=256G
 #SBATCH --partition=batch
 #SBATCH --job-name=a100_4
 #SBATCH --mail-type=ALL
