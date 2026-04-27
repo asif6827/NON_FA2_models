@@ -9,18 +9,18 @@ echo "Submitting Training job H200 + GT"
 TRAIN_TEMP_LIST=(0.8)
 TEST_TEMP_LIST=(0.0)
 SCORING_LIST=("gt")
-EPOCH_LIST=(80)
+EPOCH_LIST=(500)
 TEST_LIST=(3)
 ACC_W_LIST=(0.8)
 Z3_W_LIST=(0.2)
 SWITCH_EPOCH_LIST=(80)
-SYSTEM_NAME_LIST=("Reasoning360_sys_B_v29_AR_LSAT_Gouping")
+SYSTEM_NAME_LIST=("Reasoning360_sys_B_v29")
 EVAL_PATH_LIST=("mlxl_train_mlxl_test_1_parsed_v6a_${ACRONYM}")
-DATA_PATH_LIST=("AR_LSAT_grouping_v6a_${ACRONYM}/mlxl_train_mlxl_test")
+DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v6a_${ACRONYM}/mlxl_train_mlxl_test")
 
 
 
-SLURM_SCRIPT_H200="./scripts_Qwen3_4B/train/Parsed_v2/${ACRONYM}_1_1shot_H200_zebra_rl_fsdp_parsed_v2.sh"
+SLURM_SCRIPT_H200="./scripts_Qwen25_15_Instruct/train/Parsed_v2/${ACRONYM}_1_1shot_H200_zebra_rl_fsdp_parsed_v2.sh"
 for i in "${!TRAIN_TEMP_LIST[@]}"; do
     TRAIN_TEMP=${TRAIN_TEMP_LIST[$i]}
     TEST_TEMP=${TEST_TEMP_LIST[$i]}
