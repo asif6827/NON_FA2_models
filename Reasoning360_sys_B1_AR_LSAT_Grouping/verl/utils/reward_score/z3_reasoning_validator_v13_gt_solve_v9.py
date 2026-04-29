@@ -63,16 +63,25 @@ def _split_binary_top_level(s: str, op: str):
         i += 1
     return None
 
+def _norm_option_label(x: Any) -> Optional[str]:
+    if x is None:
+        return None
+    s = str(x).strip().upper()
+    s = s.replace("-", "_").replace(" ", "_")
+    m = re.search(r"(?:OPTION_?|ANSWER_?|SELECTED_OPTION_?)?([A-E])$", s)
+    return m.group(1) if m else None
+
 def _selected_from_ground_truth(gt: Any) -> Optional[str]:
-    if isinstance(gt, str): return gt.strip().upper()
+    if isinstance(gt, str): return _norm_option_label(gt)
     if isinstance(gt, dict):
-        for k in ('answer','selected_option','ground_truth_option'):
-            if gt.get(k): return str(gt[k]).strip().upper()
+        for k in ("answer", "selected_option", "ground_truth_option"):
+            lab = _norm_option_label(gt.get(k))
+            if lab: return lab
     return None
 
 def _selected_from_payload(payload: Dict[str, Any]) -> Optional[str]:
-    sol = payload.get('solution') or {}
-    return str(sol['selected_option']).strip().upper() if isinstance(sol, dict) and sol.get('selected_option') else None
+    sol = payload.get("solution") or {}
+    return _norm_option_label(sol.get("selected_option")) if isinstance(sol, dict) else None
 
 def _extract_entities_groups(world_model: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     entities = [_norm_token(e) for e in (world_model.get('entities') or [])]
@@ -138,7 +147,7 @@ def _parse_constraints(lines, var_map, group_map):
 def _parse_options(options, var_map, group_map):
     out, errs = {}, []
     for label, expr in (options or {}).items():
-        lab = str(label).strip().upper()
+        lab = _norm_option_label(label) or str(label).strip().upper()
         try: out[lab] = _parse_expr(str(expr), var_map, group_map)
         except Exception as e: errs.append({'label': lab, 'raw': str(expr), 'error': f'{type(e).__name__}: {e}'})
     return out, errs
@@ -246,7 +255,7 @@ def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.
         selected = _selected_from_payload(payload); gt = _selected_from_ground_truth(payload.get('ground_truth'))
         question_type = ((payload.get('question_semantics') or {}).get('question_type') or payload.get('question_type') or 'could_be_true')
         selected_phi = option_phis.get(selected or ''); solver_selected_ok = bool(selected_phi is not None and base_sat and _evaluate_option(question_type, selected_phi, gamma, timeout_s))
-        report.update({'base_sat_full_GT': bool(base_sat and solver_selected_ok and selected and gt and selected == gt), 'base_sat': bool(base_sat), 'solver_selected_ok': bool(solver_selected_ok), 'selected_option': selected, 'ground_truth_option': gt, 'question_type': question_type, 'rule_parse_errors': rule_errors, 'fact_parse_errors': fact_errors, 'option_parse_errors': option_errors, 'n_groups': n_groups, 'n_entities': n_entities})
+        report.update({'base_sat_full_GT': bool(base_sat and solver_selected_ok and selected and gt and selected == gt), 'base_sat': bool(base_sat), 'solver_selected_ok': bool(solver_selected_ok), 'gt_match': bool(selected and gt and selected == gt), 'selected_option': selected, 'ground_truth_option': gt, 'question_type': question_type, 'rule_parse_errors': rule_errors, 'fact_parse_errors': fact_errors, 'option_parse_errors': option_errors, 'n_rule_parse_errors': len(rule_errors), 'n_fact_parse_errors': len(fact_errors), 'n_option_parse_errors': len(option_errors), 'selected_option_parse_ok': bool(selected_phi is not None), 'n_groups': n_groups, 'n_entities': n_entities})
         report.update(_validate_reasoning_steps(payload.get('reasoning') or [], var_map=var_map, group_map=group_map, base_assertions=base_assertions, rule_fact_phis=rule_fact_phis, rule_phis=rule_phis, option_phis=option_phis, question_type=question_type, selected_option=selected, timeout_s=timeout_s))
         report['parse_status'] = 'AR_LSAT_GROUPING_SUCCESS'
         return report

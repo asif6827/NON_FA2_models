@@ -34,6 +34,7 @@ NUMERIC_KEYS = [
     "BASE_n_steps_total", "BASE_n_steps_parsed_ok", "BASE_n_steps_valid", "BASE_n_steps_novel_inc_clues",
     "BASE_n_non_valid_contradiction", "novel_step_score", "contradiction_ratio", "selected_option_present",
     "ground_truth_present", "parse_status_ok", "schema_status_ok", "z3_status_ok", "format_status_ok",
+    "z3_base_sat", "z3_solver_selected_ok", "z3_gt_match", "z3_rule_parse_error_count", "z3_fact_parse_error_count", "z3_option_parse_error_count", "z3_selected_option_parse_ok",
     "reward_error_flag", "parse_error_flag", "epoch", "total_epochs",
 ]
 
@@ -116,35 +117,29 @@ def _try_parse_first_json_obj(text: Any) -> Optional[Dict[str, Any]]:
             except Exception:
                 continue
     return None
-
-
-def parse_ar_lsat_answer(solution_str: Any):
-    block = find_last_answer_block(solution_str)
-    if block is not None:
-        parsed = _try_parse_first_json_obj(block)
-        return (parsed, "success_answer_tag") if parsed is not None else (None, "answer_tag_json_error")
-    parsed = _try_parse_first_json_obj(solution_str)
-    return (parsed, "success_direct_json") if parsed is not None else (None, "parsing_failed")
-
+def _norm_option_label(x: Any) -> Optional[str]:
+    if x is None:
+        return None
+    s = str(x).strip().upper()
+    s = s.replace("-", "_").replace(" ", "_")
+    m = re.search(r"(?:OPTION_?|ANSWER_?|SELECTED_OPTION_?)?([A-E])$", s)
+    return m.group(1) if m else None
 
 def _selected_from_ground_truth(ground_truth: Any) -> Optional[str]:
     if isinstance(ground_truth, str):
-        val = ground_truth.strip().upper()
-        return val or None
+        return _norm_option_label(ground_truth)
     if isinstance(ground_truth, dict):
         for key in ("answer", "selected_option", "ground_truth_option"):
-            if ground_truth.get(key):
-                return str(ground_truth[key]).strip().upper()
+            lab = _norm_option_label(ground_truth.get(key))
+            if lab:
+                return lab
     return None
-
 
 def _selected_from_prediction(payload: Optional[Dict[str, Any]]) -> Optional[str]:
     if not isinstance(payload, dict):
         return None
     sol = payload.get("solution") or {}
-    if isinstance(sol, dict) and sol.get("selected_option"):
-        return str(sol["selected_option"]).strip().upper()
-    return None
+    return _norm_option_label(sol.get("selected_option")) if isinstance(sol, dict) else None
 
 
 def _infer_n_groups(payload: Optional[Dict[str, Any]]) -> Optional[int]:
@@ -255,6 +250,13 @@ def compute_score(
                 z3_out = {"parse_status": "Z3_EXCEPTION", "error": f"{type(e).__name__}: {e}"}
 
         final_result["z3_status_ok"] = 1.0 if z3_out.get("parse_status") == "AR_LSAT_GROUPING_SUCCESS" else 0.0
+        final_result["z3_base_sat"] = 1.0 if bool(z3_out.get("base_sat", False)) else 0.0
+        final_result["z3_solver_selected_ok"] = 1.0 if bool(z3_out.get("solver_selected_ok", False)) else 0.0
+        final_result["z3_gt_match"] = 1.0 if bool(z3_out.get("gt_match", False)) else 0.0
+        final_result["z3_rule_parse_error_count"] = float(z3_out.get("n_rule_parse_errors", 0) or 0)
+        final_result["z3_fact_parse_error_count"] = float(z3_out.get("n_fact_parse_errors", 0) or 0)
+        final_result["z3_option_parse_error_count"] = float(z3_out.get("n_option_parse_errors", 0) or 0)
+        final_result["z3_selected_option_parse_ok"] = 1.0 if bool(z3_out.get("selected_option_parse_ok", False)) else 0.0
         sat_ok = 1.0 if bool(z3_out.get("base_sat_full_GT", False)) else 0.0
         final_result["z3_reward"] = sat_ok
         final_result["BASE_sat_full_GT"] = sat_ok
@@ -281,14 +283,18 @@ def compute_score(
             sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))
             consistency_score = float(final_result.get("consistency_score", 0.0))
 
-
+            #if sat_ok == 0.0:
             reward = 0.15 * parsing_reward + 0.10 * format_reward + 0.60 * float(accuracy)
+            #else:
+            #    base_quality = 0.60 * float(accuracy) + 0.20 * parsing_reward + 0.20 * format_reward
+            #    process_bonus = 0.40 * novel_step_score + 0.30 * consistency_score - 0.15 * contradiction_ratio
+            #    reward = base_quality + float(accuracy) * process_bonus
 
             final_result["novel_step_score"] = float(novel_step_score)
             final_result["contradiction_ratio"] = float(contradiction_ratio)
             final_result["missed_data"] = 0.0
         else:
-            reward = 0.0
+            reward = -0.5
             final_result["missed_data"] = 1.0
             final_result["novel_step_score"] = 0.0
             final_result["contradiction_ratio"] = 0.0
