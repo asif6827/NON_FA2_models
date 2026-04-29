@@ -69,20 +69,37 @@ def _split_top_level_args(s: str) -> List[str]:
     return args
 
 
+def _normalize_option_label(x: Any) -> Optional[str]:
+    if x is None:
+        return None
+    s = str(x).strip().upper()
+    s = s.strip("`\"'“”‘’()[]{}<> ")
+    s = s.rstrip(".,;:!")
+    s = re.sub(r"^SELECTED_OPTION\s*[:=]\s*", "", s)
+    s = re.sub(r"^OPTION\s*[_\-:\s]*", "", s)
+    m = re.search(r"\b([A-E])\b", s)
+    if m:
+        return m.group(1)
+    return s if re.fullmatch(r"[A-E]", s) else None
+
+
 def _selected_from_ground_truth(gt: Any) -> Optional[str]:
-    if isinstance(gt, str):
-        return gt.strip().upper()
+    if isinstance(gt, (str, int)):
+        # Accept both letter labels and 0-based integer answers.
+        if isinstance(gt, int) and 0 <= gt <= 4:
+            return chr(ord("A") + gt)
+        return _normalize_option_label(gt)
     if isinstance(gt, dict):
-        for k in ("answer", "selected_option", "ground_truth_option"):
+        for k in ("answer", "selected_option", "ground_truth_option", "label"):
             if gt.get(k) is not None:
-                return str(gt[k]).strip().upper()
+                return _selected_from_ground_truth(gt[k])
     return None
 
 
 def _selected_from_payload(payload: Dict[str, Any]) -> Optional[str]:
     sol = payload.get("solution") or {}
     if isinstance(sol, dict) and sol.get("selected_option") is not None:
-        return str(sol["selected_option"]).strip().upper()
+        return _normalize_option_label(sol["selected_option"])
     return None
 
 
@@ -198,7 +215,7 @@ def _parse_constraints(lines: List[str], var_map: Dict[str, Any]):
 def _parse_options(options: Dict[str, str], var_map: Dict[str, Any]):
     out, errs = {}, []
     for label, expr in (options or {}).items():
-        lab = str(label).strip().upper().rstrip(".")
+        lab = _normalize_option_label(label) or str(label).strip().upper().rstrip(".")
         try:
             out[lab] = _parse_expr(str(expr), var_map)
         except Exception as e:
@@ -244,7 +261,7 @@ def _extract_step_expr(line: str) -> Optional[Tuple[int, str]]:
 
 def _option_status_expr(expr: str) -> Optional[Tuple[str, bool, str]]:
     e = (expr or "").strip().rstrip(".")
-    m = re.fullmatch(r"\s*(Sat|Unsat)\(\s*(Not\()?\s*Option_([A-Z])\s*\)?\s*\)\s*", e, flags=re.IGNORECASE)
+    m = re.fullmatch(r"\s*(Sat|Unsat)\(\s*(Not\()?\s*(?:Option[_\-:\s]*)?([A-Z])\s*\)?\s*\)\s*", e, flags=re.IGNORECASE)
     if not m:
         return None
     return m.group(1).lower(), bool(m.group(2)), m.group(3).upper()

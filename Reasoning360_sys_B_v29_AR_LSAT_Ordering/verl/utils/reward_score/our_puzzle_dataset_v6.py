@@ -111,11 +111,29 @@ def parse_ar_lsat_answer(solution_str: Any):
     return (parsed, "success_direct_json") if parsed is not None else (None, "parsing_failed")
 
 
+def _normalize_option_label(x: Any) -> Optional[str]:
+    if x is None:
+        return None
+    s = str(x).strip().upper()
+    s = s.strip("`\"'“”‘’()[]{}<> ")
+    s = s.rstrip(".,;:!")
+    s = re.sub(r"^SELECTED_OPTION\s*[:=]\s*", "", s)
+    s = re.sub(r"^OPTION\s*[_\-:\s]*", "", s)
+    m = re.search(r"\b([A-E])\b", s)
+    if m:
+        return m.group(1)
+    return s if re.fullmatch(r"[A-E]", s) else None
+
+
 def _selected_from_ground_truth(gt: Any) -> Optional[str]:
-    if isinstance(gt, str): return gt.strip().upper()
+    if isinstance(gt, int) and 0 <= gt <= 4:
+        return chr(ord("A") + gt)
+    if isinstance(gt, str):
+        return _normalize_option_label(gt)
     if isinstance(gt, dict):
-        for k in ("answer", "selected_option", "ground_truth_option"):
-            if gt.get(k) is not None: return str(gt[k]).strip().upper()
+        for k in ("answer", "selected_option", "ground_truth_option", "label"):
+            if gt.get(k) is not None:
+                return _selected_from_ground_truth(gt[k])
     return None
 
 
@@ -123,7 +141,7 @@ def _selected_from_prediction(payload: Optional[Dict[str, Any]]) -> Optional[str
     if not isinstance(payload, dict): return None
     sol = payload.get("solution") or {}
     if isinstance(sol, dict) and sol.get("selected_option") is not None:
-        return str(sol["selected_option"]).strip().upper()
+        return _normalize_option_label(sol["selected_option"])
     return None
 
 

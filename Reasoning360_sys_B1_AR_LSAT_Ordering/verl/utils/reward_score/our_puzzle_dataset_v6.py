@@ -111,11 +111,29 @@ def parse_ar_lsat_answer(solution_str: Any):
     return (parsed, "success_direct_json") if parsed is not None else (None, "parsing_failed")
 
 
+def _normalize_option_label(x: Any) -> Optional[str]:
+    if x is None:
+        return None
+    s = str(x).strip().upper()
+    s = s.strip("`\"'“”‘’()[]{}<> ")
+    s = s.rstrip(".,;:!")
+    s = re.sub(r"^SELECTED_OPTION\s*[:=]\s*", "", s)
+    s = re.sub(r"^OPTION\s*[_\-:\s]*", "", s)
+    m = re.search(r"\b([A-E])\b", s)
+    if m:
+        return m.group(1)
+    return s if re.fullmatch(r"[A-E]", s) else None
+
+
 def _selected_from_ground_truth(gt: Any) -> Optional[str]:
-    if isinstance(gt, str): return gt.strip().upper()
+    if isinstance(gt, int) and 0 <= gt <= 4:
+        return chr(ord("A") + gt)
+    if isinstance(gt, str):
+        return _normalize_option_label(gt)
     if isinstance(gt, dict):
-        for k in ("answer", "selected_option", "ground_truth_option"):
-            if gt.get(k) is not None: return str(gt[k]).strip().upper()
+        for k in ("answer", "selected_option", "ground_truth_option", "label"):
+            if gt.get(k) is not None:
+                return _selected_from_ground_truth(gt[k])
     return None
 
 
@@ -123,7 +141,7 @@ def _selected_from_prediction(payload: Optional[Dict[str, Any]]) -> Optional[str
     if not isinstance(payload, dict): return None
     sol = payload.get("solution") or {}
     if isinstance(sol, dict) and sol.get("selected_option") is not None:
-        return str(sol["selected_option"]).strip().upper()
+        return _normalize_option_label(sol["selected_option"])
     return None
 
 
@@ -201,8 +219,12 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
             normalizer = max(2.0 * max(int(n_positions) * int(n_entities), 1), 1.0)
             n_novel = out["BASE_n_steps_novel_inc_clues"]; n_contra = out["BASE_n_non_valid_contradiction"]
             novel_step_score = min(n_novel / normalizer, 1.0); contradiction_ratio = min(n_contra / normalizer, 1.0)
-
-            reward = 0.15 * parsing_reward + 0.10 * out["format_reward"] + 0.60 * accuracy
+            #if sat_ok == 0.0:
+            reward = 0.15 * parsing_reward + 0.10 * out["format_reward"] + 0.60 * accuracy - 0.20 * contradiction_ratio
+            #else:
+            #    base_quality = 0.60 * accuracy + 0.20 * parsing_reward + 0.20 * out["format_reward"]
+            #    process_bonus = 0.40 * novel_step_score + 0.30 * out["consistency_score"] - 0.15 * contradiction_ratio
+            #    reward = base_quality + accuracy * process_bonus
             out["novel_step_score"] = novel_step_score; out["contradiction_ratio"] = contradiction_ratio
         else:
             reward = 0.0; out["missed_data"] = 1.0
