@@ -16,7 +16,7 @@ Z3_W_LIST=(0.2)
 SWITCH_EPOCH_LIST=(80)
 SYSTEM_NAME_LIST=("Reasoning360_sys_B_v29_AR_LSAT_Ordering")
 EVAL_PATH_LIST=("mlxl_train_mlxl_test_1_parsed_v6a_${ACRONYM}")
-DATA_PATH_LIST=("AR_LSAT_ordering_v6a_${ACRONYM}/mlxl_train_mlxl_test")
+DATA_PATH_LIST=("AR_LSAT_grouping_v6a_${ACRONYM}/mlxl_train_mlxl_test")
 
 
 
