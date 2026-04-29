@@ -117,6 +117,20 @@ def _try_parse_first_json_obj(text: Any) -> Optional[Dict[str, Any]]:
             except Exception:
                 continue
     return None
+def parse_ar_lsat_answer(solution_str: Any):
+    """Parse the last <answer>...</answer> JSON block, falling back to direct JSON."""
+    block = find_last_answer_block(solution_str)
+    if block is not None:
+        parsed = _try_parse_first_json_obj(block)
+        if parsed is not None:
+            return parsed, "success_answer_tag"
+        return None, "answer_tag_json_error"
+
+    parsed = _try_parse_first_json_obj(solution_str)
+    if parsed is not None:
+        return parsed, "success_direct_json"
+    return None, "parsing_failed"
+
 def _norm_option_label(x: Any) -> Optional[str]:
     if x is None:
         return None
