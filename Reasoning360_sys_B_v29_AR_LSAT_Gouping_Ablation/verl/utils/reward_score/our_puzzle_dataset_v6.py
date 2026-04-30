@@ -301,7 +301,7 @@ def compute_score(
                 reward = 0.15 * parsing_reward + 0.10 * format_reward + 0.60 * float(accuracy) - 0.20 * contradiction_ratio
             else:
                 base_quality = 0.60 * float(accuracy) + 0.20 * parsing_reward + 0.20 * format_reward
-                process_bonus = 0.40 * novel_step_score + 0.30 * consistency_score - 0.15 * contradiction_ratio
+                process_bonus = 0.00 * novel_step_score + 0.30 * consistency_score - 0.15 * contradiction_ratio
                 reward = base_quality + float(accuracy) * process_bonus
 
             final_result["novel_step_score"] = float(novel_step_score)
