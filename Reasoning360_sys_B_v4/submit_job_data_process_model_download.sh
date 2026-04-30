@@ -8,7 +8,7 @@
 
 
 echo "Model Downloading...!"
-batch ./scripts_data_etc/download_hub_llama.sh
+batch ./scripts_data_etc/download_hub_qwen3.sh
 
 
 #echo "Model Downloading...!"
