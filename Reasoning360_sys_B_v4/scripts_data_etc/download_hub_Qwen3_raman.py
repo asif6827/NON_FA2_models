@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 repo_id = "Qwen/Qwen3-4B-Thinking-2507"
-target = Path("/export/home/asifali/HF_cache/Qwen3-4B-Thinking-2507")  # your folder
+target = Path("/export/home/rsaparkhan/HF_cache/Qwen3-4B-Thinking-2507")  # your folder
 
 path = snapshot_download(
     repo_id=repo_id,
@@ -18,7 +18,7 @@ print("Downloaded to:", path)
 
 
 repo_id = "Qwen/Qwen3-1.7B"
-target = Path("/export/home/asifali/HF_cache/Qwen3-1.7B")  # your folder
+target = Path("/export/home/rsaparkhan/HF_cache/Qwen3-1.7B")  # your folder
 
 path = snapshot_download(
     repo_id=repo_id,
