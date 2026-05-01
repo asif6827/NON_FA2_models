@@ -222,8 +222,8 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         else:
             reward = -0.5; out["missed_data"] = 1.0
         out["Normalizer"] = normalizer
-        out["acc"] = out["score"] = out["reward_logged"] = reward
-        #out["acc"] = out["score"] = out["reward_logged"] = _clamp_reward(reward)
+        #out["acc"] = out["score"] = out["reward_logged"] = reward
+        out["acc"] = out["score"] = out["reward_logged"] = _clamp_reward(reward)
         return _numeric_only(out)
     except Exception:
         logger.exception("assignment compute_score failed; returning complete penalty reward dict")
