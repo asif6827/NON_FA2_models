@@ -76,14 +76,37 @@ def _clamp_reward(x: Any, lo=-1.0, hi=1.0) -> float:
 
 
 def _norm_option_label(x: Any) -> Optional[str]:
-    if x is None: return None
-    s = str(x).strip().upper()
-    s = s.replace('SELECTED_OPTION', '').replace('OPTION', '').replace('ANSWER', '')
-    s = re.sub(r"[^A-Z]", "", s)
-    if len(s) == 1 and 'A' <= s <= 'Z': return s
-    m = re.search(r"[A-Z]", s)
-    return m.group(0) if m else None
+    """Normalize selected/ground-truth/option labels to A-E.
 
+    Handles: A, Option_A, option-a, Answer: B, selected_option C,
+    and strings like "The correct answer is D". Prefer explicit/final
+    option letters rather than the first letter in prose (e.g. Choice D
+    should become D, not C).
+    """
+    if x is None:
+        return None
+    s = str(x).strip().upper()
+    if not s:
+        return None
+
+    compact = s.replace("-", "_").replace(" ", "_").replace(":", "_")
+    m = re.fullmatch(r"(?:SELECTED_)?(?:OPTION|ANSWER)?_?([A-E])", compact)
+    if m:
+        return m.group(1)
+
+    m = re.search(r"(?:OPTION|ANSWER|CHOICE|SELECTED_OPTION)\s*[:_\-\s]*([A-E])\b", s)
+    if m:
+        return m.group(1)
+
+    m = re.search(r"\b([A-E])\b\s*[\.)\]]?\s*$", s)
+    if m:
+        return m.group(1)
+
+    letters = re.findall(r"\b([A-E])\b", s)
+    if letters:
+        return letters[-1]
+
+    return None
 
 def find_last_answer_block(text: Any) -> Optional[str]:
     text = "" if text is None else text.decode("utf-8", errors="ignore") if isinstance(text, bytes) else str(text)
@@ -222,7 +245,6 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         else:
             reward = -0.5; out["missed_data"] = 1.0
         out["Normalizer"] = normalizer
-        #out["acc"] = out["score"] = out["reward_logged"] = reward
         out["acc"] = out["score"] = out["reward_logged"] = _clamp_reward(reward)
         return _numeric_only(out)
     except Exception:
