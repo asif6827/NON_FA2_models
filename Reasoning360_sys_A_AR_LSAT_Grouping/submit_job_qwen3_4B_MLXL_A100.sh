@@ -5,6 +5,7 @@
 
 #if false; then
 ACRONYM="MLXL"
+mkdir -p ./all_logs
 echo "Submitting Training job A100 + GT"
 TRAIN_TEMP_LIST=(0.8)
 TEST_TEMP_LIST=(0.0)
@@ -16,7 +17,7 @@ Z3_W_LIST=(0.2)
 SWITCH_EPOCH_LIST=(80)
 SYSTEM_NAME_LIST=("Reasoning360_sys_B_v29_AR_LSAT_Gouping")
 EVAL_PATH_LIST=("mlxl_train_mlxl_test_1_parsed_v6a_${ACRONYM}")
-DATA_PATH_LIST=("AR_LSAT_grouping_v6a_${ACRONYM}/mlxl_train_mlxl_test")
+DATA_PATH_LIST=("AR_LSAT_grouping_A_v6a_${ACRONYM}/mlxl_train_mlxl_test")
 
 
 

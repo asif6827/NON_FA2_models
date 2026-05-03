@@ -1,14 +1,15 @@
 #!/bin/bash -l
 
-#SBATCH -J MLXL-B-v29-A100-Qwen3-4B-ARLSAT-Assignment #job name
-#SBATCH -p gpu-A100 # queue used
+#SBATCH -J MLXL-A-H200-Qwen3-4B-ARLSAT-Assignment #job name
+#SBATCH -p gpu-H200 # queue used
+#SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
 #SBATCH --output=./all_logs/%j-%x.out
 #SBATCH --error=./all_logs/%j-%x.err
-#SBATCH -A A100
-#SBATCH -q a100_qos
+#SBATCH -A H200
+#SBATCH -q h200_qos
 #SBATCH --mail-user=asif6827@gmail.com
 
 
@@ -88,7 +89,7 @@ NUM_GPUS=4 # Set the number of GPUs to use on this node
 gpu_memory_utilization=0.8
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
-WANDB_PROJECT="Sys_B_v1_Qwen3_4B_MLXL_1_1shot_A100" # Your wandb project name
+WANDB_PROJECT="Sys_B_v1_Qwen3_4B_MLXL_1_1shot_H200" # Your wandb project name
 
 # --- External Services ---
 export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as-judge hosted URL for 'STEM' domain evaluation
@@ -210,8 +211,8 @@ kl_loss_coef=0.0
 clip_ratio_low=0.2
 clip_ratio_high=0.2
 
-max_prompt_length=$((1024 * 8))
-max_response_length=$((1024 * 8))
+max_prompt_length=$((1024 * 4))
+max_response_length=$((1024 * 4))
 enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0

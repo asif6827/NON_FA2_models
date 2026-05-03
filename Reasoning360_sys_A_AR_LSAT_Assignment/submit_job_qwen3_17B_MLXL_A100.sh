@@ -6,7 +6,7 @@
 #if false; then
 ACRONYM="MLXL"
 mkdir -p ./all_logs
-echo "Submitting Training job H200 + GT"
+echo "Submitting Training job A100 + GT"
 TRAIN_TEMP_LIST=(0.8)
 TEST_TEMP_LIST=(0.0)
 SCORING_LIST=("gt")
@@ -15,13 +15,13 @@ TEST_LIST=(3)
 ACC_W_LIST=(0.8)
 Z3_W_LIST=(0.2)
 SWITCH_EPOCH_LIST=(80)
-SYSTEM_NAME_LIST=("Reasoning360_sys_A_AR_LSAT_Grouping")
+SYSTEM_NAME_LIST=("Reasoning360_sys_A_AR_LSAT_Assignment")
 EVAL_PATH_LIST=("mlxl_train_mlxl_test_1_parsed_v6a_${ACRONYM}")
-DATA_PATH_LIST=("AR_LSAT_grouping_A_v6a_${ACRONYM}/mlxl_train_mlxl_test")
+DATA_PATH_LIST=("AR_LSAT_assignment_A_v6a_${ACRONYM}/mlxl_train_mlxl_test")
 
 
 
-SLURM_SCRIPT_H200="./scripts_Qwen3_17/train/Parsed_v2/${ACRONYM}_1_1shot_H200_zebra_rl_fsdp_parsed_v2.sh"
+SLURM_SCRIPT_A100="./scripts_Qwen3_17/train/Parsed_v2/${ACRONYM}_1_1shot_A100_zebra_rl_fsdp_parsed_v2.sh"
 for i in "${!TRAIN_TEMP_LIST[@]}"; do
     TRAIN_TEMP=${TRAIN_TEMP_LIST[$i]}
     TEST_TEMP=${TEST_TEMP_LIST[$i]}
@@ -37,9 +37,9 @@ for i in "${!TRAIN_TEMP_LIST[@]}"; do
 
     echo "Submitting job: TRAIN-TEMP=$TRAIN_TEMP, TEST-TEMP=$TEST_TEMP, SCORING-METHOD=$SCORING_METHOD, EPOCH=$EPOCH, TEST-FREQUENCY=$TEST_FREQUENCY,
     ACC_W=$ACC_W, Z3_W=$Z3_W, EPOCH_SWITCH=$SWITCH_EPOCH SYSTEM_NAME=$SYSTEM_NAME EVAL_PATH=$EVAL_PATH DATA_PATH=$DATA_PATH"
-    sbatch $SLURM_SCRIPT_H200 $TRAIN_TEMP $TEST_TEMP $SCORING_METHOD $EPOCH $TEST_FREQUENCY $ACC_W $Z3_W $SWITCH_EPOCH $SYSTEM_NAME $EVAL_PATH $DATA_PATH
+    sbatch $SLURM_SCRIPT_A100 $TRAIN_TEMP $TEST_TEMP $SCORING_METHOD $EPOCH $TEST_FREQUENCY $ACC_W $Z3_W $SWITCH_EPOCH $SYSTEM_NAME $EVAL_PATH $DATA_PATH
 done
-echo "All jobs submitted H200."
+echo "All jobs submitted A100."
 #fi
 
 
