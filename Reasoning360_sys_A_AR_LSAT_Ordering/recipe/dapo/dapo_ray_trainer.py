@@ -44,7 +44,7 @@ from verl.trainer.ppo.ray_trainer import (
 )
 from verl.utils.profiler import marked_timer
 
-puzzle_key = "val-aux/our_zebra_puzzle_new_reward_test/PUZZLE_ACCURACY/mean@1"
+puzzle_key = "val-aux/our_ar_lsat_ordering_new_reward_test/ACCURACY/mean@1"
 
 class RayDAPOTrainer(RayPPOTrainer):
     """
@@ -83,17 +83,24 @@ class RayDAPOTrainer(RayPPOTrainer):
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
             os.environ["CURRENT_EPOCH"] = str(0)
             print(f"VALIDATE BEFORE MODEL TRAINING")
+            os.environ["VALID_STATUS"] = "1"
             val_metrics = self._validate()
+            os.environ["VALID_STATUS"] = "2"
+            val_metrics_tr = self._validate_tr()
+            os.environ["VALID_STATUS"] = "0"
             assert val_metrics, f"{val_metrics=}"
             pprint(f"INITIAL VALIDATION METRICS: {val_metrics}")
+            print()
+            pprint(f"INITIAL TR-VALIDATION METRICS: {val_metrics_tr}")
+            print()
             ##logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get("val_only", False):
                 return
 
             puzzle_accuracy = float(val_metrics[puzzle_key])
-            print(f"Puzzle Accuracy = {puzzle_accuracy}")
+            print(f"Accuracy = {puzzle_accuracy}")
             if puzzle_accuracy > self.puzzle_acc:
-                print(f"Replacing Puzzle Accuracy with {puzzle_accuracy}")
+                print(f"Replacing Accuracy with {puzzle_accuracy}")
                 self.puzzle_acc = puzzle_accuracy
 
         # add tqdm
@@ -358,11 +365,14 @@ class RayDAPOTrainer(RayPPOTrainer):
                         and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                     ):
                         with marked_timer("testing", timing_raw, "green"):
+                            os.environ["VALID_STATUS"] = "1"
                             val_metrics: dict = self._validate()
+                            os.environ["VALID_STATUS"] = "2"
+                            val_metrics_tr: dict = self._validate_tr()
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
-                        #metrics.update(val_metrics_tr)
+                        metrics.update(val_metrics_tr)
                         os.environ["VALID_STATUS"] = "0"
 
                         puzzle_accuracy = float(val_metrics[puzzle_key])

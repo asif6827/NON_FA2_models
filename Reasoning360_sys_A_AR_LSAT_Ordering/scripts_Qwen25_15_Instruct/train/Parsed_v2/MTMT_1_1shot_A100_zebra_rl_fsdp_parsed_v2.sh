@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J Sys-A #job name
+#SBATCH -J sys-B-v3 #job name
 #SBATCH -p gpu-A100 # queue used
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
@@ -111,56 +111,18 @@ echo "Validation Folder NAME: $VALID_GENERATION_PATH"
 TRAIN_DATA_DIR=${SHARED_DATA_PATH}/train
 TEST_DATA_DIR=${SHARED_DATA_PATH}/test
 
-### Math (train)
-#math_train_path=${TRAIN_DATA_DIR}/math__combined_54.4k_3.0k.parquet
-### Math (test)
-#math_test_path=${TEST_DATA_DIR}/math__math_500.parquet
-#aime_test_path=${TEST_DATA_DIR}/math__aime_repeated_8x_240.parquet
-#amc_test_path=${TEST_DATA_DIR}/math__amc_repeated_4x_332.parquet
 
-### Code (train)
-#leetcode_train_path=${TRAIN_DATA_DIR}/codegen__leetcode2k_1.3k_216.parquet
-#livecodebench_train_path=${TRAIN_DATA_DIR}/codegen__livecodebench_440_73.parquet
-#primeintellect_train_path=${TRAIN_DATA_DIR}/codegen__primeintellect_7.5k_1.2k.parquet
-#taco_train_path=${TRAIN_DATA_DIR}/codegen__taco_8.8k_1.5k.parquet
-### Code (test)
-#humaneval_test_path=${TEST_DATA_DIR}/codegen__humaneval_164.parquet
-#mbpp_test_path=${TEST_DATA_DIR}/codegen__mbpp_200.parquet
-#livecodebench_test_path=${TEST_DATA_DIR}/codegen__livecodebench_279.parquet
 
 ### Logic (train)
-#arcagi1_train_path=${TRAIN_DATA_DIR}/logic__arcagi1_111_52.parquet
-#arcagi2_train_path=${TRAIN_DATA_DIR}/logic__arcagi2_190_90.parquet
-#barc_train_path=${TRAIN_DATA_DIR}/logic__barc_1.6k_761.parquet
-#graph_train_path=${TRAIN_DATA_DIR}/logic__graph_logical_1.2k_571.parquet
-#ordering_train_path=${TRAIN_DATA_DIR}/logic__ordering_puzzle_1.9k_904.parquet
 zebra_train_path=${TRAIN_DATA_DIR}/logic_our_zebra_puzzle_new_reward_140.parquet
+
 ### Logic (test)
-#ordering_puzzle_test_path=${TEST_DATA_DIR}/logic__ordering_puzzle_dataset_100.parquet
 zebralogic_test_path=${TEST_DATA_DIR}/logic_our_zebra_puzzle_new_reward_test_140.parquet
-#arcagi_test_path=${TEST_DATA_DIR}/logic__arcagi1_200.parquet
-
-### Simulation (train)
-#codeio_train_path=${TRAIN_DATA_DIR}/simulation__codeio_3.7k_3k.parquet
-### Simulation (test)
-#codeio_test_path=${TEST_DATA_DIR}/simulation__codeio_200.parquet
-
-### Table (train)
-#hitab_train_path=${TRAIN_DATA_DIR}/table__hitab_4.3k_2.2k.parquet
-#multihier_train_path=${TRAIN_DATA_DIR}/table__multihier_1.5k_775.parquet
-### Table (test)
-#multihier_test_path=${TEST_DATA_DIR}/table__multihier_200.parquet
-#hitab_test_path=${TEST_DATA_DIR}/table__hitab_200.parquet
-
-
-### Stem (train)
-#webinstruct_train_path=${TRAIN_DATA_DIR}/stem__web_3.6k_3.0k.parquet
-### Stem (test)
-#supergpqa_test_path=${TEST_DATA_DIR}/stem__supergpqa_200.parquet
 
 
 train_files="['${zebra_train_path}']"  # Use math as example, add to more tasks as needed
 test_files="['${zebralogic_test_path}']"  # Use math as example, add to more tasks as needed
+
 
 
 # =================== Logging ===================
@@ -197,7 +159,7 @@ kl_loss_coef=0.0
 clip_ratio_low=0.2
 clip_ratio_high=0.2
 
-max_prompt_length=$((1024 * 4))
+max_prompt_length=$((1024 * 12))
 max_response_length=$((1024 * 4))
 enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
@@ -208,14 +170,29 @@ loss_agg_mode="token-mean"
 enable_filter_groups=False
 filter_groups_metric=acc
 max_num_gen_batches=10
+
+
+#train_prompt_bsz=32  # on-policy model update batchsize: train_prompt_bsz * rollout.n
+#gen_prompt_bsz=$((train_prompt_bsz * 1))
+#n_resp_per_prompt=4
+#train_prompt_mini_bsz=4  # model grad update batchsize
+
+
 train_prompt_bsz=128  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
 n_resp_per_prompt=8
 train_prompt_mini_bsz=16  # model grad update batchsize
 
+
+
 # Algorithm
 top_p=0.9
 top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
+
+
+
+
+
 
 # Training config
 # NOTE: sp_size and gen_tp are parallelism settings.
@@ -296,7 +273,7 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.val_kwargs.top_p=${top_p}\
     actor_rollout_ref.rollout.val_kwargs.temperature=${TEST_TEMP} \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
-    actor_rollout_ref.rollout.val_kwargs.do_sample=True \
+    actor_rollout_ref.rollout.val_kwargs.do_sample=False \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.rollout.multi_turn.enable=False \
@@ -309,7 +286,7 @@ python -m recipe.dapo.main_dapo \
     reward_model.overlong_buffer.enable=${enable_overlong_buffer} \
     reward_model.overlong_buffer.len=${overlong_buffer_len} \
     reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
-    trainer.logger=['console','wandb'] \
+    trainer.logger=['console'] \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.experiment_name=${WANDB_EXPERIMENT_NAME} \
     trainer.val_before_train=True \
@@ -321,3 +298,6 @@ python -m recipe.dapo.main_dapo \
     trainer.log_val_generations=127 \
     trainer.resume_mode=auto \
     trainer.validation_data_dir=${VALID_GENERATION_PATH}
+
+
+

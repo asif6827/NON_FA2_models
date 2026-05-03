@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J MTMT-A #job name
+#SBATCH -J sys-B-v3 #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
@@ -13,9 +13,8 @@
 
 
 module load cuda12.4/toolkit
-
 nvidia-smi
-source activate Reason360_v2
+source activate Reasoning360
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 unset ROCR_VISIBLE_DEVICES
@@ -25,25 +24,6 @@ export USE_Thinking=0
 #export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
 export HF_HOME="/export/home/asifali/HF_cache"
 export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
-
-#export RAY_TMPDIR="/export/home/asifali/HF_cache/RAY_TMP"
-#mkdir -p RAY_TMPDIR
-
-# ===============================
-# Force ALL temp/cache off /tmp
-# ===============================
-
-CACHE_BASE="/export/home/asifali/HF_cache"
-LOCAL_BASE="${SLURM_TMPDIR:-/var/tmp/$USER}"   # fallback to /var/tmp
-
-export TMPDIR="$LOCAL_BASE/TMP"
-export RAY_TMPDIR="$LOCAL_BASE/RAY_TMP"
-
-mkdir -p "$TMPDIR" "$RAY_TMPDIR"
-export RAY_DISABLE_DASHBOARD=1
-export RAY_memory_monitor_refresh_ms=0
-
-
 
 
 # ==================== All INPUTS =================================
@@ -72,31 +52,45 @@ echo "Python Path = ${PYTHONPATH}"
 # =================== User-Configurable Settings ===================
 # --- Execution Environment ---
 NUM_GPUS=4 # Set the number of GPUs to use on this node
-gpu_memory_utilization=0.85
+gpu_memory_utilization=0.7
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
-WANDB_PROJECT="Sys_A_Asif_Qwen3_4B_MTMT_1_1shot_A100_v1" # Your wandb project name
+WANDB_PROJECT="Sys_B_Asif_Qwen2_5_1_5B_STST_1_1shot_A100_v1" # Your wandb project name
 
 # --- External Services ---
 export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as-judge hosted URL for 'STEM' domain evaluation
 export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 
+
 # =================== Environment Setup ===================
-export NCCL_DEBUG=WARN
+#export NCCL_NVLS_ENABLE=1
+#export NCCL_IB_DISABLE=0
+#export NCCL_P2P_DISABLE=0
+#export CUDA_LAUNCH_BLOCKING=0
+#export NCCL_DEBUG=WARN
+#export CUDA_DEVICE_MAX_CONNECTIONS=1
+
+
+export NCCL_DEBUG=INFO
+export NCCL_DEBUG_SUBSYS=INIT,GRAPH
+export NCCL_ASYNC_ERROR_HANDLING=1
 export NCCL_NVLS_ENABLE=0
+unset NCCL_P2P_DISABLE
+unset NCCL_IB_DISABLE
+unset CUDA_LAUNCH_BLOCKING
+unset CUDA_DEVICE_MAX_CONNECTIONS
+# ==============================================================
+
+
 export TOKENIZERS_PARALLELISM=true
 export TRANSFORMERS_OFFLINE=1
 export TRANSFORMERS_NO_TORCHVISION=1
 export RAY_DISABLE_DOCKER_CPU_WARNING=1
 export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
-export NCCL_IB_DISABLE=1
-export NCCL_P2P_DISABLE=1
-export CUDA_LAUNCH_BLOCKING=1
-export CUDA_DEVICE_MAX_CONNECTIONS=1
 export PYTHONUNBUFFERED=1
-# export CUDA_LAUNCH_BLOCKING=1 # Uncomment for easier debugging of CUDA errors
 export HYDRA_FULL_ERROR=1
 export VLLM_USE_V1=0
+
 unset LD_LIBRARY_PATH
 export DEBUG_CODE=0
 export USE_NL=0 # Using NL Prompts
@@ -106,6 +100,10 @@ export Z3_CLUE_GATE=0.7
 export ACC_W=${ACC_W}
 export Z3_W=${Z3_W}
 export SWITCH_EPOCH=${SWITCH_EPOCH}
+
+# export CUDA_LAUNCH_BLOCKING=1 # Uncomment for easier debugging of CUDA errors
+
+
 
 
 
@@ -144,7 +142,6 @@ train_files="['${zebra_train_path}']"  # Use math as example, add to more tasks 
 test_files="['${zebralogic_test_path}']"  # Use math as example, add to more tasks as needed
 
 
-
 # =================== Logging ===================
 # Generate a unique experiment name if not resuming
 if [[ -n "$RESUME_CKPT_DIR_NAME" ]]; then
@@ -179,7 +176,7 @@ kl_loss_coef=0.0
 clip_ratio_low=0.2
 clip_ratio_high=0.2
 
-max_prompt_length=$((1024 * 8))
+max_prompt_length=$((1024 * 12))
 max_response_length=$((1024 * 4))
 enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
@@ -208,11 +205,6 @@ train_prompt_mini_bsz=16  # model grad update batchsize
 # Algorithm
 top_p=0.9
 top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
-
-
-
-
-
 
 # Training config
 # NOTE: sp_size and gen_tp are parallelism settings.
@@ -293,7 +285,7 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.val_kwargs.top_p=${top_p}\
     actor_rollout_ref.rollout.val_kwargs.temperature=${TEST_TEMP} \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
-    actor_rollout_ref.rollout.val_kwargs.do_sample=False \
+    actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.rollout.multi_turn.enable=False \
@@ -315,9 +307,6 @@ python -m recipe.dapo.main_dapo \
     trainer.save_freq=100 \
     trainer.test_freq=${TEST_FREQUENCY} \
     trainer.total_epochs=${EPOCH} \
-    trainer.log_val_generations=127 \
+    trainer.log_val_generations=139 \
     trainer.resume_mode=auto \
     trainer.validation_data_dir=${VALID_GENERATION_PATH}
-
-
-

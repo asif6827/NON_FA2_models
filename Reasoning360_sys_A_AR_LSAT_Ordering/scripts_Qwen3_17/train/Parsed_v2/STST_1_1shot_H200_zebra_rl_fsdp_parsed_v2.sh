@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J Sys-A #job name
+#SBATCH -J sys-B-v3 #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
@@ -13,7 +13,6 @@
 
 
 module load cuda12.4/toolkit
-
 nvidia-smi
 source activate Reasoning360
 
@@ -25,6 +24,9 @@ export USE_Thinking=0
 #export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
 export HF_HOME="/export/home/asifali/HF_cache"
 export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
+#export RAY_TMPDIR="/export/home/asifali/HF_cache/RAY_TMP"
+#mkdir -p RAY_TMPDIR
+export RAY_DISABLE_DASHBOARD=1
 
 # ==================== All INPUTS =================================
 TRAIN_TEMP=$1
@@ -62,21 +64,34 @@ export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as
 export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 
 # =================== Environment Setup ===================
-export NCCL_DEBUG=WARN
+#export NCCL_NVLS_ENABLE=1
+#export NCCL_IB_DISABLE=0
+#export NCCL_P2P_DISABLE=0
+#export CUDA_LAUNCH_BLOCKING=0
+#export NCCL_DEBUG=WARN
+#export CUDA_DEVICE_MAX_CONNECTIONS=1
+
+
+export NCCL_DEBUG=INFO
+export NCCL_DEBUG_SUBSYS=INIT,GRAPH
+export NCCL_ASYNC_ERROR_HANDLING=1
 export NCCL_NVLS_ENABLE=0
+unset NCCL_P2P_DISABLE
+unset NCCL_IB_DISABLE
+unset CUDA_LAUNCH_BLOCKING
+unset CUDA_DEVICE_MAX_CONNECTIONS
+# ==============================================================
+
+
 export TOKENIZERS_PARALLELISM=true
 export TRANSFORMERS_OFFLINE=1
 export TRANSFORMERS_NO_TORCHVISION=1
 export RAY_DISABLE_DOCKER_CPU_WARNING=1
 export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
-export NCCL_IB_DISABLE=1
-export NCCL_P2P_DISABLE=1
-export CUDA_LAUNCH_BLOCKING=1
-export CUDA_DEVICE_MAX_CONNECTIONS=1
 export PYTHONUNBUFFERED=1
-# export CUDA_LAUNCH_BLOCKING=1 # Uncomment for easier debugging of CUDA errors
 export HYDRA_FULL_ERROR=1
 export VLLM_USE_V1=0
+
 unset LD_LIBRARY_PATH
 export DEBUG_CODE=0
 export USE_NL=0 # Using NL Prompts
@@ -86,6 +101,8 @@ export Z3_CLUE_GATE=0.7
 export ACC_W=${ACC_W}
 export Z3_W=${Z3_W}
 export SWITCH_EPOCH=${SWITCH_EPOCH}
+
+# export CUDA_LAUNCH_BLOCKING=1 # Uncomment for easier debugging of CUDA errors
 
 
 
@@ -103,6 +120,8 @@ export REWARD_LOG_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/evalua
 SHARED_DATA_PATH=/export/home/asifali/HF_cache/${DATA_PATH}
 VALID_GENERATION_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
 export PUZZLE_FEEDBACK_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+export PUZZLE_DIC_PATH=/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json
+
 
 
 echo "Validation Folder NAME: $VALID_GENERATION_PATH"
@@ -122,7 +141,6 @@ zebralogic_test_path=${TEST_DATA_DIR}/logic_our_zebra_puzzle_new_reward_test_128
 
 train_files="['${zebra_train_path}']"  # Use math as example, add to more tasks as needed
 test_files="['${zebralogic_test_path}']"  # Use math as example, add to more tasks as needed
-
 
 
 # =================== Logging ===================
@@ -159,7 +177,7 @@ kl_loss_coef=0.0
 clip_ratio_low=0.2
 clip_ratio_high=0.2
 
-max_prompt_length=$((1024 * 4))
+max_prompt_length=$((1024 * 12))
 max_response_length=$((1024 * 4))
 enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
@@ -170,19 +188,24 @@ loss_agg_mode="token-mean"
 enable_filter_groups=False
 filter_groups_metric=acc
 max_num_gen_batches=10
+
+
+#train_prompt_bsz=32  # on-policy model update batchsize: train_prompt_bsz * rollout.n
+#gen_prompt_bsz=$((train_prompt_bsz * 1))
+#n_resp_per_prompt=4
+#train_prompt_mini_bsz=4  # model grad update batchsize
+
+
 train_prompt_bsz=128  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
-n_resp_per_prompt=4
+n_resp_per_prompt=8
 train_prompt_mini_bsz=16  # model grad update batchsize
+
+
 
 # Algorithm
 top_p=0.9
 top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
-
-
-
-
-
 
 # Training config
 # NOTE: sp_size and gen_tp are parallelism settings.
@@ -262,7 +285,7 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.top_p=${top_p}\
     actor_rollout_ref.rollout.val_kwargs.temperature=${TEST_TEMP} \
-    actor_rollout_ref.rollout.val_kwargs.n=1\
+    actor_rollout_ref.rollout.val_kwargs.n=1 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -282,12 +305,9 @@ python -m recipe.dapo.main_dapo \
     trainer.val_before_train=True \
     trainer.n_gpus_per_node=${NUM_GPUS} \
     trainer.nnodes=1 \
-    trainer.save_freq=100 \
+    trainer.save_freq=500 \
     trainer.test_freq=${TEST_FREQUENCY} \
     trainer.total_epochs=${EPOCH} \
     trainer.log_val_generations=127 \
     trainer.resume_mode=auto \
     trainer.validation_data_dir=${VALID_GENERATION_PATH}
-
-
-
