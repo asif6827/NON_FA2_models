@@ -2,6 +2,8 @@
 set -euo pipefail
 
 
+BASE_DIR="$HOME/NON_FA2_models"
+
 echo "Submitting Reasoning360_sys_A_AR_LSAT_Assignment..."
 cd "$BASE_DIR/Reasoning360_sys_A_AR_LSAT_Assignment"
 bash submit_job_qwen3_17B_MLXL_A100.sh
