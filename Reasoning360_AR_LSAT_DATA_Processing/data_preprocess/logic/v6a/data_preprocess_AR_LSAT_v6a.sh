@@ -17,7 +17,7 @@ export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
 export HF_HOME="/export/home/asifali/HF_cache"
 export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 
-source activate Reasoning360
+source activate zebrapuzzles
 #python data_spliting_panther.py
 
 
