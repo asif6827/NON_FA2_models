@@ -17,7 +17,7 @@ export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
 export HF_HOME="/export/home/asifali/HF_cache"
 export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 
-source activate Reasoning360
+source activate zebrapuzzles
 #python data_spliting_panther.py
 
 
@@ -31,7 +31,10 @@ source activate Reasoning360
 
 #python ./data_preprocess/logic/v6a/our_pre_process_zebrapuzzle_to_guru_parsed_v6a_MLT_MLT.py --data_path '/export/home/asifali/HF_cache/ZebraLogic' --data_setting 'ml_train_ml_test' --output_dir '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru_parsed_v6a_MLT_MLT'
 
-python ./data_preprocess/logic/v6a/our_pre_process_zebrapuzzle_to_guru_parsed_v6a_MLXL.py --data_path '/export/home/asifali/HF_cache/ZebraLogic' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru_parsed_v6a_MLXL'
+python ./data_preprocess/logic/v6a/our_pre_process_zebrapuzzle_to_guru_parsed_v6a_MLXL.py --data_path '/export/home/rsaparkhan/HF_cache/ZebraLogic' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/rsaparkhan/HF_cache/ZebraPuzzle_to_guru_parsed_v6a_MLXL'
+
+
+#python ./data_preprocess/logic/v6a/our_pre_process_zebrapuzzle_to_guru_parsed_v6a_MLXL.py --data_path '/export/home/asifali/HF_cache/ZebraLogic' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru_parsed_v6a_MLXL'
 
 #python ./data_preprocess/logic/v6a/our_pre_process_zebrapuzzle_to_guru_parsed_v6a_ZTZT.py --data_path '/export/home/asifali/HF_cache/ZebraLogic' --data_setting 'zl_train_zl_test' --output_dir '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru_parsed_v6a_ZTZT'
 

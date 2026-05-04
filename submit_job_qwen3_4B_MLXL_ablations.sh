@@ -6,21 +6,14 @@ BASE_DIR="$HOME/NON_FA2_models"
 
 
 
-echo "Submitting Reasoning360_sys_B_v29_a6..."
-cd "$BASE_DIR/Reasoning360_sys_B_v29_a6"
-bash submit_job_qwen3_MLXL.sh
+echo "Reasoning360_sys_B_v29_R_Contradict"
+cd "$BASE_DIR/Reasoning360_sys_B_v29_R_Contradict"
+bash submit_job_qwen3_4B_MLXL.sh
 
-echo "Submitting Reasoning360_sys_B_v29_a7..."
-cd "$BASE_DIR/Reasoning360_sys_B_v29_a7"
-bash submit_job_qwen3_MLXL.sh
 
-echo "Submitting Reasoning360_sys_B_v29_a8..."
-cd "$BASE_DIR/Reasoning360_sys_B_v29_a8"
-bash submit_job_qwen3_MLXL.sh
-
-echo "Submitting Reasoning360_sys_B_v29_a9..."
-cd "$BASE_DIR/Reasoning360_sys_B_v29_a9"
-bash submit_job_qwen3_MLXL.sh
+echo "Reasoning360_sys_B_v29_R_Novelty"
+cd "$BASE_DIR/Reasoning360_sys_B_v29_R_Novelty"
+bash submit_job_qwen3_4B_MLXL.sh
 
 
 
