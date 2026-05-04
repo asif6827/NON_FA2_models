@@ -44,7 +44,7 @@ from verl.trainer.ppo.ray_trainer import (
 )
 from verl.utils.profiler import marked_timer
 
-puzzle_key = "val-aux/our_zebra_puzzle_new_reward_test/PUZZLE_ACCURACY/mean@1"
+#puzzle_key = "val-aux/our_zebra_puzzle_new_reward_test/PUZZLE_ACCURACY/mean@1"
 
 class RayDAPOTrainer(RayPPOTrainer):
     """
@@ -97,11 +97,11 @@ class RayDAPOTrainer(RayPPOTrainer):
             if self.config.trainer.get("val_only", False):
                 return
 
-            puzzle_accuracy = float(val_metrics[puzzle_key])
-            print(f"Puzzle Accuracy = {puzzle_accuracy}")
-            if puzzle_accuracy > self.puzzle_acc:
-                print(f"Replacing Puzzle Accuracy with {puzzle_accuracy}")
-                self.puzzle_acc = puzzle_accuracy
+            #puzzle_accuracy = float(val_metrics[puzzle_key])
+            #print(f"Puzzle Accuracy = {puzzle_accuracy}")
+            #if puzzle_accuracy > self.puzzle_acc:
+            #    print(f"Replacing Puzzle Accuracy with {puzzle_accuracy}")
+            #    self.puzzle_acc = puzzle_accuracy
 
         # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
@@ -375,14 +375,14 @@ class RayDAPOTrainer(RayPPOTrainer):
                         metrics.update(val_metrics_tr)
                         os.environ["VALID_STATUS"] = "0"
 
-                        puzzle_accuracy = float(val_metrics[puzzle_key])
-                        if puzzle_accuracy > self.puzzle_acc:
-                            print(f"New Puzzle Accuracy is higher. Updating Puzzle Accuracy = {puzzle_accuracy}")
-                            print("Updating checkpoint...!")
-                            if self.config.trainer.save_freq > 0 and (self.global_steps % self.config.trainer.save_freq == 0):
-                                with marked_timer("save_checkpoint", timing_raw, "green"):
-                                    self._save_checkpoint()
-                            self.puzzle_acc = puzzle_accuracy
+                        #puzzle_accuracy = float(val_metrics[puzzle_key])
+                        #if puzzle_accuracy > self.puzzle_acc:
+                        #    print(f"New Puzzle Accuracy is higher. Updating Puzzle Accuracy = {puzzle_accuracy}")
+                        #    print("Updating checkpoint...!")
+                        #    if self.config.trainer.save_freq > 0 and (self.global_steps % self.config.trainer.save_freq == 0):
+                        #        with marked_timer("save_checkpoint", timing_raw, "green"):
+                        #            self._save_checkpoint()
+                        #    self.puzzle_acc = puzzle_accuracy
 
                 with marked_timer("stop_profile", timing_raw):
                     if do_profile:
