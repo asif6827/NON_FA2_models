@@ -11,8 +11,6 @@ sys.path.append(project_root)
 
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 
-
-
 SOLUTION_PROMPT_1_SHOT_SYS = """
 You are an expert logic puzzle solver.
 
@@ -143,7 +141,7 @@ Syntactic entry format:
   ==, !=, <, >, + d ==, Not(...), And(...), Or(...)
 
 - Each syntactic step MUST be written in the exact form: S<k>
-    
+
   Atomic operators:
     ==        (same house / equivalence)
     !=        (not the same house)
@@ -163,25 +161,25 @@ Syntactic entry format:
 Examples of valid INTERLEVED reasoning steps:
     The engineer is assigned to house 2.
     S1: engineer == 2.
-    
+
     Since the engineer occupies house 2, the dog cannot also be in house 2.
     S2: dog != 2.
-    
+
     The cat is immediately to the left of the coffee, so the cat’s house index plus one equals the coffee’s house index.
     S3: cat + 1 == coffee.
-    
+
     The green house appears somewhere to the left of the white house.
     S4: green < white.
-    
+
     The dog is not in the first house.
     S5: Not(dog == 1).
-    
+
     The cat cannot be in house 1 or house 3.
     S6: And(cat != 1, cat != 3).
-    
+
     The milk is located either in house 1 or in house 5.
     S7: Or(milk == 1, milk == 5).
-  
+
 Logical validity requirement:
 - Every syntactic step MUST be logically entailed by the syntactic_clues plus any earlier syntactic steps.
 - Do NOT output syntactic steps that merely restate a clue unless they are required as part of the deduction chain.
@@ -281,7 +279,6 @@ Correct Example Output:
 }</answer>
 """
 
-
 SOLUTION_PROMPT_1_SHOT_USER = """
 --------------------------------
 PUZZLE TO SOLVE
@@ -296,6 +293,69 @@ attribute_values = {attribute_values}
 Solve the puzzle above and provide n_houses, attribute_values, parsed_clues, reasoning, and solution for this puzzle in the <answer> </answer> block, with no additional text.
 """
 
+from collections import Counter
+
+# --------------------------------------------------
+# Puzzle size groups
+# --------------------------------------------------
+SMALL_SIZES = {"2x2", "2x3", "2x4", "2x5", "2x6", "3x2", "3x3", "4x2"}
+MEDIUM_SIZES = {"3x4", "3x5", "3x6", "4x3", "4x4", "5x2", "6x2"}
+LARGE_SIZES = {"4x5", "5x3", "4x6", "5x4", "6x3"}
+XLARGE_SIZES = {"5x5", "6x4", "5x6", "6x5", "6x6"}
+
+def normalize_size(size_value):
+    """
+    Normalize size values like:
+    '2×3', '2x3', '2*3', '2 X 3', '2 × 3'
+    into canonical form: '2x3'
+    """
+    return (
+        str(size_value)
+        .strip()
+        .lower()
+        .replace("×", "x")
+        .replace("*", "x")
+        .replace(" ", "")
+    )
+
+def get_size_bucket(size_value):
+    size_value = normalize_size(size_value)
+
+    if size_value in SMALL_SIZES:
+        return "Small"
+    elif size_value in MEDIUM_SIZES:
+        return "Medium"
+    elif size_value in LARGE_SIZES:
+        return "Large"
+    elif size_value in XLARGE_SIZES:
+        return "X-Large"
+    else:
+        return "Unknown"
+
+def summarize_split_sizes(split_dataset, split_name):
+    raw_counter = Counter()
+    bucket_counter = Counter()
+
+    for row in split_dataset:
+        raw_size_original = str(row["size"]).strip()
+        raw_size_normalized = normalize_size(row["size"])
+        bucket = get_size_bucket(row["size"])
+
+        raw_counter[raw_size_original] += 1
+        bucket_counter[bucket] += 1
+
+    print(f"\n===== {split_name} Split =====")
+    print(f"Total rows: {len(split_dataset)}")
+
+    print("Bucket counts:")
+    for bucket in ["Small", "Medium", "Large", "X-Large", "Unknown"]:
+        print(f"  {bucket}: {bucket_counter.get(bucket, 0)}")
+
+    print("Raw size counts:")
+    for size_key in sorted(raw_counter.keys()):
+        print(f"  {size_key}: {raw_counter[size_key]}")
+
+    return raw_counter, bucket_counter
 
 def extract_clues_from_puzzle(puzzle_text):
     """Extract clues from the puzzle text."""
@@ -312,6 +372,7 @@ def extract_clues_from_puzzle(puzzle_text):
         return clues
     else:
         return []
+
 
 def attribute_values_from_solution(solution: dict) -> dict:
     """
@@ -336,7 +397,7 @@ def attribute_values_from_solution(solution: dict) -> dict:
             if i >= len(row):
                 continue
             v = "_".join(row[i].split(" "))
-            #v = row[i]
+            # v = row[i]
             if v not in seen[col]:
                 seen[col].add(v)
                 values[col].append(v)
@@ -344,6 +405,7 @@ def attribute_values_from_solution(solution: dict) -> dict:
     for key in values:
         random.shuffle(values[key])
     return values
+
 
 def make_map_fn_1_shot(split, data_source):
     def process_fn_1_shot(example, idx):
@@ -353,7 +415,7 @@ def make_map_fn_1_shot(split, data_source):
         clues = extract_clues_from_puzzle(puzzle_text=example['puzzle'])
         # user_prompt = SOLUTION_PROMPT_USER_SOLUTION_BASED.format(puzzle=example['puzzle'])
         user_prompt = SOLUTION_PROMPT_1_SHOT_SYS + SOLUTION_PROMPT_1_SHOT_USER.format(
-            puzzle=example['puzzle'],solution_header=final_grid['header'], attribute_values=attribute_values_from_solution(example['solution']))
+            puzzle=example['puzzle'], solution_header=final_grid['header'], attribute_values=attribute_values_from_solution(example['solution']))
 
         data = {
             "data_source": data_source,
@@ -404,6 +466,15 @@ if __name__ == '__main__':
     parser.add_argument('--train_sample_size', type=int, default=None, help='Number of samples to use from train. If None, use all.')
     args = parser.parse_args()
 
+    TRAIN_SIZE = 0.25
+    DEV_SIZE = 0.05
+    TEST_SIZE = 0.70
+    SEED = 42
+
+    assert abs(TRAIN_SIZE + DEV_SIZE + TEST_SIZE - 1.0) < 1e-8, "Splits must sum to 1.0"
+
+
+
     if args.data_setting == 'small_train_med_test':
         args.train_file = os.path.join(args.data_path, 'Zebra_Puzzle_small_320.json')
         args.test_file = os.path.join(args.data_path, 'Zebra_Puzzle_medium_280.json')
@@ -421,8 +492,6 @@ if __name__ == '__main__':
         raise ValueError('Invalid data_setting')
     args.output_dir = os.path.join(args.output_dir, args.data_setting)
 
-
-
     if args.data_setting == 'mlxl_train_mlxl_test':
         # Load dataset from JSON or Parquet based on file extension
         file_extension = os.path.splitext(args.data_file)[1].lower()
@@ -433,17 +502,46 @@ if __name__ == '__main__':
         else:
             raise ValueError(f"Unsupported file format: {file_extension}. Only JSON, JSONL, and Parquet are supported.")
 
-        train_indices, test_indices = train_test_split(
-            range(len(dataset)),
-            train_size=args.train_size,
-            test_size=args.test_size,
-            random_state=args.seed
+        all_indices = range(len(dataset))
+
+        train_indices, temp_indices = train_test_split(
+            all_indices,
+            train_size=TRAIN_SIZE,
+            random_state=SEED
+        )
+
+        dev_ratio_in_temp = DEV_SIZE / (DEV_SIZE + TEST_SIZE)
+
+        dev_indices, test_indices = train_test_split(
+            temp_indices,
+            train_size=dev_ratio_in_temp,
+            random_state=SEED
         )
 
 
         # Create train and test datasets
         train_dataset = dataset.select(train_indices)
+        dev_dataset = dataset.select(dev_indices)
         test_dataset = dataset.select(test_indices)
+
+        # --------------------------------------------------
+        # Run summary for each split
+        # --------------------------------------------------
+        train_raw_counts, train_bucket_counts = summarize_split_sizes(train_dataset, "Train")
+        dev_raw_counts, dev_bucket_counts = summarize_split_sizes(dev_dataset, "Dev")
+        test_raw_counts, test_bucket_counts = summarize_split_sizes(test_dataset, "Test")
+
+        print("\n===== Bucket Summary Across Splits =====")
+        print(f"{'Bucket':<10} {'Train':>8} {'Dev':>8} {'Test':>8}")
+        for bucket in ["Small", "Medium", "Large", "X-Large", "Unknown"]:
+            print(
+                f"{bucket:<10} "
+                f"{train_bucket_counts.get(bucket, 0):>8} "
+                f"{dev_bucket_counts.get(bucket, 0):>8} "
+                f"{test_bucket_counts.get(bucket, 0):>8}"
+            )
+
+
 
         # Transform dataset
         process_train_fn = make_map_fn_1_shot('train', args.data_source_train)
@@ -482,8 +580,6 @@ if __name__ == '__main__':
         process_test_fn = make_map_fn_1_shot('test', args.data_source_test)
         test_dataset = test_dataset.map(function=process_test_fn, with_indices=True)
 
-
-
     # Store the original training dataset size
     original_train_size = len(train_dataset)
 
@@ -491,7 +587,7 @@ if __name__ == '__main__':
     train_dataset = sample_dataset(train_dataset, args.train_sample_size)
 
     # Create output directories
-    train_output_dir = os.path.join(args.output_dir ,"train")
+    train_output_dir = os.path.join(args.output_dir, "train")
     test_output_dir = os.path.join(args.output_dir, "test")
     os.makedirs(train_output_dir, exist_ok=True)
     os.makedirs(test_output_dir, exist_ok=True)
@@ -516,6 +612,7 @@ if __name__ == '__main__':
     if args.hdfs_dir is not None:
         try:
             from verl.utils.hdfs_io import copy, makedirs
+
             makedirs(args.hdfs_dir)
             copy(src=args.output_dir, dst=args.hdfs_dir)
             print(f"Data copied to HDFS: {args.hdfs_dir}")
