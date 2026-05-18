@@ -21,7 +21,7 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3
 unset ROCR_VISIBLE_DEVICES
 
 #### MY Parameters
-export USE_Thinking=1
+#export USE_Thinking=1
 #export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
 export HF_HOME="/export/home/asifali/HF_cache"
 export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
@@ -165,10 +165,10 @@ TEST_DATA_DIR=${SHARED_DATA_PATH}/test
 
 
 ### Logic (train)
-zebra_train_path=${TRAIN_DATA_DIR}/logic_our_zebra_puzzle_new_reward_204.parquet
+zebra_train_path=${TRAIN_DATA_DIR}/logic_our_zebra_puzzle_new_reward_300.parquet
 
 ### Logic (test)
-zebralogic_test_path=${TEST_DATA_DIR}/logic_our_zebra_puzzle_new_reward_test_476.parquet
+zebralogic_test_path=${TEST_DATA_DIR}/logic_our_zebra_puzzle_new_reward_test_700.parquet
 
 
 train_files="['${zebra_train_path}']"  # Use math as example, add to more tasks as needed
@@ -230,10 +230,10 @@ max_num_gen_batches=10
 #train_prompt_mini_bsz=4  # model grad update batchsize
 
 
-train_prompt_bsz=68  # on-policy model update batchsize: train_prompt_bsz * rollout.n
+train_prompt_bsz=100  # on-policy model update batchsize: train_prompt_bsz * rollout.n
 gen_prompt_bsz=$((train_prompt_bsz * 1))
 n_resp_per_prompt=8
-train_prompt_mini_bsz=17  # model grad update batchsize
+train_prompt_mini_bsz=20  # model grad update batchsize
 
 
 
@@ -318,11 +318,12 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.top_p=${top_p} \
     actor_rollout_ref.rollout.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
-    actor_rollout_ref.rollout.val_kwargs.top_p=${top_p}\
+    actor_rollout_ref.rollout.val_kwargs.top_p=${top_p} \
     actor_rollout_ref.rollout.val_kwargs.temperature=${TEST_TEMP} \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
-    actor_rollout_ref.rollout.val_kwargs.do_sample=True \
+    actor_rollout_ref.rollout.val_kwargs.do_sample=False \
     actor_rollout_ref.model.path=$BASE_MODEL \
+    actor_rollout_ref.model.tokenizer_path=$BASE_MODEL \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.rollout.multi_turn.enable=False \
     actor_rollout_ref.rollout.mode="sync" \
