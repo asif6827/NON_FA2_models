@@ -13,9 +13,9 @@
 module load cuda12.4/toolkit
 
 nvidia-smi
-export TRANSFORMERS_CACHE="/export/home/rsaparkhan/HF_cache"
-export HF_HOME="/export/home/rsaparkhan/HF_cache"
-export HF_DATASETS_CACHE="/export/home/rsaparkhan/HF_cache"
+export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
+export HF_HOME="/export/home/asifali/HF_cache"
+export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 
 source activate zebrapuzzles
 #python data_spliting_panther.py
