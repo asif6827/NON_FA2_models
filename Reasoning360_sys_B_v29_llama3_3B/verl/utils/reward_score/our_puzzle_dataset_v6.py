@@ -1005,21 +1005,40 @@ def compute_score(
                 format_reward = 0.0
             #print("Format reward = {}".format(format_reward))
 
-            if sat_ok == 0.0:
-                reward = 0.60 * float(puzzle_acc_score)
+            if int(epoch) <= 10:
+                if sat_ok == 0.0:
+                    reward = 0.60 * float(puzzle_acc_score) + 0.40 * float(cell_acc_score)
+                else:
+                    base_quality = (
+                            0.60 * float(puzzle_acc_score)
+                            + 0.40 * float(cell_acc_score)
+                            + 0.20 * format_reward
+                    )
+
+                    process_bonus = (
+                            0.60 * novel_step_score
+                            + 0.40 * consistency_score
+                    )
+
+                    # gate process reward by solution quality
+                    reward = base_quality + float(puzzle_acc_score) * process_bonus
+
             else:
-                base_quality = (
-                        0.60 * float(puzzle_acc_score)
-                        + 0.20 * format_reward
-                )
+                if sat_ok == 0.0:
+                    reward = 0.60 * float(puzzle_acc_score)
+                else:
+                    base_quality = (
+                            0.60 * float(puzzle_acc_score)
+                            + 0.20 * format_reward
+                    )
 
-                process_bonus = (
-                        0.60 * novel_step_score
-                        + 0.40 * consistency_score
-                )
+                    process_bonus = (
+                            0.60 * novel_step_score
+                            + 0.40 * consistency_score
+                    )
 
-                # gate process reward by solution quality
-                reward = base_quality + float(puzzle_acc_score) * process_bonus
+                    # gate process reward by solution quality
+                    reward = base_quality + float(puzzle_acc_score) * process_bonus
 
             #if sat_ok == 0.0:
             #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
