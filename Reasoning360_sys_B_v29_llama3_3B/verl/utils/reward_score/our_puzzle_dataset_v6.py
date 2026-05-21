@@ -992,7 +992,7 @@ def compute_score(
             n_attrs_i = max(len(attribute_values), 0)
 
             # Keep strictly positive to avoid division by zero.
-            normalizer = max(2.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
+            normalizer = max(4.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
 
             n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
             novel_step_score = float(min(n_novel_steps / normalizer, 1.0))
@@ -1033,8 +1033,9 @@ def compute_score(
                     )
 
                     process_bonus = (
-                            0.60 * novel_step_score
-                            + 0.40 * consistency_score
+                            0.40 * novel_step_score
+                            + 0.30 * consistency_score
+                            - 0.15 * contradiction_ratio
                     )
 
                     # gate process reward by solution quality
