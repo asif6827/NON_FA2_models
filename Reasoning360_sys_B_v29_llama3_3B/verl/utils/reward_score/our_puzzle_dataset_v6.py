@@ -992,7 +992,7 @@ def compute_score(
             n_attrs_i = max(len(attribute_values), 0)
 
             # Keep strictly positive to avoid division by zero.
-            normalizer = max(4.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
+            normalizer = max(5.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
 
             n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
             novel_step_score = float(min(n_novel_steps / normalizer, 1.0))
@@ -1025,10 +1025,10 @@ def compute_score(
 
             else:
                 if sat_ok == 0.0:
-                    reward = 0.60 * float(puzzle_acc_score)
+                    reward = 0.90 * float(puzzle_acc_score)
                 else:
                     base_quality = (
-                            0.60 * float(puzzle_acc_score)
+                            0.90 * float(puzzle_acc_score)
                             + 0.20 * format_reward
                     )
 
