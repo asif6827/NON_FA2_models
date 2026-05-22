@@ -204,8 +204,8 @@ adv_estimator=grpo
 
 use_kl_in_reward=False
 kl_coef=0.00
-use_kl_loss=True
-kl_loss_coef=0.0005
+use_kl_loss=False
+kl_loss_coef=0.00
 
 
 clip_ratio_low=0.2
@@ -284,7 +284,7 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.actor.use_dynamic_bsz=${use_dynamic_bsz} \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=${actor_ppo_max_token_len} \
     actor_rollout_ref.actor.strategy="fsdp" \
-    actor_rollout_ref.actor.optim.lr=5e-7 \
+    actor_rollout_ref.actor.optim.lr=1e-5 \
     actor_rollout_ref.actor.optim.lr_warmup_steps=50 \
     actor_rollout_ref.actor.optim.weight_decay=0.1 \
     actor_rollout_ref.actor.optim.warmup_style=constant \
