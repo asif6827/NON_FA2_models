@@ -1025,10 +1025,10 @@ def compute_score(
 
             else:
                 if sat_ok == 0.0:
-                    reward = 0.90 * float(puzzle_acc_score)
+                    reward = 0.60 * float(puzzle_acc_score)
                 else:
                     base_quality = (
-                            0.90 * float(puzzle_acc_score)
+                            0.60 * float(puzzle_acc_score)
                             + 0.20 * format_reward
                     )
 
