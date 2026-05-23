@@ -6,7 +6,7 @@
 #if false; then
 ACRONYM="MLXL"
 echo "Submitting Training job H200 + GT"
-TRAIN_TEMP_LIST=(1.0)
+TRAIN_TEMP_LIST=(0.7)
 TEST_TEMP_LIST=(0.0)
 SCORING_LIST=("gt")
 EPOCH_LIST=(500)
