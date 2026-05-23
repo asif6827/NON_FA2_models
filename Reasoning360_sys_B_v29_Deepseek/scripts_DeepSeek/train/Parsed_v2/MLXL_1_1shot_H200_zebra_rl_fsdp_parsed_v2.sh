@@ -318,10 +318,10 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.top_p=${top_p} \
     actor_rollout_ref.rollout.top_k=${top_k} \
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k} \
-    actor_rollout_ref.rollout.val_kwargs.top_p=${top_p}\
+    actor_rollout_ref.rollout.val_kwargs.top_p=${top_p} \
     actor_rollout_ref.rollout.val_kwargs.temperature=${TEST_TEMP} \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
-    actor_rollout_ref.rollout.val_kwargs.do_sample=True \
+    actor_rollout_ref.rollout.val_kwargs.do_sample=False \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.rollout.multi_turn.enable=False \
@@ -342,7 +342,7 @@ python -m recipe.dapo.main_dapo \
     trainer.n_gpus_per_node=${NUM_GPUS} \
     trainer.nnodes=1 \
     trainer.test_freq=${TEST_FREQUENCY} \
-    trainer.save_freq=1 \
+    trainer.save_freq=100 \
     trainer.max_actor_ckpt_to_keep=1 \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.total_epochs=${EPOCH} \
