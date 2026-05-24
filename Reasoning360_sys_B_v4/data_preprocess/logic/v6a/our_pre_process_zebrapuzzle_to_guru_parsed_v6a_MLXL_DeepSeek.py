@@ -294,6 +294,7 @@ solution_header = {solution_header}
 attribute_values = {attribute_values}
 
 Solve the puzzle above and provide n_houses, attribute_values, syntactic_clues, reasoning, and solution for this puzzle in the <answer> </answer> block, with no additional text.
+Do not output <think>, </think>, markdown, code fences, XML tags, comments, or any text outside the <answer>...</answer> block.
 """
 
 
@@ -344,6 +345,7 @@ def attribute_values_from_solution(solution: dict) -> dict:
     for key in values:
         random.shuffle(values[key])
     return values
+
 
 def make_map_fn_1_shot(split, data_source):
     def process_fn_1_shot(example, idx):
@@ -398,8 +400,8 @@ if __name__ == '__main__':
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
     parser.add_argument('--train_size', type=float, default=0.3, help='Proportion of data for train set')
     parser.add_argument('--test_size', type=float, default=0.7, help='Proportion of data for test set')
-    parser.add_argument('--data_source_train', default='our_zebra_puzzle_new_reward', help='Name of data source')
-    parser.add_argument('--data_source_test', default='our_zebra_puzzle_new_reward_test', help='Name of data source')
+    parser.add_argument('--data_source_train', default='our_zebra_puzzle_new_reward_deepseek', help='Name of data source')
+    parser.add_argument('--data_source_test', default='our_zebra_puzzle_new_reward_test_deepseek', help='Name of data source')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--train_sample_size', type=int, default=None, help='Number of samples to use from train. If None, use all.')
     args = parser.parse_args()

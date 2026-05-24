@@ -165,10 +165,10 @@ TEST_DATA_DIR=${SHARED_DATA_PATH}/test
 
 
 ### Logic (train)
-zebra_train_path=${TRAIN_DATA_DIR}/logic_our_zebra_puzzle_new_reward_300.parquet
+zebra_train_path=${TRAIN_DATA_DIR}/logic_our_zebra_puzzle_new_reward_deepseek_300.parquet
 
 ### Logic (test)
-zebralogic_test_path=${TEST_DATA_DIR}/logic_our_zebra_puzzle_new_reward_test_700.parquet
+zebralogic_test_path=${TEST_DATA_DIR}/logic_our_zebra_puzzle_new_reward_test_deepseek_700.parquet
 
 
 train_files="['${zebra_train_path}']"  # Use math as example, add to more tasks as needed
@@ -212,7 +212,7 @@ clip_ratio_low=0.2
 clip_ratio_high=0.2
 
 max_prompt_length=$((1024 * 8))
-max_response_length=$((1024 * 8))
+max_response_length=$((1024 * 4))
 enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
 overlong_penalty_factor=1.0
