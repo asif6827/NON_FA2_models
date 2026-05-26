@@ -293,7 +293,7 @@ solution_header = {solution_header}
 
 attribute_values = {attribute_values}
 
-Solve the puzzle above and provide n_houses, attribute_values, parsed_clues, reasoning, and solution for this puzzle in the <answer> </answer> block, with no additional text.
+Solve the puzzle above and provide n_houses, attribute_values, syntactic_clues, reasoning, and solution for this puzzle in the <answer> </answer> block, with no additional text.
 """
 
 
