@@ -16,7 +16,7 @@ nvidia-smi
 export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
 export HF_HOME="/export/home/asifali/HF_cache"
 export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
-export HF_TOKEN="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"
+export HF_TOKEN="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"
 
 source activate Reasoning360
 python ./scripts_data_etc/download_hub_LLama3_8B.py
