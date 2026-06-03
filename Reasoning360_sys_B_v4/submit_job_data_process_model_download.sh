@@ -8,8 +8,8 @@
 
 
 echo "Model Downloading...!"
-sbatch ./scripts_data_etc/download_hub_qwen3.sh
-
+#sbatch ./scripts_data_etc/download_hub_qwen3.sh
+sbatch ./scripts_data_etc/download_hub_llama.sh
 
 #echo "Model Downloading...!"
 #sbatch ./scripts_data_etc/download_hub_ibex.sh

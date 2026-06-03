@@ -19,5 +19,5 @@ export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 export HF_TOKEN="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"
 
 source activate Reasoning360
-python ./scripts_data_etc/download_hub_LLama3.py
+python ./scripts_data_etc/download_hub_LLama3_8B.py
 nvidia-smi
