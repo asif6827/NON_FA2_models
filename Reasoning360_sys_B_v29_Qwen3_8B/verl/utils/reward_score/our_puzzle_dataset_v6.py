@@ -1021,7 +1021,7 @@ def compute_score(
                 process_bonus = (
                         0.40 * novel_step_score
                         + 0.30 * consistency_score
-                        - 0.30 * contradiction_ratio
+                        - 0.15 * contradiction_ratio
                 )
 
                 # gate process reward by solution quality
