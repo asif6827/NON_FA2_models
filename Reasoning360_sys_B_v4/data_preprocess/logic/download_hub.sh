@@ -18,5 +18,6 @@ export HF_HOME="/export/home/asifali/HF_cache"
 export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 
 source activate zebrapuzzles
-python ./scripts_data_etc/download_hub_Qwen3.py
+#python ./scripts_data_etc/download_hub_Qwen3.py
+python ./scripts_data_etc/download_hub_Qwen2.py
 nvidia-smi
