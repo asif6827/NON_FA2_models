@@ -242,7 +242,7 @@ Correct Example Output:
   "reasoning": [
     "Clue 3 immediately anchors the red favorite color in the second house, which is a very strong positional fact to start from.",
     "S1: red == 2.",
-    "Clue 1 then ties Arnold directly to the red color, so Arnold must be in that same second house."
+    "Clue 1 then ties Arnold directly to the red color, so Arnold must be in that same second house.",
     "S2: Arnold == red.",
     "Putting those two together, Arnold is fixed in house 2. At this point, house 2 is completely identified as “Arnold’s house,” and we know it has the red color.",
     "S3: Arnold == 2.",
@@ -253,7 +253,7 @@ Correct Example Output:
     "Since houses are only 1 through 3, Eric cannot be in the first house (there would be nothing to the left of him). That means Eric must be in house 2 or house 3.",
     "S6: Or(Eric == 2, Eric == 3).",
     "But we already know Arnold occupies house 2, and all people are distinct. So Eric cannot be in house 2 and must therefore be in house 3.",
-    "S7: Eric == 3",
+    "S7: Eric == 3.",
     "This is a good point to pause and take stock again. House 1: unknown person, child Bella. House 2: Arnold, red. House 3: Eric. Now, going back to the same ordering constraint (Fred < Eric), if Eric is in house 3, then Fred must be in house 1 or house 2.",
     "S8: Or(Fred == 1, Fred == 2).",
     "But we already know the child in house 1 is Bella, and children are unique. So Fred cannot be in house 1. That forces Fred into house 2.",
@@ -268,7 +268,7 @@ Correct Example Output:
     "S13: white == 3.",
     "At this point, two colors are fixed: red in house 2 and white in house 3. Colors are unique, so the only remaining color, yellow, must belong to house 1.",
     "S14: yellow == 1.",
-    "With that, everything is now determined: House 1: Peter, yellow, child Bella. House 2: Arnold, red, child Fred. House 3: Eric, white, child Meredith. All clues are satisfied, and no attributes remain unassigned.",
+    "With that, everything is now determined: House 1: Peter, yellow, child Bella. House 2: Arnold, red, child Fred. House 3: Eric, white, child Meredith. All clues are satisfied, and no attributes remain unassigned."
   ],
   "solution": {
     "header": ["House", "Name", "Color", "Children"],
@@ -352,8 +352,9 @@ def make_map_fn_1_shot(split, data_source):
         # Use the 'clues' field directly from the input data
         clues = extract_clues_from_puzzle(puzzle_text=example['puzzle'])
         # user_prompt = SOLUTION_PROMPT_USER_SOLUTION_BASED.format(puzzle=example['puzzle'])
+        attr_values = attribute_values_from_solution(example["solution"])
         user_prompt = SOLUTION_PROMPT_1_SHOT_SYS + SOLUTION_PROMPT_1_SHOT_USER.format(
-            puzzle=example['puzzle'],solution_header=final_grid['header'], attribute_values=attribute_values_from_solution(example['solution']))
+            puzzle=example['puzzle'],solution_header=final_grid['header'], attribute_values=attr_values)
         llama_prompt = (
             "<|begin_of_text|>"
             "<|start_header_id|>system<|end_header_id|>\n\n"
@@ -363,7 +364,7 @@ def make_map_fn_1_shot(split, data_source):
             f"{SOLUTION_PROMPT_1_SHOT_USER.format(
                 puzzle=example['puzzle'],
                 solution_header=final_grid['header'],
-                attribute_values=attribute_values_from_solution(example['solution'])
+                attribute_values=attr_values
             ).strip()}"
             "<|eot_id|>"
             "<|start_header_id|>assistant<|end_header_id|>\n\n"
@@ -409,6 +410,8 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--train_sample_size', type=int, default=None, help='Number of samples to use from train. If None, use all.')
     args = parser.parse_args()
+
+    random.seed(args.seed)
 
     if args.data_setting == 'small_train_med_test':
         args.train_file = os.path.join(args.data_path, 'Zebra_Puzzle_small_320.json')
