@@ -1,62 +1,0 @@
-2026-05-19 11:38:28,394	INFO worker.py:1810 -- Connecting to existing Ray cluster at address: 10.141.11.154:6379...
-2026-05-19 11:38:28,552	INFO worker.py:2013 -- Connected to Ray cluster.
-/export/home/asifali/anaconda3/envs/zebrapuzzles/lib/python3.12/site-packages/ray/_private/worker.py:2052: FutureWarning: Tip: In future versions of Ray, Ray will no longer override accelerator visible devices env var if num_gpus=0 or num_gpus=None (default). To enable this behavior and turn off this error message, set RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
-  warnings.warn(
-[36m(TaskRunner pid=2430137)[0m /export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_llama3_3B/verl/utils/tokenizer.py:30: UserWarning: tokenizer.pad_token_id is None. Now set to 128009
-[36m(TaskRunner pid=2430137)[0m   warnings.warn(f"tokenizer.pad_token_id is None. Now set to {tokenizer.eos_token_id}", stacklevel=1)
-[36m(TaskRunner pid=2430137)[0m DeprecationWarning: `ray.state.available_resources_per_node` is a private attribute and access will be removed in a future Ray version.
-[36m(TaskRunner pid=2430137)[0m WARNING:2026-05-19 11:39:10,372:Waiting for register center actor OQFoHh_register_center to be ready. Elapsed time: 0 seconds out of 300 seconds.
-[36m(WorkerDict pid=2431146)[0m [W519 11:40:05.636323888 Utils.hpp:136] Warning: Environment variable NCCL_ASYNC_ERROR_HANDLING is deprecated; use TORCH_NCCL_ASYNC_ERROR_HANDLING instead (function operator())
-[36m(WorkerDict pid=2431948)[0m /export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_llama3_3B/verl/utils/tokenizer.py:30: UserWarning: tokenizer.pad_token_id is None. Now set to 128009
-[36m(WorkerDict pid=2431948)[0m   warnings.warn(f"tokenizer.pad_token_id is None. Now set to {tokenizer.eos_token_id}", stacklevel=1)
-[36m(WorkerDict pid=2431948)[0m `torch_dtype` is deprecated! Use `dtype` instead!
-[36m(WorkerDict pid=2431948)[0m Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]
-[36m(WorkerDict pid=2431948)[0m Loading checkpoint shards: 100%|██████████| 2/2 [00:00<00:00, 21.48it/s]
-[36m(WorkerDict pid=2431949)[0m [W519 11:40:05.639105783 Utils.hpp:136] Warning: Environment variable NCCL_ASYNC_ERROR_HANDLING is deprecated; use TORCH_NCCL_ASYNC_ERROR_HANDLING instead (function operator())[32m [repeated 3x across cluster][0m
-[36m(WorkerDict pid=2431948)[0m /export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_llama3_3B/verl/utils/tokenizer.py:30: UserWarning: tokenizer.pad_token_id is None. Now set to 128009[32m [repeated 4x across cluster][0m
-[36m(WorkerDict pid=2431948)[0m   warnings.warn(f"tokenizer.pad_token_id is None. Now set to {tokenizer.eos_token_id}", stacklevel=1)[32m [repeated 4x across cluster][0m
-[36m(WorkerDict pid=2431947)[0m `torch_dtype` is deprecated! Use `dtype` instead![32m [repeated 3x across cluster][0m
-[36m(WorkerDict pid=2431947)[0m Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s][32m [repeated 3x across cluster][0m
-[36m(WorkerDict pid=2431947)[0m Loading checkpoint shards: 100%|██████████| 2/2 [00:00<00:00, 20.62it/s][32m [repeated 3x across cluster][0m
-[36m(WorkerDict pid=2431948)[0m Flash Attention 2 only supports torch.float16 and torch.bfloat16 dtypes, but the current dype in LlamaForCausalLM is torch.float32. You should run training or inference using Automatic Mixed-Precision via the `with torch.autocast(device_type='torch_device'):` decorator, or load the model with the `dtype` argument. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="flash_attention_2", dtype=torch.float16)`
-[36m(WorkerDict pid=2431948)[0m Flash Attention 2 only supports torch.float16 and torch.bfloat16 dtypes, but the current dype in LlamaModel is torch.float32. You should run training or inference using Automatic Mixed-Precision via the `with torch.autocast(device_type='torch_device'):` decorator, or load the model with the `dtype` argument. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="flash_attention_2", dtype=torch.float16)`
-[36m(WorkerDict pid=2431948)[0m Loading checkpoint shards:  50%|█████     | 1/2 [00:05<00:05,  5.16s/it]
-[36m(WorkerDict pid=2431947)[0m /export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_llama3_3B/verl/utils/tokenizer.py:30: UserWarning: tokenizer.pad_token_id is None. Now set to 128009[32m [repeated 3x across cluster][0m
-[36m(WorkerDict pid=2431947)[0m   warnings.warn(f"tokenizer.pad_token_id is None. Now set to {tokenizer.eos_token_id}", stacklevel=1)[32m [repeated 3x across cluster][0m
-[36m(WorkerDict pid=2431947)[0m Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s][32m [repeated 4x across cluster][0m
-[36m(WorkerDict pid=2431947)[0m Flash Attention 2 only supports torch.float16 and torch.bfloat16 dtypes, but the current dype in LlamaForCausalLM is torch.float32. You should run training or inference using Automatic Mixed-Precision via the `with torch.autocast(device_type='torch_device'):` decorator, or load the model with the `dtype` argument. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="flash_attention_2", dtype=torch.float16)`[32m [repeated 3x across cluster][0m
-[36m(WorkerDict pid=2431947)[0m Flash Attention 2 only supports torch.float16 and torch.bfloat16 dtypes, but the current dype in LlamaModel is torch.float32. You should run training or inference using Automatic Mixed-Precision via the `with torch.autocast(device_type='torch_device'):` decorator, or load the model with the `dtype` argument. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="flash_attention_2", dtype=torch.float16)`[32m [repeated 3x across cluster][0m
-[36m(WorkerDict pid=2431948)[0m Loading checkpoint shards: 100%|██████████| 2/2 [00:06<00:00,  2.98s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:06<00:00,  3.31s/it]
-[36m(WorkerDict pid=2431146)[0m `torch_dtype` is deprecated! Use `dtype` instead!
-[36m(WorkerDict pid=2431146)[0m Loading checkpoint shards:  50%|█████     | 1/2 [00:05<00:05,  5.37s/it][32m [repeated 3x across cluster][0m
-[36m(WorkerDict pid=2431146)[0m Loading checkpoint shards: 100%|██████████| 2/2 [00:07<00:00,  3.33s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:07<00:00,  3.64s/it][32m [repeated 3x across cluster][0m
-[36m(WorkerDict pid=2431948)[0m /export/home/asifali/anaconda3/envs/zebrapuzzles/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:690: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
-[36m(WorkerDict pid=2431948)[0m   warnings.warn(
-[36m(WorkerDict pid=2431949)[0m `torch_dtype` is deprecated! Use `dtype` instead![32m [repeated 3x across cluster][0m
-[36m(TaskRunner pid=2430137)[0m Training Progress:   0%|          | 0/1500 [00:00<?, ?it/s]
-[36m(WorkerDict pid=2431949)[0m /export/home/asifali/anaconda3/envs/zebrapuzzles/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:690: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .[32m [repeated 3x across cluster][0m
-[36m(WorkerDict pid=2431949)[0m   warnings.warn([32m [repeated 3x across cluster][0m
-[36m(TaskRunner pid=2430137)[0m /export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_llama3_3B/recipe/dapo/dapo_ray_trainer.py:358: FutureWarning: Warning: Function 'verl.trainer.ppo.metric_utils.reduce_metrics' is deprecated. Please use 'verl.utils.metric.reduce_metrics' instead.
-[36m(TaskRunner pid=2430137)[0m   actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
-[36m(TaskRunner pid=2430137)[0m Training Progress:   0%|          | 1/1500 [06:12<154:54:48, 372.04s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   0%|          | 2/1500 [12:30<156:17:49, 375.61s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   0%|          | 3/1500 [23:24<209:09:25, 502.98s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   0%|          | 4/1500 [29:30<186:26:24, 448.65s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   0%|          | 5/1500 [35:34<173:40:01, 418.19s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   0%|          | 6/1500 [47:22<214:26:41, 516.73s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   0%|          | 7/1500 [54:14<200:10:43, 482.68s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|          | 8/1500 [1:00:17<184:10:28, 444.39s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|          | 9/1500 [1:12:57<224:57:06, 543.14s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|          | 10/1500 [1:19:26<205:08:56, 495.66s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|          | 11/1500 [1:25:20<187:00:44, 452.15s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|          | 12/1500 [1:37:21<220:42:50, 533.99s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|          | 13/1500 [1:44:06<204:25:51, 494.92s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|          | 14/1500 [1:50:09<187:46:49, 454.92s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|          | 15/1500 [2:00:52<211:09:29, 511.90s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|          | 16/1500 [2:07:22<195:52:27, 475.17s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|          | 17/1500 [2:13:34<182:55:02, 444.03s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|          | 18/1500 [2:24:30<209:02:13, 507.78s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|▏         | 19/1500 [2:30:54<193:32:55, 470.48s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|▏         | 20/1500 [2:37:21<183:06:27, 445.40s/it]
-[36m(TaskRunner pid=2430137)[0m Training Progress:   1%|▏         | 21/1500 [2:48:29<210:27:11, 512.26s/it]
-slurmstepd: error: *** JOB 298202 ON crirdchpxd002 CANCELLED AT 2026-05-19T14:40:57 ***

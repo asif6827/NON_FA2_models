@@ -146,7 +146,6 @@ slurm/
 
 # Data
 
-
 # Sandbox or deprecated files
 sandbox/
 backup/
@@ -171,3 +170,5 @@ Prompts_Z3_testing
 /Prompts_SFT_data
 .idea
 BKUP
+/Reasoning360_sys_B_v29_llama3_v2_3B/all_logs
+/Reasoning360_sys_B_v29_llama3_v2_3B/all_logs
