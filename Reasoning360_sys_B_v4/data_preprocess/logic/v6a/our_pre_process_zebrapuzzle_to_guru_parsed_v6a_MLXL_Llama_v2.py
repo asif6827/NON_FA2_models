@@ -363,9 +363,28 @@ def attribute_values_from_solution(solution: dict) -> dict:
         random.shuffle(values[key])
     return values
 
+def normalize_solution_grid(solution):
+    header = solution["header"]
+    rows = []
+
+    for row in solution["rows"]:
+        norm_row = []
+        for col, value in zip(header, row):
+            if col == "House":
+                norm_row.append(str(value))
+            else:
+                norm_row.append("_".join(str(value).split()))
+        rows.append(norm_row)
+
+    return {
+        "header": header,
+        "rows": rows,
+    }
+
 def make_map_fn_1_shot(split, data_source):
     def process_fn_1_shot(example, idx):
-        final_grid = example["solution"]
+        final_grid = normalize_solution_grid(example["solution"])
+
         clues = extract_clues_from_puzzle(puzzle_text=example["puzzle"])
 
         # Important: compute once so the same attribute_values are used in the target prompt.
