@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import datasets
 import random
 import argparse
@@ -203,7 +204,7 @@ Each house has a unique attribute for each of the following characteristics:
 
 - Each person has a unique name: Peter, Eric, Arnold
 - The people like unique colors: red, white, yellow
-- The people have childern named: Fred, Meredith, Bella
+- The people have children named: Fred, Meredith, Bella
 
 Clues:
 1. Arnold is the person whose favorite color is red.
@@ -384,11 +385,12 @@ def normalize_solution_grid(solution):
 def make_map_fn_1_shot(split, data_source):
     def process_fn_1_shot(example, idx):
         final_grid = normalize_solution_grid(example["solution"])
-
         clues = extract_clues_from_puzzle(puzzle_text=example["puzzle"])
 
         # Important: compute once so the same attribute_values are used in the target prompt.
         target_attribute_values = attribute_values_from_solution(example["solution"])
+        target_solution_header = final_grid["header"]
+
 
         messages = [
             {
@@ -399,8 +401,8 @@ def make_map_fn_1_shot(split, data_source):
                 "role": "user",
                 "content": PUZZLE_USER_PROMPT.format(
                     puzzle=FEWSHOT_PUZZLE.strip(),
-                    solution_header=FEWSHOT_HEADER,
-                    attribute_values=FEWSHOT_ATTRIBUTE_VALUES,
+                    solution_header=json.dumps(FEWSHOT_HEADER, ensure_ascii=False),
+                    attribute_values=json.dumps(FEWSHOT_ATTRIBUTE_VALUES, ensure_ascii=False),
                 ).strip(),
             },
             {
@@ -411,8 +413,8 @@ def make_map_fn_1_shot(split, data_source):
                 "role": "user",
                 "content": PUZZLE_USER_PROMPT.format(
                     puzzle=example["puzzle"],
-                    solution_header=final_grid["header"],
-                    attribute_values=target_attribute_values,
+                    solution_header=json.dumps(target_solution_header, ensure_ascii=False),
+                    attribute_values=json.dumps(target_attribute_values, ensure_ascii=False),
                 ).strip(),
             },
         ]
