@@ -295,6 +295,26 @@ Solve the puzzle above and provide n_houses, attribute_values, syntactic_clues, 
 """
 
 
+def serialize_llama3_messages(messages):
+    """
+    Serialize chat messages using the Llama 3 / Llama 3.1 / Llama 3.2 chat format.
+    """
+    prompt = "<|begin_of_text|>"
+
+    for message in messages:
+        role = message["role"]
+        content = message["content"].strip()
+
+        prompt += (
+            f"<|start_header_id|>{role}<|end_header_id|>\n\n"
+            f"{content}"
+            "<|eot_id|>"
+        )
+
+    prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
+    return prompt
+
+
 def extract_clues_from_puzzle(puzzle_text):
     """Extract clues from the puzzle text."""
     if "## Clues:" in puzzle_text:
@@ -345,33 +365,45 @@ def attribute_values_from_solution(solution: dict) -> dict:
 
 def make_map_fn_1_shot(split, data_source):
     def process_fn_1_shot(example, idx):
-        # Use 'ground_truth' instead of 'solution' since that's what the input data has
-        final_grid = example['solution']
-        # Use the 'clues' field directly from the input data
-        clues = extract_clues_from_puzzle(puzzle_text=example['puzzle'])
-        # user_prompt = SOLUTION_PROMPT_USER_SOLUTION_BASED.format(puzzle=example['puzzle'])
-        attr_values = attribute_values_from_solution(example["solution"])
-        user_prompt = SOLUTION_PROMPT_1_SHOT_SYS + SOLUTION_PROMPT_1_SHOT_USER.format(
-            puzzle=example['puzzle'],solution_header=final_grid['header'], attribute_values=attr_values)
-        llama_prompt = (
-            "<|begin_of_text|>"
-            "<|start_header_id|>system<|end_header_id|>\n\n"
-            f"{SOLUTION_PROMPT_1_SHOT_SYS.strip()}"
-            "<|eot_id|>"
-            "<|start_header_id|>user<|end_header_id|>\n\n"
-            f"{SOLUTION_PROMPT_1_SHOT_USER.format(
-                puzzle=example['puzzle'],
-                solution_header=final_grid['header'],
-                attribute_values=attr_values
-            ).strip()}"
-            "<|eot_id|>"
-            "<|start_header_id|>assistant<|end_header_id|>\n\n"
-        )
+        final_grid = example["solution"]
+        clues = extract_clues_from_puzzle(puzzle_text=example["puzzle"])
+
+        # Important: compute once so the same attribute_values are used in the target prompt.
+        target_attribute_values = attribute_values_from_solution(example["solution"])
+
+        messages = [
+            {
+                "role": "system",
+                "content": SOLUTION_SYSTEM_PROMPT.strip(),
+            },
+            {
+                "role": "user",
+                "content": PUZZLE_USER_PROMPT.format(
+                    puzzle=FEWSHOT_PUZZLE.strip(),
+                    solution_header=FEWSHOT_HEADER,
+                    attribute_values=FEWSHOT_ATTRIBUTE_VALUES,
+                ).strip(),
+            },
+            {
+                "role": "assistant",
+                "content": FEWSHOT_ASSISTANT_ANSWER.strip(),
+            },
+            {
+                "role": "user",
+                "content": PUZZLE_USER_PROMPT.format(
+                    puzzle=example["puzzle"],
+                    solution_header=final_grid["header"],
+                    attribute_values=target_attribute_values,
+                ).strip(),
+            },
+        ]
+
+        llama_prompt = serialize_llama3_messages(messages)
 
         data = {
             "data_source": data_source,
             "prompt": llama_prompt,
-            'raw_prompt': llama_prompt,
+            "raw_prompt": llama_prompt,
             "ability": "logical_reasoning",
             "reward_model": {
                 "style": "rule",
@@ -379,10 +411,10 @@ def make_map_fn_1_shot(split, data_source):
             },
             "apply_chat_template": False,
             "extra_info": {
-                'id': example['id'] if 'id' in example else str(idx),
-                'split': split,
-                'clues': clues
-            }
+                "id": example["id"] if "id" in example else str(idx),
+                "split": split,
+                "clues": clues,
+            },
         }
 
         if idx != 0:
@@ -390,6 +422,7 @@ def make_map_fn_1_shot(split, data_source):
             print("\n" + "=" * 100 + f"{data_source} {split} {idx}" + "=" * 10)
             print(data)
             print("\n\n")
+
         return data
 
     return process_fn_1_shot
