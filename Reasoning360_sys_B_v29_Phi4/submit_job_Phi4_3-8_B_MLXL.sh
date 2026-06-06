@@ -42,5 +42,3 @@ for i in "${!TRAIN_TEMP_LIST[@]}"; do
 done
 echo "All jobs submitted H200."
 #fi
-
-
