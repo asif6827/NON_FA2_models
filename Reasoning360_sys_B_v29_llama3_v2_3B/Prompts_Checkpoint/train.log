@@ -1,0 +1,189 @@
+2025-12-11 11:28:44,400 - INFO - __main__ - Logs will be written to: /export/home/asifali/Reasoning360/Prompts_Checkpoint/train.log
+2025-12-11 11:28:44,401 - INFO - __main__ - Training parameters: Namespace(model_name_or_path='/export/home/asifali/HF_cache/Qwen2.5-7B-Instruct', data_='combined', save_dir='/export/home/asifali/Reasoning360/Prompts_Checkpoint', use_lora=False, lora_r=64, lora_alpha=16, lora_dropout=0.05, num_train_epochs=10, wandb_project='Logic-Puzzle-SFT', wandb_run_name='sft_logic_puzzle', data_path='/export/home/asifali/Reasoning360/Prompts_SFT_data/jsonl/train.jsonl', eval_data_path='/export/home/asifali/Reasoning360/Prompts_SFT_data/jsonl/test.jsonl')
+2025-12-11 11:28:44,402 - INFO - __main__ - SFTConfig: SFTConfig(
+_n_gpu=1,
+accelerator_config={'split_batches': False, 'dispatch_batches': None, 'even_batches': True, 'use_seedable_sampler': True, 'non_blocking': False, 'gradient_accumulation_kwargs': None, 'use_configured_state': False},
+activation_offloading=False,
+adafactor=False,
+adam_beta1=0.9,
+adam_beta2=0.999,
+adam_epsilon=1e-08,
+assistant_only_loss=True,
+auto_find_batch_size=False,
+average_tokens_across_devices=True,
+batch_eval_metrics=False,
+bf16=True,
+bf16_full_eval=False,
+chat_template_path=None,
+completion_only_loss=None,
+data_seed=None,
+dataloader_drop_last=False,
+dataloader_num_workers=0,
+dataloader_persistent_workers=False,
+dataloader_pin_memory=True,
+dataloader_prefetch_factor=None,
+dataset_kwargs=None,
+dataset_num_proc=None,
+dataset_text_field=None,
+ddp_backend=None,
+ddp_broadcast_buffers=None,
+ddp_bucket_cap_mb=None,
+ddp_find_unused_parameters=None,
+ddp_timeout=1800,
+debug=[],
+deepspeed=None,
+disable_tqdm=False,
+do_eval=True,
+do_predict=False,
+do_train=False,
+eos_token=<EOS_TOKEN>,
+eval_accumulation_steps=None,
+eval_delay=0,
+eval_do_concat_batches=True,
+eval_on_start=False,
+eval_packing=None,
+eval_steps=2000,
+eval_strategy=IntervalStrategy.STEPS,
+eval_use_gather_object=False,
+fp16=False,
+fp16_backend=auto,
+fp16_full_eval=False,
+fp16_opt_level=O1,
+fsdp=[],
+fsdp_config={'min_num_params': 0, 'xla': False, 'xla_fsdp_v2': False, 'xla_fsdp_grad_ckpt': False},
+fsdp_min_num_params=0,
+fsdp_transformer_layer_cls_to_wrap=None,
+full_determinism=False,
+gradient_accumulation_steps=2,
+gradient_checkpointing=True,
+gradient_checkpointing_kwargs=None,
+greater_is_better=False,
+group_by_length=False,
+half_precision_backend=auto,
+hub_always_push=False,
+hub_model_id=None,
+hub_private_repo=None,
+hub_revision=None,
+hub_strategy=HubStrategy.EVERY_SAVE,
+hub_token=<HUB_TOKEN>,
+ignore_data_skip=False,
+include_for_metrics=[],
+include_inputs_for_metrics=False,
+include_num_input_tokens_seen=no,
+include_tokens_per_second=False,
+jit_mode_eval=False,
+label_names=None,
+label_smoothing_factor=0.0,
+learning_rate=2e-05,
+length_column_name=length,
+liger_kernel_config=None,
+load_best_model_at_end=True,
+local_rank=0,
+log_level=passive,
+log_level_replica=warning,
+log_on_each_node=True,
+logging_dir=/export/home/asifali/Reasoning360/Prompts_Checkpoint/runs/Dec11_11-28-44_crirdchpxd002,
+logging_first_step=False,
+logging_nan_inf_filter=True,
+logging_steps=10,
+logging_strategy=IntervalStrategy.STEPS,
+loss_type=nll,
+lr_scheduler_kwargs=None,
+lr_scheduler_type=SchedulerType.COSINE,
+max_grad_norm=1.0,
+max_length=1024,
+max_steps=-1,
+metric_for_best_model=eval_loss,
+model_init_kwargs=None,
+mp_parameters=,
+neftune_noise_alpha=None,
+no_cuda=False,
+num_train_epochs=10,
+optim=OptimizerNames.ADAMW_TORCH,
+optim_args=None,
+optim_target_modules=None,
+output_dir=/export/home/asifali/Reasoning360/Prompts_Checkpoint,
+overwrite_output_dir=False,
+packing=False,
+packing_strategy=bfd,
+pad_to_multiple_of=None,
+pad_token=<PAD_TOKEN>,
+padding_free=False,
+parallelism_config=None,
+past_index=-1,
+per_device_eval_batch_size=8,
+per_device_train_batch_size=8,
+prediction_loss_only=False,
+project=huggingface,
+push_to_hub=False,
+push_to_hub_model_id=None,
+push_to_hub_organization=None,
+push_to_hub_token=<PUSH_TO_HUB_TOKEN>,
+ray_scope=last,
+remove_unused_columns=True,
+report_to=['wandb'],
+restore_callback_states_from_checkpoint=False,
+resume_from_checkpoint=None,
+run_name=sft_logic_puzzle,
+save_on_each_node=False,
+save_only_model=False,
+save_safetensors=True,
+save_steps=2000,
+save_strategy=SaveStrategy.STEPS,
+save_total_limit=None,
+seed=42,
+skip_memory_metrics=True,
+tf32=None,
+torch_compile=False,
+torch_compile_backend=None,
+torch_compile_mode=None,
+torch_empty_cache_steps=None,
+torchdynamo=None,
+tpu_metrics_debug=False,
+tpu_num_cores=None,
+trackio_space_id=trackio,
+use_cpu=False,
+use_legacy_prediction_loop=False,
+use_liger_kernel=False,
+use_mps_device=False,
+warmup_ratio=0.03,
+warmup_steps=0,
+weight_decay=0.1,
+)
+2025-12-11 11:28:44,435 - INFO - __main__ - Versions - torch: 2.6.0+cu124, transformers: 4.57.1
+2025-12-11 11:28:44,435 - INFO - __main__ - Loading Tokenizer: /export/home/asifali/HF_cache/Qwen2.5-7B-Instruct
+2025-12-11 11:28:44,861 - INFO - __main__ - Tokenizer eos_token: <|im_end|>, pad_token: <|endoftext|>
+2025-12-11 11:28:44,861 - INFO - __main__ - chat_template does not contain generation block, disabled assistant_only_loss (full sequence loss)
+2025-12-11 11:28:44,861 - INFO - __main__ - Loading model...
+2025-12-11 11:28:45,310 - INFO - __main__ - Self attention impl: Qwen2Attention
+2025-12-11 11:28:45,310 - INFO - __main__ - Loading dataset: /export/home/asifali/Reasoning360/Prompts_SFT_data/jsonl/train.jsonl
+2025-12-11 11:28:47,358 - INFO - __main__ - Training dataset loaded, total 2880 samples
+2025-12-11 11:28:47,638 - INFO - __main__ - Validation dataset loaded, total 320 samples
+2025-12-11 11:28:47,640 - INFO - __main__ - Training set: 2880 samples, Validation set: 320 samples
+2025-12-11 11:28:47,640 - INFO - __main__ - *** Data Sanity Check (First 2 Examples) ***
+2025-12-11 11:28:47,729 - INFO - __main__ - Sample 0:
+<|im_start|>system
+You are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>
+<|im_start|>user
+There are 2 houses, numbered 1 to 2 from left to right, as seen from across the street. Each house is occupied by a different person. Each house has a unique attribute for each of the following characteristics:
+ - Each person has a unique name: `Eric`, `Arnold`
+ - People own unique car models: `tesla model 3`, `ford f150`
+ - The people keep unique animals: `cat`, `horse`
+ - People h...
+========================================
+2025-12-11 11:28:47,730 - INFO - __main__ - Sample 1:
+<|im_start|>system
+You are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>
+<|im_start|>user
+There are 4 houses, numbered 1 to 4 from left to right, as seen from across the street. Each house is occupied by a different person. Each house has a unique attribute for each of the following characteristics:
+ - Each person has a unique name: `Alice`, `Arnold`, `Peter`, `Eric`
+ - People have unique favorite book genres: `romance`, `science fiction`, `mystery`, `fantasy`
+
+## Clues:...
+========================================
+2025-12-11 11:28:47,730 - INFO - __main__ - Building SFTTrainer...
+2025-12-11 11:28:51,875 - INFO - __main__ - Train dataloader steps per epoch: 360, num_train_epochs: 10
+2025-12-11 11:28:51,875 - INFO - __main__ - Starting training process...
+2025-12-11 12:12:31,031 - INFO - __main__ - Training completed, saving model to /export/home/asifali/Reasoning360/Prompts_Checkpoint
+2025-12-11 12:13:39,739 - WARNING - __main__ - No eval_loss records found in log_history, skipping top-2 cleanup.
+2025-12-11 12:13:39,740 - INFO - __main__ - All steps completed.

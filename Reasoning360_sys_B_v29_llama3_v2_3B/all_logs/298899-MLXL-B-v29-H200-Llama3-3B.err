@@ -1,0 +1,71 @@
+2026-05-22 17:05:07,512	INFO worker.py:1810 -- Connecting to existing Ray cluster at address: 10.141.11.154:6379...
+2026-05-22 17:05:07,670	INFO worker.py:2013 -- Connected to Ray cluster.
+/export/home/asifali/anaconda3/envs/zebrapuzzles/lib/python3.12/site-packages/ray/_private/worker.py:2052: FutureWarning: Tip: In future versions of Ray, Ray will no longer override accelerator visible devices env var if num_gpus=0 or num_gpus=None (default). To enable this behavior and turn off this error message, set RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0
+  warnings.warn(
+[36m(TaskRunner pid=2329640)[0m /export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_llama3_3B/verl/utils/tokenizer.py:30: UserWarning: tokenizer.pad_token_id is None. Now set to 128009
+[36m(TaskRunner pid=2329640)[0m   warnings.warn(f"tokenizer.pad_token_id is None. Now set to {tokenizer.eos_token_id}", stacklevel=1)
+[36m(TaskRunner pid=2329640)[0m DeprecationWarning: `ray.state.available_resources_per_node` is a private attribute and access will be removed in a future Ray version.
+[36m(TaskRunner pid=2329640)[0m WARNING:2026-05-22 17:05:48,928:Waiting for register center actor DyyyX8_register_center to be ready. Elapsed time: 0 seconds out of 300 seconds.
+[36m(WorkerDict pid=2330643)[0m [W522 17:06:43.087518524 Utils.hpp:136] Warning: Environment variable NCCL_ASYNC_ERROR_HANDLING is deprecated; use TORCH_NCCL_ASYNC_ERROR_HANDLING instead (function operator())
+[36m(WorkerDict pid=2331497)[0m /export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_llama3_3B/verl/utils/tokenizer.py:30: UserWarning: tokenizer.pad_token_id is None. Now set to 128009
+[36m(WorkerDict pid=2331497)[0m   warnings.warn(f"tokenizer.pad_token_id is None. Now set to {tokenizer.eos_token_id}", stacklevel=1)
+[36m(WorkerDict pid=2330643)[0m `torch_dtype` is deprecated! Use `dtype` instead!
+[36m(WorkerDict pid=2330643)[0m Flash Attention 2 only supports torch.float16 and torch.bfloat16 dtypes, but the current dype in LlamaForCausalLM is torch.float32. You should run training or inference using Automatic Mixed-Precision via the `with torch.autocast(device_type='torch_device'):` decorator, or load the model with the `dtype` argument. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="flash_attention_2", dtype=torch.float16)`
+[36m(WorkerDict pid=2331497)[0m Flash Attention 2 only supports torch.float16 and torch.bfloat16 dtypes, but the current dype in LlamaModel is torch.float32. You should run training or inference using Automatic Mixed-Precision via the `with torch.autocast(device_type='torch_device'):` decorator, or load the model with the `dtype` argument. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="flash_attention_2", dtype=torch.float16)`
+[36m(WorkerDict pid=2331497)[0m Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]
+[36m(WorkerDict pid=2331497)[0m Loading checkpoint shards:  50%|█████     | 1/2 [00:05<00:05,  5.37s/it]
+[36m(WorkerDict pid=2331498)[0m [W522 17:06:43.089511263 Utils.hpp:136] Warning: Environment variable NCCL_ASYNC_ERROR_HANDLING is deprecated; use TORCH_NCCL_ASYNC_ERROR_HANDLING instead (function operator())[32m [repeated 3x across cluster] (Ray deduplicates logs by default. Set RAY_DEDUP_LOGS=0 to disable log deduplication, or see https://docs.ray.io/en/master/ray-observability/user-guides/configure-logging.html#log-deduplication for more options.)[0m
+[36m(WorkerDict pid=2330643)[0m /export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_llama3_3B/verl/utils/tokenizer.py:30: UserWarning: tokenizer.pad_token_id is None. Now set to 128009[32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=2330643)[0m   warnings.warn(f"tokenizer.pad_token_id is None. Now set to {tokenizer.eos_token_id}", stacklevel=1)[32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=2331496)[0m `torch_dtype` is deprecated! Use `dtype` instead![32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=2331496)[0m Flash Attention 2 only supports torch.float16 and torch.bfloat16 dtypes, but the current dype in LlamaForCausalLM is torch.float32. You should run training or inference using Automatic Mixed-Precision via the `with torch.autocast(device_type='torch_device'):` decorator, or load the model with the `dtype` argument. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="flash_attention_2", dtype=torch.float16)`[32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=2331496)[0m Flash Attention 2 only supports torch.float16 and torch.bfloat16 dtypes, but the current dype in LlamaModel is torch.float32. You should run training or inference using Automatic Mixed-Precision via the `with torch.autocast(device_type='torch_device'):` decorator, or load the model with the `dtype` argument. Example: `model = AutoModel.from_pretrained("openai/whisper-tiny", attn_implementation="flash_attention_2", dtype=torch.float16)`[32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=2331498)[0m Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s][32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=2331497)[0m Loading checkpoint shards: 100%|██████████| 2/2 [00:06<00:00,  3.05s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:06<00:00,  3.40s/it]
+[36m(WorkerDict pid=2330643)[0m Loading checkpoint shards:  50%|█████     | 1/2 [00:05<00:05,  5.53s/it][32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=2330643)[0m `torch_dtype` is deprecated! Use `dtype` instead!
+[36m(WorkerDict pid=2330643)[0m Loading checkpoint shards: 100%|██████████| 2/2 [00:06<00:00,  3.14s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:06<00:00,  3.50s/it][32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=2331497)[0m `torch_dtype` is deprecated! Use `dtype` instead!
+[36m(WorkerDict pid=2330643)[0m /export/home/asifali/anaconda3/envs/zebrapuzzles/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:690: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+[36m(WorkerDict pid=2330643)[0m   warnings.warn(
+[36m(WorkerDict pid=2331498)[0m `torch_dtype` is deprecated! Use `dtype` instead![32m [repeated 2x across cluster][0m
+[36m(TaskRunner pid=2329640)[0m Training Progress:   0%|          | 0/1500 [00:00<?, ?it/s]
+[36m(WorkerDict pid=2331498)[0m /export/home/asifali/anaconda3/envs/zebrapuzzles/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:690: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .[32m [repeated 3x across cluster][0m
+[36m(WorkerDict pid=2331498)[0m   warnings.warn([32m [repeated 3x across cluster][0m
+[36m(TaskRunner pid=2329640)[0m /export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_llama3_3B/recipe/dapo/dapo_ray_trainer.py:358: FutureWarning: Warning: Function 'verl.trainer.ppo.metric_utils.reduce_metrics' is deprecated. Please use 'verl.utils.metric.reduce_metrics' instead.
+[36m(TaskRunner pid=2329640)[0m   actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
+[36m(TaskRunner pid=2329640)[0m Training Progress:   0%|          | 1/1500 [05:55<148:03:09, 355.56s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   0%|          | 2/1500 [11:28<142:18:52, 342.01s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   0%|          | 3/1500 [26:16<246:01:33, 591.65s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   0%|          | 4/1500 [32:50<213:27:27, 513.67s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   0%|          | 5/1500 [40:24<204:19:29, 492.02s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   0%|          | 6/1500 [58:03<284:08:11, 684.67s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   0%|          | 7/1500 [1:03:32<235:43:13, 568.38s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|          | 8/1500 [1:08:18<198:17:08, 478.44s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|          | 9/1500 [1:16:03<196:25:30, 474.27s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|          | 10/1500 [1:21:01<173:49:11, 419.97s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|          | 11/1500 [1:26:08<159:22:00, 385.31s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|          | 12/1500 [1:33:30<166:28:03, 402.74s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|          | 13/1500 [1:38:35<154:03:22, 372.97s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|          | 14/1500 [1:43:50<146:48:00, 355.64s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|          | 15/1500 [1:51:54<162:33:25, 394.08s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|          | 16/1500 [1:56:59<151:23:38, 367.26s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|          | 17/1500 [2:02:11<144:29:34, 350.76s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|          | 18/1500 [2:10:21<161:40:02, 392.71s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|▏         | 19/1500 [2:15:24<150:24:59, 365.63s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|▏         | 20/1500 [2:20:36<143:43:49, 349.61s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|▏         | 21/1500 [2:28:46<160:52:27, 391.58s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   1%|▏         | 22/1500 [2:34:17<153:24:31, 373.66s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   2%|▏         | 23/1500 [2:39:42<147:17:16, 359.00s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   2%|▏         | 24/1500 [2:47:36<161:20:57, 393.53s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   2%|▏         | 25/1500 [2:52:51<151:31:47, 369.84s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   2%|▏         | 26/1500 [2:57:55<143:18:58, 350.03s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   2%|▏         | 27/1500 [3:05:48<158:17:45, 386.87s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   2%|▏         | 28/1500 [3:11:05<149:43:30, 366.18s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   2%|▏         | 29/1500 [3:16:26<144:02:24, 352.51s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   2%|▏         | 30/1500 [3:24:31<160:06:55, 392.12s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   2%|▏         | 31/1500 [3:29:54<151:36:18, 371.53s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   2%|▏         | 32/1500 [3:35:16<145:25:07, 356.61s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   2%|▏         | 33/1500 [3:42:59<158:17:56, 388.46s/it]
+[36m(TaskRunner pid=2329640)[0m Training Progress:   2%|▏         | 34/1500 [3:48:34<151:42:48, 372.56s/it]
+slurmstepd: error: *** JOB 298899 ON crirdchpxd002 CANCELLED AT 2026-05-22T21:04:58 ***

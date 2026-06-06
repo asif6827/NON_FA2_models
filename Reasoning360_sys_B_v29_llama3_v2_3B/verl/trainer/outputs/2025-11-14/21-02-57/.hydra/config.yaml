@@ -1,0 +1,12 @@
+data:
+  path: /home/asif/data3/Codes_QCRI/Reasoning360/evaluation_results/ray_eval_guru_20_Qwen3-0_6B/Qwen3-0.6B/math__math_500_20.parquet
+  prompt_key: prompt
+  response_key: responses
+  data_source_key: data_source
+  reward_model_key: reward_model
+custom_reward_function:
+  path: null
+  name: compute_score
+ray_init:
+  num_cpus: null
+  timeline_json_file: null

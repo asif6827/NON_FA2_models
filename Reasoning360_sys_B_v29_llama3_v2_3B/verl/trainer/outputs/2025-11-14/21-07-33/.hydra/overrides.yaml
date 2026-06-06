@@ -1,0 +1,5 @@
+- data.path=/home/asif/data3/Codes_QCRI/Reasoning360/evaluation_results/ray_eval_guru_20_Qwen3-0_6B/Qwen3-0.6B/math__math_500_20.parquet
+- data.prompt_key=prompt
+- data.response_key=responses
+- data.data_source_key=data_source
+- data.reward_model_key=reward_model
