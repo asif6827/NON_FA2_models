@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J MLXL-B-v29-H200-Llama3-3B #job name
+#SBATCH -J MLXL-B-v29-H200-Llama3-8B #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
@@ -142,7 +142,7 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 #BASE_MODEL=Qwen/Qwen2.5-1.5B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-7B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-1.5B-Instruct
-BASE_MODEL=/export/home/asifali/HF_cache/Llama-3.2-3B-Instruct
+BASE_MODEL=/export/home/asifali/HF_cache/Llama-3.1-8B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-1.7B
 MODEL_NAME=$(basename "$BASE_MODEL" | tr -s ' ' '_' | tr -d -c '[:alnum:]_')
 MODEL_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]')
