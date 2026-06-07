@@ -281,7 +281,7 @@ FEWSHOT_ASSISTANT_ANSWER = """
 """
 
 
-PUZZLE_USER_PROMPT ="""
+PUZZLE_USER_PROMPT = """
 --------------------------------
 PUZZLE TO SOLVE
 --------------------------------
@@ -292,14 +292,28 @@ solution_header = {solution_header}
 
 attribute_values = {attribute_values}
 
-Solve the puzzle above and provide n_houses, attribute_values, syntactic_clues, reasoning, and solution for this puzzle in the <answer> </answer> block, with no additional text.
+Solve the puzzle above and provide n_houses, attribute_values, syntactic_clues, reasoning, and solution.
+
+Your response MUST start exactly with:
+<answer>
+
+Your JSON MUST contain the fields in this exact order:
+1. "n_houses"
+2. "attribute_values"
+3. "syntactic_clues"
+4. "reasoning"
+5. "solution"
+
+The "solution" field MUST come after the reasoning field.
+The "solution" field MUST NOT be omitted.
+Do not close the JSON object before writing the "solution" field.
+Do not output </answer> before writing the complete "solution" field.
+
+Return only one complete <answer>...</answer> block with no additional text.
 """
 
 
-def serialize_llama3_messages(messages):
-    """
-    Serialize chat messages using the Llama 3 / Llama 3.1 / Llama 3.2 chat format.
-    """
+def serialize_llama3_messages(messages, prefill_answer=True):
     prompt = "<|begin_of_text|>"
 
     for message in messages:
@@ -308,11 +322,15 @@ def serialize_llama3_messages(messages):
 
         prompt += (
             f"<|start_header_id|>{role}<|end_header_id|>\n\n"
-            f"{content}"
-            "<|eot_id|>"
+            f"{content}\n"
+            f"<|eot_id|>\n"
         )
 
     prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
+
+    if prefill_answer:
+        prompt += "<answer>{\n"
+
     return prompt
 
 
@@ -419,7 +437,8 @@ def make_map_fn_1_shot(split, data_source):
             },
         ]
 
-        llama_prompt = serialize_llama3_messages(messages)
+        #llama_prompt = serialize_llama3_messages(messages, prefill_answer=True)
+        llama_prompt = serialize_llama3_messages(messages, prefill_answer=False)
 
         data = {
             "data_source": data_source,
@@ -452,8 +471,8 @@ def make_map_fn_1_shot(split, data_source):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_path', default='/home/asif/data3/HF_cache/ZebraLogic/', help='Path to json file')
-    parser.add_argument('--data_setting', default=None, help='Path to json file')
-    parser.add_argument('--output_dir', default=None, help='Directory to save processed data')
+    parser.add_argument('--data_setting', default='mlxl_train_mlxl_test', help='Path to json file')
+    parser.add_argument('--output_dir', default='/home/asif/data3/HF_cache/ZebraPuzzle_to_guru_parsed_v6a_MLXL', help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
     parser.add_argument('--train_size', type=float, default=0.3, help='Proportion of data for train set')
     parser.add_argument('--test_size', type=float, default=0.7, help='Proportion of data for test set')
