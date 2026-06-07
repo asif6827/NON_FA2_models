@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import datasets
 import random
 import argparse
@@ -11,9 +12,7 @@ sys.path.append(project_root)
 
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 
-
-
-SOLUTION_PROMPT_1_SHOT_SYS = """
+SOLUTION_SYSTEM_PROMPT = """
 You are an expert logic puzzle solver.
 
 You are given:
@@ -143,7 +142,7 @@ Syntactic entry format:
   ==, !=, <, >, + d ==, Not(...), And(...), Or(...)
 
 - Each syntactic step MUST be written in the exact form: S<k>
-    
+
   Atomic operators:
     ==        (same house / equivalence)
     !=        (not the same house)
@@ -163,25 +162,25 @@ Syntactic entry format:
 Examples of valid INTERLEVED reasoning steps:
     The engineer is assigned to house 2.
     S1: engineer == 2.
-    
+
     Since the engineer occupies house 2, the dog cannot also be in house 2.
     S2: dog != 2.
-    
+
     The cat is immediately to the left of the coffee, so the cat’s house index plus one equals the coffee’s house index.
     S3: cat + 1 == coffee.
-    
+
     The green house appears somewhere to the left of the white house.
     S4: green < white.
-    
+
     The dog is not in the first house.
     S5: Not(dog == 1).
-    
+
     The cat cannot be in house 1 or house 3.
     S6: And(cat != 1, cat != 3).
-    
+
     The milk is located either in house 1 or in house 5.
     S7: Or(milk == 1, milk == 5).
-  
+
 Logical validity requirement:
 - Every syntactic step MUST be logically entailed by the syntactic_clues plus any earlier syntactic steps.
 - Do NOT output syntactic steps that merely restate a clue unless they are required as part of the deduction chain.
@@ -195,18 +194,15 @@ Logical validity requirement:
 - The header MUST include "House" and then all attribute columns from the puzzle text.
 - The rows MUST list houses in increasing order from 1..N.
 - All solution values MUST be normalized with underscores.
+"""
 
-================================================================================
-ONE-SHOT EXAMPLE (3 HOUSES, 3 ATTRIBUTES)
-================================================================================
-
-Example Puzzle:
+FEWSHOT_PUZZLE = """
 There are 3 houses, numbered 1 to 3 from left to right. Each house is occupied by a different person.
 Each house has a unique attribute for each of the following characteristics:
 
 - Each person has a unique name: Peter, Eric, Arnold
 - The people like unique colors: red, white, yellow
-- The people have childern named: Fred, Meredith, Bella
+- The people have children named: Fred, Meredith, Bella
 
 Clues:
 1. Arnold is the person whose favorite color is red.
@@ -214,18 +210,18 @@ Clues:
 3. The person whose favorite color is red is in the second house.
 4. The person whose child is named Bella is in the first house.
 5. The person who loves white is the person whose child is named Meredith.
+"""
 
-solution_header = ["House", "Name", "Color", "Children"]
+FEWSHOT_HEADER = ["House", "Name", "Color", "Children"]
 
-attribute_values = {
-  "Name": ["Peter", "Eric", "Arnold"],
-  "Color": ["red", "white", "yellow"],
-  "Children": ["Fred", "Meredith", "Bella"]
+FEWSHOT_ATTRIBUTE_VALUES = {
+    "Name": ["Peter", "Eric", "Arnold"],
+    "Color": ["red", "white", "yellow"],
+    "Children": ["Fred", "Meredith", "Bella"]
 }
 
-
-Correct Example Output:
-<answer>{
+FEWSHOT_ASSISTANT_ANSWER = """
+<answer> {
   "n_houses": 3,
   "attribute_values": {
   "Name": ["Peter", "Eric", "Arnold"],
@@ -281,8 +277,7 @@ Correct Example Output:
 }</answer>
 """
 
-
-SOLUTION_PROMPT_1_SHOT_USER = """
+PUZZLE_USER_PROMPT_PHI = """
 --------------------------------
 PUZZLE TO SOLVE
 --------------------------------
@@ -293,8 +288,43 @@ solution_header = {solution_header}
 
 attribute_values = {attribute_values}
 
-Solve the puzzle above and provide n_houses, attribute_values, syntactic_clues, reasoning, and solution for this puzzle in the <answer> </answer> block, with no additional text.
+Solve the puzzle above and provide n_houses, attribute_values, syntactic_clues, reasoning, and solution.
+
+Your response MUST begin with the exact characters:
+<answer>{{
+
+Your JSON MUST contain the fields in this exact order:
+1. "n_houses"
+2. "attribute_values"
+3. "syntactic_clues"
+4. "reasoning"
+5. "solution"
+
+The "reasoning" list must be concise and must contain at most 12 strings.
+After the final reasoning string, immediately write the "solution" field.
+The "solution" field must be the final top-level key and must not be omitted.
+
+After the complete solution field, close the JSON object and end with:
+}}</answer>
+
+Return only one complete <answer>...</answer> block with no additional text.
 """
+
+
+def serialize_phi_messages(messages):
+    prompt = ""
+
+    for message in messages:
+        role = message["role"]
+        content = message["content"].strip()
+
+        if role not in {"system", "user", "assistant"}:
+            raise ValueError(f"Unsupported role: {role}")
+
+        prompt += f"<|{role}|>\n{content}\n<|end|>\n"
+
+    prompt += "<|assistant|>"
+    return prompt
 
 
 def extract_clues_from_puzzle(puzzle_text):
@@ -312,6 +342,7 @@ def extract_clues_from_puzzle(puzzle_text):
         return clues
     else:
         return []
+
 
 def attribute_values_from_solution(solution: dict) -> dict:
     """
@@ -336,7 +367,7 @@ def attribute_values_from_solution(solution: dict) -> dict:
             if i >= len(row):
                 continue
             v = "_".join(row[i].split(" "))
-            #v = row[i]
+            # v = row[i]
             if v not in seen[col]:
                 seen[col].add(v)
                 values[col].append(v)
@@ -345,34 +376,68 @@ def attribute_values_from_solution(solution: dict) -> dict:
         random.shuffle(values[key])
     return values
 
+
+def normalize_solution_grid(solution):
+    header = solution["header"]
+    rows = []
+
+    for row in solution["rows"]:
+        norm_row = []
+        for col, value in zip(header, row):
+            if col == "House":
+                norm_row.append(str(value))
+            else:
+                norm_row.append("_".join(str(value).split()))
+        rows.append(norm_row)
+
+    return {
+        "header": header,
+        "rows": rows,
+    }
+
+
 def make_map_fn_1_shot(split, data_source):
     def process_fn_1_shot(example, idx):
-        # Use 'ground_truth' instead of 'solution' since that's what the input data has
-        final_grid = example['solution']
-        # Use the 'clues' field directly from the input data
-        clues = extract_clues_from_puzzle(puzzle_text=example['puzzle'])
-        # user_prompt = SOLUTION_PROMPT_USER_SOLUTION_BASED.format(puzzle=example['puzzle'])
-        attr_values = attribute_values_from_solution(example["solution"])
-        user_prompt = SOLUTION_PROMPT_1_SHOT_SYS + SOLUTION_PROMPT_1_SHOT_USER.format(
-            puzzle=example['puzzle'],solution_header=final_grid['header'], attribute_values=attr_values)
-        phi_prompt = (
-            "<|system|>"
-            f"{SOLUTION_PROMPT_1_SHOT_SYS.strip()}"
-            "<|end|>"
-            "<|user|>"
-            f"{SOLUTION_PROMPT_1_SHOT_USER.format(
-                puzzle=example['puzzle'],
-                solution_header=final_grid['header'],
-                attribute_values=attr_values
-            ).strip()}"
-            "<|end|>"
-            "<|assistant|>"
-        )
+        final_grid = normalize_solution_grid(example["solution"])
+        clues = extract_clues_from_puzzle(puzzle_text=example["puzzle"])
+
+        # Important: compute once so the same attribute_values are used in the target prompt.
+        target_attribute_values = attribute_values_from_solution(example["solution"])
+        target_solution_header = final_grid["header"]
+
+        messages = [
+            {
+                "role": "system",
+                "content": SOLUTION_SYSTEM_PROMPT.strip(),
+            },
+            {
+                "role": "user",
+                "content": PUZZLE_USER_PROMPT_PHI.format(
+                    puzzle=FEWSHOT_PUZZLE.strip(),
+                    solution_header=json.dumps(FEWSHOT_HEADER, ensure_ascii=False),
+                    attribute_values=json.dumps(FEWSHOT_ATTRIBUTE_VALUES, ensure_ascii=False),
+                ).strip(),
+            },
+            {
+                "role": "assistant",
+                "content": FEWSHOT_ASSISTANT_ANSWER.strip(),
+            },
+            {
+                "role": "user",
+                "content": PUZZLE_USER_PROMPT_PHI.format(
+                    puzzle=example["puzzle"],
+                    solution_header=json.dumps(target_solution_header, ensure_ascii=False),
+                    attribute_values=json.dumps(target_attribute_values, ensure_ascii=False),
+                ).strip(),
+            },
+        ]
+
+        phi_prompt = serialize_phi_messages(messages)
 
         data = {
             "data_source": data_source,
             "prompt": phi_prompt,
-            'raw_prompt': phi_prompt,
+            "raw_prompt": phi_prompt,
             "ability": "logical_reasoning",
             "reward_model": {
                 "style": "rule",
@@ -380,10 +445,10 @@ def make_map_fn_1_shot(split, data_source):
             },
             "apply_chat_template": False,
             "extra_info": {
-                'id': example['id'] if 'id' in example else str(idx),
-                'split': split,
-                'clues': clues
-            }
+                "id": example["id"] if "id" in example else str(idx),
+                "split": split,
+                "clues": clues,
+            },
         }
 
         if idx != 0:
@@ -391,6 +456,7 @@ def make_map_fn_1_shot(split, data_source):
             print("\n" + "=" * 100 + f"{data_source} {split} {idx}" + "=" * 10)
             print(data)
             print("\n\n")
+
         return data
 
     return process_fn_1_shot
@@ -399,8 +465,8 @@ def make_map_fn_1_shot(split, data_source):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_path', default='/home/asif/data3/HF_cache/ZebraLogic/', help='Path to json file')
-    parser.add_argument('--data_setting', default=None, help='Path to json file')
-    parser.add_argument('--output_dir', default=None, help='Directory to save processed data')
+    parser.add_argument('--data_setting', default='mlxl_train_mlxl_test', help='Path to json file')
+    parser.add_argument('--output_dir', default='/home/asif/data3/HF_cache/ZebraPuzzle_to_guru_parsed_v6a_MLXL', help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
     parser.add_argument('--train_size', type=float, default=0.3, help='Proportion of data for train set')
     parser.add_argument('--test_size', type=float, default=0.7, help='Proportion of data for test set')
@@ -429,8 +495,6 @@ if __name__ == '__main__':
         raise ValueError('Invalid data_setting')
     args.output_dir = os.path.join(args.output_dir, args.data_setting)
 
-
-
     if args.data_setting == 'mlxl_train_mlxl_test':
         # Load dataset from JSON or Parquet based on file extension
         file_extension = os.path.splitext(args.data_file)[1].lower()
@@ -447,7 +511,6 @@ if __name__ == '__main__':
             test_size=args.test_size,
             random_state=args.seed
         )
-
 
         # Create train and test datasets
         train_dataset = dataset.select(train_indices)
@@ -490,8 +553,6 @@ if __name__ == '__main__':
         process_test_fn = make_map_fn_1_shot('test', args.data_source_test)
         test_dataset = test_dataset.map(function=process_test_fn, with_indices=True)
 
-
-
     # Store the original training dataset size
     original_train_size = len(train_dataset)
 
@@ -499,7 +560,7 @@ if __name__ == '__main__':
     train_dataset = sample_dataset(train_dataset, args.train_sample_size)
 
     # Create output directories
-    train_output_dir = os.path.join(args.output_dir ,"train")
+    train_output_dir = os.path.join(args.output_dir, "train")
     test_output_dir = os.path.join(args.output_dir, "test")
     os.makedirs(train_output_dir, exist_ok=True)
     os.makedirs(test_output_dir, exist_ok=True)
@@ -524,6 +585,7 @@ if __name__ == '__main__':
     if args.hdfs_dir is not None:
         try:
             from verl.utils.hdfs_io import copy, makedirs
+
             makedirs(args.hdfs_dir)
             copy(src=args.output_dir, dst=args.hdfs_dir)
             print(f"Data copied to HDFS: {args.hdfs_dir}")
