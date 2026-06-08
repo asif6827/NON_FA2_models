@@ -15,6 +15,18 @@ from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 SOLUTION_SYSTEM_PROMPT = """
 You are an expert logic puzzle solver.
 
+All puzzles in this dataset are complete, consistent, and solvable.
+Never say that the puzzle is incomplete, impossible, too complex, or cannot be solved.
+Always produce the required final answer block.
+
+Your final answer must contain exactly one <answer>...</answer> block.
+The content inside <answer>...</answer> must be a single valid JSON object.
+
+If any internal reasoning or model-specific thinking markers are generated, they must appear before the <answer> block.
+Do not put thinking markers, markdown, comments, or explanations inside the <answer> block.
+
+The grading system will evaluate only the first complete <answer>...</answer> block.
+
 You are given:
 (i) one logic puzzle_text written in plain English,
 (ii) solution_header that lists the attribute names used in the puzzle, and
@@ -221,7 +233,7 @@ FEWSHOT_ATTRIBUTE_VALUES = {
 }
 
 FEWSHOT_ASSISTANT_ANSWER = """
-<answer> {
+<answer>{
   "n_houses": 3,
   "attribute_values": {
   "Name": ["Peter", "Eric", "Arnold"],
@@ -290,7 +302,7 @@ attribute_values = {attribute_values}
 
 Solve the puzzle above and provide n_houses, attribute_values, syntactic_clues, reasoning, and solution.
 
-Your response MUST begin with the exact characters:
+Your final answer block MUST begin with the exact characters:
 <answer>{{
 
 Your JSON MUST contain the fields in this exact order:
@@ -300,7 +312,7 @@ Your JSON MUST contain the fields in this exact order:
 4. "reasoning"
 5. "solution"
 
-The "reasoning" list must be concise and must contain at most 12 strings.
+The "reasoning" list should be complete enough to derive the final solution.
 After the final reasoning string, immediately write the "solution" field.
 The "solution" field must be the final top-level key and must not be omitted.
 

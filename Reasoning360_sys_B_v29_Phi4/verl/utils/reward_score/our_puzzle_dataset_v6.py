@@ -599,22 +599,49 @@ def find_last_answer_block(text: str) -> Optional[str]:
 
     return matches[-1].group(0)
 
+def find_last_answer_payload(text: str) -> Optional[str]:
+    text = clean_model_output_for_parsing(text)
+
+    pattern = re.compile(
+        r"<answer\b[^>]*>(.*?)</answer\s*>",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return None
+
+    return matches[-1].group(1).strip()
 
 def extract_reasoning_and_solution(solution_str: str):
-    """
-    Extract both reasoning and solution.
-    Returns (reasoning, solution, status)
-    """
-    answer_content = find_last_answer_block(solution_str)
-    if answer_content:
-        parsed = _try_parse_first_json_obj(answer_content)
+    answer_payload = find_last_answer_payload(solution_str)
+
+    if answer_payload:
+        # Penalize later if think tags are inside answer.
+        parsed = _try_parse_first_json_obj(answer_payload)
         if parsed is not None:
-            return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses", None), "success_answer_tag"
+            return (
+                parsed.get("syntactic_clues", None),
+                parsed.get("reasoning", None),
+                parsed.get("solution", None),
+                parsed.get("attribute_values", None),
+                parsed.get("n_houses", None),
+                "success_answer_tag",
+            )
         return None, None, None, None, None, "answer_tag_json_error"
 
-    parsed = _try_parse_first_json_obj(solution_str)
+    cleaned = clean_model_output_for_parsing(solution_str)
+    parsed = _try_parse_first_json_obj(cleaned)
+
     if parsed is not None:
-        return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses", None), "success_direct_json"
+        return (
+            parsed.get("syntactic_clues", None),
+            parsed.get("reasoning", None),
+            parsed.get("solution", None),
+            parsed.get("attribute_values", None),
+            parsed.get("n_houses", None),
+            "success_direct_json",
+        )
 
     return None, None, None, None, None, "parsing_failed"
 
@@ -721,6 +748,32 @@ def normalize_table(t: Any) -> Optional[Dict[str, Any]]:
         "rows": norm_rows,
     }
 
+
+def clean_model_output_for_parsing(text: str) -> str:
+    text = text.strip()
+
+    # Remove leading standalone Phi closing-think marker.
+    text = re.sub(r"^\s*</think>\s*", "", text, flags=re.IGNORECASE)
+
+    # Remove leading full think blocks, if present.
+    while True:
+        new_text = re.sub(
+            r"^\s*<think\b[^>]*>.*?</think\s*>\s*",
+            "",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if new_text == text:
+            break
+        text = new_text.strip()
+
+    # Remove outer markdown fences only if no answer block exists.
+    if "<answer" not in text.lower():
+        text = re.sub(r"^\s*```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```\s*$", "", text)
+
+    return text.strip()
+
 def compute_score(
         solution_str,
         ground_truth,
@@ -823,8 +876,13 @@ def compute_score(
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 log_case("non_boxed_answer", solution_str, ground_truth, logger)
 
-        if parse_status == "success_direct_json" or parse_status == "success_answer_json":
+        if parse_status == "success_answer_tag":
             parsing_reward = 1.0
+        elif parse_status == "success_direct_json":
+            parsing_reward = 0.5
+        else:
+            parsing_reward = 0.0
+
         # meta selection
         meta_used = meta
 
@@ -985,63 +1043,46 @@ def compute_score(
         normalizer = 1.0  # will be overwritten if inputs are valid
         n_novel_steps = float(final_result.get("BASE_n_steps_novel_inc_clues", 0.0))
 
-        has_required_inputs = ((attribute_values is not None) and (n_houses is not None) and (n_novel_steps > 0))
+        has_required_inputs = (
+                attribute_values is not None
+                and n_houses is not None
+                and predicted_arrangement is not None
+        )
 
         if has_required_inputs:
-            n_houses_i = max(int(n_houses), 0)
-            n_attrs_i = max(len(attribute_values), 0)
-
-            # Keep strictly positive to avoid division by zero.
-            normalizer = max(2.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
+            n_houses_i = max(int(n_houses), 1)
+            n_attrs_i = max(len(attribute_values), 1)
+            normalizer = max(2.0 * n_houses_i * n_attrs_i, 1.0)
 
             n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
             novel_step_score = float(min(n_novel_steps / normalizer, 1.0))
             contradiction_ratio = float(min(n_contradictions / normalizer, 1.0))
-            sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))  # expected 1.0 or 0.0
+            sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))
 
-            if format_ok:
-                format_reward = 1.0
-            else:
-                format_reward = 0.0
-            #print("Format reward = {}".format(format_reward))
+            format_reward = 1.0 if format_ok else 0.0
 
-            if sat_ok == 0.0:
-                reward = (
-                        0.15 * parsing_reward
-                        + 0.10 * format_reward
-                        + 0.60 * float(puzzle_acc_score)
-                        - 0.20 * contradiction_ratio
+            # Main reward should always depend on actual solution correctness.
+            reward = (
+                    0.55 * float(puzzle_acc_score)
+                    + 0.20 * float(cell_acc_score)
+                    + 0.15 * parsing_reward
+                    + 0.05 * format_reward
+            )
+
+            # Add process reward only as bonus, not as hard gate.
+            if sat_ok == 1.0:
+                reward += (
+                        0.10 * novel_step_score
+                        + 0.10 * consistency_score
+                        - 0.05 * contradiction_ratio
                 )
             else:
-                base_quality = (
-                        0.60 * float(puzzle_acc_score)
-                        + 0.20 * parsing_reward
-                        + 0.20 * format_reward
-                )
+                reward -= 0.05 * contradiction_ratio
 
-                process_bonus = (
-                        0.40 * novel_step_score
-                        + 0.30 * consistency_score
-                        - 0.15 * contradiction_ratio
-                )
+            reward = max(-0.1, min(1.0, reward))
 
-                # gate process reward by solution quality
-                reward = base_quality + float(puzzle_acc_score) * process_bonus
-
-            #if sat_ok == 0.0:
-            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
-            #else:
-            #    #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
-            #    #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
-            #    #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
-            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)  + 0.2 * float(cell_acc_score) + 0.4 * (n_novel_steps / normalizer) + 0.2 * format_reward + 0.4 * consistency_score
-            #    #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
-        
-        
         else:
             reward = -0.1
-
-
 
 
         #reward = 0.6 * float(puzzle_acc_score)
