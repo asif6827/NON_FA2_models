@@ -774,6 +774,41 @@ def clean_model_output_for_parsing(text: str) -> str:
 
     return text.strip()
 
+def reasoning_step_format_score(reasoning):
+    if not isinstance(reasoning, list) or len(reasoning) < 2:
+        return 0.0
+
+    s_step_re = re.compile(r"^\s*S\d+\s*:\s*.+\.\s*$")
+    n = len(reasoning)
+
+    s_positions = 0
+    correct_s_positions = 0
+    correct_nl_positions = 0
+
+    for i, item in enumerate(reasoning):
+        if not isinstance(item, str):
+            continue
+
+        item = item.strip()
+        is_s_step = bool(s_step_re.match(item))
+
+        # expected: index 0 NL, index 1 S1, index 2 NL, index 3 S2...
+        if i % 2 == 1:
+            s_positions += 1
+            if is_s_step:
+                correct_s_positions += 1
+        else:
+            if not is_s_step and item.endswith("."):
+                correct_nl_positions += 1
+
+    if s_positions == 0:
+        return 0.0
+
+    s_score = correct_s_positions / s_positions
+    nl_score = correct_nl_positions / max((n + 1) // 2, 1)
+
+    return 0.7 * s_score + 0.3 * nl_score
+
 def compute_score(
         solution_str,
         ground_truth,
@@ -1007,6 +1042,8 @@ def compute_score(
     if parsed_reasoning:
         try:
             format_ok = check_interleaved_reasoning(parsed_reasoning, n_houses=int(n_houses))
+
+            reasoning_format_score = reasoning_step_format_score(parsed_reasoning)
             #print(parsed_reasoning)
             #print(format_ok)
         except Exception:
@@ -1067,6 +1104,7 @@ def compute_score(
                     + 0.20 * float(cell_acc_score)
                     + 0.15 * parsing_reward
                     + 0.05 * format_reward
+                    + 0.10 * reasoning_format_score
             )
 
             # Add process reward only as bonus, not as hard gate.
@@ -1080,6 +1118,14 @@ def compute_score(
                 reward -= 0.05 * contradiction_ratio
 
             reward = max(-0.1, min(1.0, reward))
+            
+            has_s_steps = any(
+                isinstance(x, str) and re.match(r"^\s*S\d+\s*:", x)
+                for x in parsed_reasoning or []
+            )
+
+            if parsed_reasoning and not has_s_steps:
+                reward -= 0.15
 
         else:
             reward = -0.1
@@ -1148,7 +1194,7 @@ def compute_score(
             example_ = {}
             example_["pid"] = puzzle_id
             example_["puzzle_text"] = pid_to_puzzle_dic[puzzle_id]
-            example_ ["z3_out"] = z3_out
+            example_["z3_out"] = z3_out
             example_["reasoning_vs_sol_validate"] = reasoning_vs_sol_validate
             example_["payload"] = payload
             example_["ground_truth"] = ground_truth

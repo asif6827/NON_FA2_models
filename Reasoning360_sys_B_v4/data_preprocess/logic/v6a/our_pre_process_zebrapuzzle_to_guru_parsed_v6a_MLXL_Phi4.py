@@ -312,7 +312,17 @@ Your JSON MUST contain the fields in this exact order:
 4. "reasoning"
 5. "solution"
 
-The "reasoning" list should be complete enough to derive the final solution.
+Important reasoning-field rule:
+The "reasoning" field must NOT be a paragraph summary.
+It must be an alternating list:
+natural-language sentence, syntactic step, natural-language sentence, syntactic step, ...
+
+Every syntactic step must start with S1:, S2:, S3:, etc.
+At least half of the reasoning entries must be syntactic S-steps.
+The model-specific <think> block is ignored by the grader.
+Only the "reasoning" field inside <answer> is evaluated for reasoning quality.
+Therefore, repeat the formal deduction steps inside the "reasoning" field.
+
 After the final reasoning string, immediately write the "solution" field.
 The "solution" field must be the final top-level key and must not be omitted.
 
