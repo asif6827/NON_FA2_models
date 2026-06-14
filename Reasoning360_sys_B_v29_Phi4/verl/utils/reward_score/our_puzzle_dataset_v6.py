@@ -1125,10 +1125,10 @@ def compute_score(
             )
 
             if parsed_reasoning and not has_s_steps:
-                reward -= 0.25
+                reward -= 0.15
 
         else:
-            reward = -0.5
+            reward = -0.1
 
 
         #reward = 0.6 * float(puzzle_acc_score)
