@@ -50,13 +50,16 @@ Your task is to construct a fully consistent, solver-verifiable solution by gene
 You MUST return the result STRICTLY as a single valid JSON object wrapped inside:
 <answer>...</answer>
 
-No additional text, commentary, or formatting outside the <answer> block is permitted.
+The graded content must be inside exactly one <answer>...</answer> block.
+Anything outside the answer block is ignored by the grader.
+Inside the answer block, output only a single valid JSON object.
 
 
 ================================================================================
 CRITICAL FORMAT REQUIREMENTS
 ================================================================================
-- Output MUST contain ONLY ONE <answer>...</answer> block and NOTHING ELSE.
+- The final graded output MUST contain exactly one <answer>...</answer> block.
+- Anything outside the answer block is ignored by the grader, but the answer block itself must contain only valid JSON.
 - Do NOT include extra text, markdown, explanations, or code fences.
 - Inside <answer>...</answer>, the content MUST be a single valid JSON object.
 - The JSON object MUST have exactly FIVE top-level keys, spelled EXACTLY:
@@ -177,7 +180,6 @@ Syntactic entry format:
 - Nested Boolean expressions are allowed but MUST remain solver-verifiable.
 
 The "reasoning" field MUST follow this exact pair structure:
-
     "reasoning": [
     "Natural-language explanation.",
     "S1: formal_step.",
@@ -188,7 +190,6 @@ The "reasoning" field MUST follow this exact pair structure:
     ]
     
     Rules:
-    
     * Natural-language entries must NOT start with any label.
     * Natural-language entries must be plain explanatory sentences.
     * S entries must start with S1:, S2:, S3:, ...
@@ -296,37 +297,36 @@ FEWSHOT_ASSISTANT_ANSWER = """
     "C4: Bella == 1.",
     "C5: white == Meredith."
   ],
-  "reasoning": [
-    "Clue 3 anchors the red color in the second house.",
+    "reasoning": [
+    "Clue 3 fixes red in house 2.",
     "S1: red == 2.",
-    "Clue 1 then ties Arnold directly to the red color, so Arnold must be in that same second house.",
+    "Clue 1 ties Arnold to red.",
     "S2: Arnold == red.",
-    "Putting those two together, Arnold is fixed in house 2. At this point, house 2 is completely identified as “Arnold’s house,” and we know it has the red color.",
+    "Therefore, Arnold is in house 2.",
     "S3: Arnold == 2.",
-    "Clue 4 gives us another concrete placement: the child Bella is in the first house. So whatever person lives in house 1, their child must be Bella.",
+    "Clue 4 fixes Bella in house 1.",
     "S4: Bella == 1.",
-    "So far, we know: House 1 has child Bella, House 2 has Arnold and the color red, House 3 is still entirely open. Now we look at Clue 2, which introduces a relative ordering: the person whose child is Fred is somewhere to the left of Eric. This doesn’t give a house yet, but it constrains the ordering.",
+    "Clue 2 says Fred is left of Eric.",
     "S5: Fred < Eric.",
-    "Since houses are only 1 through 3, Eric cannot be in the first house (there would be nothing to the left of him). That means Eric must be in house 2 or house 3.",
+    "Since Fred is left of Eric, Eric cannot be in house 1.",
     "S6: Or(Eric == 2, Eric == 3).",
-    "But we already know Arnold occupies house 2, and all people are distinct. So Eric cannot be in house 2 and must therefore be in house 3.",
+    "Arnold is already in house 2, so Eric must be in house 3.",
     "S7: Eric == 3.",
-    "This is a good point to pause and take stock again. House 1: unknown person, child Bella. House 2: Arnold, red. House 3: Eric. Now, going back to the same ordering constraint (Fred < Eric), if Eric is in house 3, then Fred must be in house 1 or house 2.",
+    "Since Eric is in house 3, Fred must be in house 1 or 2.",
     "S8: Or(Fred == 1, Fred == 2).",
-    "But we already know the child in house 1 is Bella, and children are unique. So Fred cannot be in house 1. That forces Fred into house 2.",
+    "Bella is already in house 1, so Fred must be in house 2.",
     "S9: Fred == 2.",
-    "This tells us that Arnold, who is in house 2, is also the parent of Fred. At this stage, all people except Peter are placed: Arnold is in house 2 and Eric is in house 3. Since each house has exactly one person, Peter must be in the remaining house, house 1.",
+    "Peter is the remaining person, so Peter is in house 1.",
     "S10: Peter == 1.",
-    "Let’s summarize again. House 1: Peter, child Bella. House 2: Arnold, red, child Fred. House 3: Eric. Now consider the children again. Bella is in house 1 and Fred is in house 2, so the only remaining child, Meredith, must be in house 3.",
+    "Meredith is the remaining child, so Meredith is in house 3.",
     "S11: Meredith == 3.",
-    "Clue 5 connects the color white to Meredith’s parent, meaning the white color must be in the same house as Meredith.",
+    "Clue 5 ties white to Meredith.",
     "S12: white == Meredith.",
-    "Since Meredith is in house 3, white must be in house 3 as well.",
+    "Therefore, white is in house 3.",
     "S13: white == 3.",
-    "At this point, two colors are fixed: red in house 2 and white in house 3. Colors are unique, so the only remaining color, yellow, must belong to house 1.",
+    "Yellow is the remaining color, so yellow is in house 1.",
     "S14: yellow == 1.",
-    "With that, everything is now determined: House 1: Peter, yellow, child Bella. House 2: Arnold, red, child Fred. House 3: Eric, white, child Meredith. All clues are satisfied, and no attributes remain unassigned."
-  ],
+    ],
   "solution": {
     "header": ["House", "Name", "Color", "Children"],
     "rows": [
