@@ -22,13 +22,9 @@ Always produce the required final answer block.
 Your final answer must contain exactly one <answer>...</answer> block.
 The content inside <answer>...</answer> must be a single valid JSON object.
 
-Any text outside <answer>...</answer>, including <think>...</think>, is ignored by the grader and receives zero reasoning credit.
-
-Do not rely on <think> for the solution proof.
-All graded deduction steps must be repeated inside the JSON "reasoning" field.
-
-If a <think> block is generated, keep it brief. The formal proof must be inside "reasoning".
-Do not put thinking markers, markdown, comments, or explanations inside the <answer> block.
+Anything outside <answer>...</answer> is ignored by the grader and receives zero reasoning credit.
+All graded deduction steps must appear inside the JSON "reasoning" field.
+Do not write hidden reasoning, markdown, comments, or explanations inside the <answer> block.
 
 The grading system will evaluate only the first complete <answer>...</answer> block.
 
@@ -53,7 +49,6 @@ You MUST return the result STRICTLY as a single valid JSON object wrapped inside
 The graded content must be inside exactly one <answer>...</answer> block.
 Anything outside the answer block is ignored by the grader.
 Inside the answer block, output only a single valid JSON object.
-
 
 ================================================================================
 CRITICAL FORMAT REQUIREMENTS
@@ -200,9 +195,8 @@ The "reasoning" field MUST follow this exact pair structure:
     * Do not write paragraph summaries.
     * Do not write table rows as S-steps.
     * Do not use unsupported notation such as house(...), pos(...), abs(...), |...|, arrows, quotes, predicates, or table-row summaries.
-    * The model-specific <think> block is ignored by the grader.
     * Only the JSON "reasoning" list inside <answer>...</answer> is graded for reasoning quality.
-    * Therefore, any formal deduction written in <think> must be repeated inside the JSON "reasoning" field.
+
     
     Examples of valid INTERLEAVED reasoning steps:
     [
@@ -339,7 +333,9 @@ FEWSHOT_ASSISTANT_ANSWER = """
 }</answer>
 """
 
-PUZZLE_USER_PROMPT_PHI = """
+EXAONE_FIRST_USER_PROMPT = """
+{instructions}
+
 --------------------------------
 PUZZLE TO SOLVE
 --------------------------------
@@ -362,45 +358,79 @@ Your JSON MUST contain the fields in this exact order:
 4. "reasoning"
 5. "solution"
 
-Important reasoning-field rule:
-The "reasoning" field must NOT be a paragraph summary.
-It must be an alternating list:
-natural-language sentence, syntactic step, natural-language sentence, syntactic step, ...
+The "reasoning" field must strictly alternate:
+natural-language sentence, S-step, natural-language sentence, S-step, ...
 
 Every syntactic step must start with S1:, S2:, S3:, etc.
-The model-specific <think> block is ignored by the grader.
-Only the "reasoning" field inside <answer> is evaluated for reasoning quality.
-Therefore, repeat the formal deduction steps inside the "reasoning" field.
-
-After the final reasoning string, immediately write the "solution" field.
-The "solution" field must be the final top-level key and must not be omitted.
+The only graded reasoning is the JSON "reasoning" list inside <answer>.
 
 After the complete solution field, close the JSON object and end with:
 }}</answer>
-
-Return only one complete <answer>...</answer> block with no additional text.
-
-Reminder:
-The grader ignores <think> and any text outside <answer>.
-The only graded reasoning is the JSON "reasoning" list.
-If the "reasoning" list is a summary without S1:, S2:, S3: steps, the reasoning score is zero.
 """
 
 
-def serialize_phi_messages(messages):
-    prompt = ""
+EXAONE_TARGET_USER_PROMPT = """
+--------------------------------
+PUZZLE TO SOLVE
+--------------------------------
+
+puzzle = {puzzle}
+
+solution_header = {solution_header}
+
+attribute_values = {attribute_values}
+
+Solve this puzzle using the same format as the previous example.
+
+Return exactly one <answer>...</answer> block.
+
+The JSON keys must appear in this order:
+1. "n_houses"
+2. "attribute_values"
+3. "syntactic_clues"
+4. "reasoning"
+5. "solution"
+
+The "reasoning" field must strictly alternate:
+natural-language sentence, S-step, natural-language sentence, S-step, ...
+
+Every S-step must start with S1:, S2:, S3:, etc.
+The "solution" field must be the final top-level key.
+"""
+
+
+def serialize_exaone_deep_messages(messages, add_generation_prompt=True):
+    parts = []
+
+    # EXAONE template expects an empty system turn if no system message is used.
+    if not messages or messages[0]["role"] != "system":
+        parts.append("[|system|][|endofturn|]\n")
 
     for message in messages:
         role = message["role"]
         content = message["content"].strip()
 
         if role not in {"system", "user", "assistant"}:
-            raise ValueError(f"Unsupported role: {role}")
+            raise ValueError(f"Unsupported EXAONE role: {role}")
 
-        prompt += f"<|{role}|>\n{content}\n<|end|>\n"
+        # If previous assistant example contains EXAONE thought text,
+        # keep only final answer content after </thought>.
+        if role == "assistant" and "</thought>" in content:
+            content = content.split("</thought>")[-1].lstrip("\n").strip()
 
-    prompt += "<|assistant|>"
-    return prompt
+        part = f"[|{role}|]{content}"
+
+        # EXAONE template ends system and assistant turns with [|endofturn|].
+        if role != "user":
+            part += "[|endofturn|]\n"
+
+        parts.append(part)
+
+    if add_generation_prompt:
+        parts.append("[|assistant|]<thought>\n")
+
+    return "\n".join(parts)
+
 
 
 def extract_clues_from_puzzle(puzzle_text):
@@ -472,6 +502,7 @@ def normalize_solution_grid(solution):
     }
 
 
+
 def make_map_fn_1_shot(split, data_source):
     def process_fn_1_shot(example, idx):
         final_grid = normalize_solution_grid(example["solution"])
@@ -483,12 +514,9 @@ def make_map_fn_1_shot(split, data_source):
 
         messages = [
             {
-                "role": "system",
-                "content": SOLUTION_SYSTEM_PROMPT.strip(),
-            },
-            {
                 "role": "user",
-                "content": PUZZLE_USER_PROMPT_PHI.format(
+                "content": EXAONE_FIRST_USER_PROMPT.format(
+                    instructions=SOLUTION_SYSTEM_PROMPT.strip(),
                     puzzle=FEWSHOT_PUZZLE.strip(),
                     solution_header=json.dumps(FEWSHOT_HEADER, ensure_ascii=False),
                     attribute_values=json.dumps(FEWSHOT_ATTRIBUTE_VALUES, ensure_ascii=False),
@@ -500,7 +528,7 @@ def make_map_fn_1_shot(split, data_source):
             },
             {
                 "role": "user",
-                "content": PUZZLE_USER_PROMPT_PHI.format(
+                "content": EXAONE_TARGET_USER_PROMPT.format(
                     puzzle=example["puzzle"],
                     solution_header=json.dumps(target_solution_header, ensure_ascii=False),
                     attribute_values=json.dumps(target_attribute_values, ensure_ascii=False),
@@ -508,12 +536,12 @@ def make_map_fn_1_shot(split, data_source):
             },
         ]
 
-        phi_prompt = serialize_phi_messages(messages)
+        exaone_prompt = serialize_exaone_deep_messages(messages, add_generation_prompt=True)
 
         data = {
             "data_source": data_source,
-            "prompt": phi_prompt,
-            "raw_prompt": phi_prompt,
+            "prompt": exaone_prompt,
+            "raw_prompt": exaone_prompt,
             "ability": "logical_reasoning",
             "reward_model": {
                 "style": "rule",
@@ -546,8 +574,8 @@ if __name__ == '__main__':
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
     parser.add_argument('--train_size', type=float, default=0.3, help='Proportion of data for train set')
     parser.add_argument('--test_size', type=float, default=0.7, help='Proportion of data for test set')
-    parser.add_argument('--data_source_train', default='our_zebra_puzzle_new_reward_phi4', help='Name of data source')
-    parser.add_argument('--data_source_test', default='our_zebra_puzzle_new_reward_test_phi4', help='Name of data source')
+    parser.add_argument('--data_source_train', default='our_zebra_puzzle_new_reward_EXAONE', help='Name of data source')
+    parser.add_argument('--data_source_test', default='our_zebra_puzzle_new_reward_test_EXAONE', help='Name of data source')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--train_sample_size', type=int, default=None, help='Number of samples to use from train. If None, use all.')
     args = parser.parse_args()
