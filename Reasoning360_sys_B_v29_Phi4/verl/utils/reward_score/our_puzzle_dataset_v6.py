@@ -774,6 +774,10 @@ def clean_model_output_for_parsing(text: str) -> str:
 
     return text.strip()
 
+def safe_ratio(num, den):
+    den = max(float(den), 1.0)
+    return min(max(float(num) / den, 0.0), 1.0)
+
 def reasoning_step_format_score(reasoning):
     if not isinstance(reasoning, list) or len(reasoning) < 2:
         return 0.0
@@ -1098,34 +1102,41 @@ def compute_score(
 
             format_reward = 1.0 if format_ok else 0.0
 
+            if sat_ok == 1.0:
+                reasoning_quality_score = (
+                        0.40 * novel_step_score
+                        + 0.40 * float(consistency_score)
+                        - 0.30 * contradiction_ratio)
+            else:
+                reasoning_quality_score = - 0.05 * contradiction_ratio
+
             # Main reward should always depend on actual solution correctness.
-            reward = (
-                    0.55 * float(puzzle_acc_score)
-                    + 0.20 * float(cell_acc_score)
-                    + 0.15 * parsing_reward
-                    + 0.05 * format_reward
+            base_reward = (
+                    0.70 * puzzle_acc_score
+                    + 0.10 * parsing_reward
                     + 0.10 * reasoning_format_score
+                    + 0.10 * reasoning_quality_score
             )
 
-            # Add process reward only as bonus, not as hard gate.
-            if sat_ok == 1.0:
-                reward += (
-                        0.10 * novel_step_score
-                        + 0.10 * consistency_score
-                        - 0.05 * contradiction_ratio
-                )
-            else:
-                reward -= 0.05 * contradiction_ratio
+            # Do not allow wrong full solutions to receive high reward.
+            if puzzle_acc_score == 0.0:
+                base_reward = min(base_reward, 0.30)
 
-            reward = max(-0.1, min(1.0, reward))
-            
+            # Give extra bonus only for exact solution.
+            if puzzle_acc_score == 1.0:
+                base_reward += 0.10 * reasoning_quality_score
+
+
+
             has_s_steps = any(
                 isinstance(x, str) and re.match(r"^\s*S\d+\s*:", x)
                 for x in parsed_reasoning or []
             )
 
             if parsed_reasoning and not has_s_steps:
-                reward -= 0.15
+                base_reward -= 0.15
+
+            reward = max(-0.1, min(1.0, base_reward))
 
         else:
             reward = -0.1
