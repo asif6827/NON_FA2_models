@@ -7,10 +7,12 @@
 #sbatch ./data_preprocess/logic/v6a/data_preprocess_parsed_v6a_ALL.sh
 
 
-echo "Model Downloading...!"
+echo "Model EXAONE Downloading...!"
 #sbatch ./scripts_data_etc/download_hub_qwen.sh
-sbatch ./scripts_data_etc/download_hub_Phi4.sh
+#sbatch ./scripts_data_etc/download_hub_Phi4.sh
 #sbatch ./scripts_data_etc/download_hub_llama.sh
+sbatch ./scripts_data_etc/download_hub_EXAONE.sh
+
 
 #echo "Model Downloading...!"
 #sbatch ./scripts_data_etc/download_hub_ibex.sh
