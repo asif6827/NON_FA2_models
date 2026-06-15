@@ -110,7 +110,7 @@ def default_compute_score(
 
 
 
-    elif data_source.startswith("our_zebra_puzzle_new_reward_test_phi4"):
+    elif data_source.startswith("our_zebra_puzzle_new_reward_test_EXAONE"):
         from . import our_puzzle_dataset_v6
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
             print(f"DEBUG-MODE: USING OUR ZEBRA PUZZLE COMPUTE SCORE\n\n")
@@ -119,7 +119,7 @@ def default_compute_score(
         
     
     
-    elif data_source.startswith("our_zebra_puzzle_new_reward_phi4"):
+    elif data_source.startswith("our_zebra_puzzle_new_reward_EXAONE"):
         from . import our_puzzle_dataset_v6
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
             print(f"DEBUG-MODE: USING OUR ZEBRA PUZZLE COMPUTE SCORE\n\n")
