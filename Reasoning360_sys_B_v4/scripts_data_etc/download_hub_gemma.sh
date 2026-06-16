@@ -16,6 +16,7 @@ nvidia-smi
 export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
 export HF_HOME="/export/home/asifali/HF_cache"
 export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
+export HF_TOKEN="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"
 
 source activate zebrapuzzles
 
