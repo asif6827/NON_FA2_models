@@ -329,7 +329,7 @@ python -m recipe.dapo.main_dapo \
     +actor_rollout_ref.model.override_config.attention_dropout=0. \
     +actor_rollout_ref.model.override_config.embd_pdrop=0. \
     +actor_rollout_ref.model.override_config.resid_pdrop=0. \
-    +actor_rollout_ref.model.trust_remote_code=True \
+    actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     reward_model.reward_manager=async_multi_process \
     reward_model.overlong_buffer.enable=${enable_overlong_buffer} \
