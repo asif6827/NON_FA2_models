@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J Download-Qwen3-models #job name
+#SBATCH -J Download-SmolLM3-3B-model #job name
 #SBATCH -p gpu-all # queue used
 #SBATCH --gres gpu:1 #number of gpus needed, default is 1
 #SBATCH -c 8  #number of CPUs needed, default is 1 
