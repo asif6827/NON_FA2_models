@@ -46,6 +46,8 @@ python ./data_preprocess/logic/v6a/our_pre_process_zebrapuzzle_to_guru_parsed_v6
 
 python ./data_preprocess/logic/v6a/our_pre_process_zebrapuzzle_to_guru_parsed_v6a_MLXL_EXAONE.py --data_path '/export/home/asifali/HF_cache/ZebraLogic' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru_parsed_v6a_MLXL'
 
+python ./data_preprocess/logic/v6a/our_pre_process_zebrapuzzle_to_guru_parsed_v6a_MLXL_SmolLM3.py --data_path '/export/home/asifali/HF_cache/ZebraLogic' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru_parsed_v6a_MLXL'
+
 #python ./data_preprocess/logic/v6a/our_pre_process_zebrapuzzle_to_guru_parsed_v6a_ZTZT.py --data_path '/export/home/asifali/HF_cache/ZebraLogic' --data_setting 'zl_train_zl_test' --output_dir '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru_parsed_v6a_ZTZT'
 
 #python ./data_preprocess/logic/our_pre_process_guru_readjust_parsed_v2.py --input_path '/export/home/asifali/HF_cache/guru_data' --output_dir '/export/home/asifali/HF_cache/guru_data_adjusted_parsed_v2'
