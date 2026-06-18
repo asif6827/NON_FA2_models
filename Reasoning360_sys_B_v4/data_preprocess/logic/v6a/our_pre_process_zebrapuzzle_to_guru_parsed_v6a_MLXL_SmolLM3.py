@@ -294,27 +294,7 @@ solution_header = {solution_header}
 
 attribute_values = {attribute_values}
 
-Solve the puzzle above and provide n_houses, attribute_values, syntactic_clues, reasoning, and solution for this puzzle in the <answer>...</answer> block.
-
-Return exactly one <answer>...</answer> block.
-
-The JSON keys must appear in this exact order:
-1. "n_houses"
-2. "attribute_values"
-3. "syntactic_clues"
-4. "reasoning"
-5. "solution"
-
-The "reasoning" field must strictly alternate:
-natural-language sentence, S-step, natural-language sentence, S-step, ...
-
-Every S-step must start with S1:, S2:, S3:, etc.
-
-After writing </answer>, stop immediately.
-Do not generate any text after </answer>.
-Keep the reasoning concise.
-Use only necessary S-steps.
-Do not repeat deductions.
+Solve the puzzle above and provide n_houses, attribute_values, syntactic_clues, reasoning, and solution for this puzzle in the <answer> </answer> block, with no additional text.
 """
 
 
