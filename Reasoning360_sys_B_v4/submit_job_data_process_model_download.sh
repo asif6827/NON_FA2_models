@@ -9,8 +9,10 @@
 
 echo "Model Gemmas Downloading...!"
 
+sbatch ./scripts_data_etc/download_hub_Granite.sh
+
 #sbatch ./scripts_data_etc/download_hub_SmolLM3_3B.sh
-sbatch ./scripts_data_etc/download_hub_gemma.sh
+#sbatch ./scripts_data_etc/download_hub_gemma.sh
 #sbatch ./scripts_data_etc/download_hub_Phi4.sh
 #sbatch ./scripts_data_etc/download_hub_llama.sh
 #sbatch ./scripts_data_etc/download_hub_EXAONE.sh
