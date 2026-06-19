@@ -110,7 +110,7 @@ def default_compute_score(
 
 
 
-    elif data_source.startswith("our_zebra_puzzle_new_reward_test"):
+    elif data_source.startswith("our_zebra_puzzle_new_reward_gemma"):
         from . import our_puzzle_dataset_v6
         if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
             print(f"DEBUG-MODE: USING OUR ZEBRA PUZZLE COMPUTE SCORE\n\n")
