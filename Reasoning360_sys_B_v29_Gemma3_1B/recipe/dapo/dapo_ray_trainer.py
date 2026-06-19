@@ -44,7 +44,7 @@ from verl.trainer.ppo.ray_trainer import (
 )
 from verl.utils.profiler import marked_timer
 
-puzzle_key = "val-aux/our_zebra_puzzle_new_reward_test/PUZZLE_ACCURACY/mean@1"
+puzzle_key = "val-aux/our_zebra_puzzle_new_reward_test_gemma/PUZZLE_ACCURACY/mean@1"
 
 class RayDAPOTrainer(RayPPOTrainer):
     """
