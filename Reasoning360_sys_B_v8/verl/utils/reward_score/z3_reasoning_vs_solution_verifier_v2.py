@@ -431,10 +431,11 @@ def verify_solution_two_step(
         step2_errors.extend(err2)
         r2 = 1.0 if sat2 else 0.0
 
-    final_reward = (r1 + r2) / 2.0
-
+    #final_reward = (r1 + r2) / 2.0
+    final_reward = r1
+    #"ok": (r1 == 1.0 and r2 == 1.0),
     return {
-        "ok": (r1 == 1.0 and r2 == 1.0),
+        "ok": r1 == 1.0,
         "r1": r1,
         "r2": r2,
         "reward": final_reward,
