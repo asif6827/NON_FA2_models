@@ -1,9 +1,10 @@
 import os
 import sys
 import json
-import datasets
 import random
 import argparse
+import datasets
+from datetime import datetime
 from sklearn.model_selection import train_test_split
 
 # Add project root to Python path
@@ -41,7 +42,9 @@ No additional text, commentary, or formatting outside the <answer> block is perm
 ================================================================================
 CRITICAL FORMAT REQUIREMENTS
 ================================================================================
-- Output MUST contain ONLY ONE <answer>...</answer> block and NOTHING ELSE.
+- The final graded answer must contain exactly one <answer>...</answer> block.
+- Anything outside <answer>...</answer>, including <think>...</think>, is ignored by the grader.
+- Inside <answer>...</answer>, output exactly one valid JSON object.
 - Do NOT include extra text, markdown, explanations, or code fences.
 - Inside <answer>...</answer>, the content MUST be a single valid JSON object.
 - The JSON object MUST have exactly FIVE top-level keys, spelled EXACTLY:
@@ -351,50 +354,75 @@ def serialize_smollm3_messages(messages, enable_thinking=True, add_generation_pr
     """
     Manual ChatML serializer for SmolLM3.
 
-    SmolLM3 uses /think or /no_think in the system prompt
-    to control reasoning mode.
+    SmolLM3 controls reasoning mode using /think or /no_think.
+    If those flags appear in the system message, they override enable_thinking.
     """
 
-    reasoning_flag = "/think" if enable_thinking else "/no_think"
+    reasoning_mode = "/think" if enable_thinking else "/no_think"
+
+    # Extract system message if present.
+    if messages and messages[0]["role"] == "system":
+        system_message = messages[0]["content"].strip()
+
+        if "/no_think" in system_message:
+            reasoning_mode = "/no_think"
+        elif "/think" in system_message:
+            reasoning_mode = "/think"
+
+        custom_instructions = (
+            system_message
+            .replace("/no_think", "")
+            .replace("/think", "")
+            .strip()
+        )
+
+        start_idx = 1
+    else:
+        custom_instructions = ""
+        start_idx = 0
 
     parts = []
 
-    # Ensure there is a system message containing /think or /no_think.
-    if messages and messages[0]["role"] == "system":
-        system_content = messages[0]["content"].strip()
+    parts.append(
+        "<|im_start|>system\n"
+        f"Reasoning Mode: {reasoning_mode}\n\n"
+        "## Custom Instructions\n\n"
+    )
 
-        if "/think" not in system_content and "/no_think" not in system_content:
-            system_content = reasoning_flag + "\n" + system_content
+    if custom_instructions:
+        parts.append(custom_instructions + "\n\n")
 
-        parts.append(
-            f"<|im_start|>system\n{system_content}\n<|im_end|>\n"
-        )
-        start_idx = 1
-    else:
-        parts.append(
-            f"<|im_start|>system\n{reasoning_flag}\n<|im_end|>\n"
-        )
-        start_idx = 0
+    parts.append("<|im_end|>\n")
 
     for message in messages[start_idx:]:
         role = message["role"]
         content = message["content"].strip()
 
-        if role not in {"user", "assistant"}:
+        if role == "user":
+            parts.append(f"<|im_start|>user\n{content}<|im_end|>\n")
+
+        elif role == "assistant":
+            if reasoning_mode == "/think":
+                parts.append(
+                    f"<|im_start|>assistant\n{content.lstrip()}<|im_end|>\n"
+                )
+            else:
+                parts.append(
+                    f"<|im_start|>assistant\n<think>\n\n</think>\n{content.lstrip()}<|im_end|>\n"
+                )
+
+        else:
             raise ValueError(f"Unsupported role for SmolLM3: {role}")
 
-        parts.append(
-            f"<|im_start|>{role}\n{content}\n<|im_end|>\n"
-        )
-
     if add_generation_prompt:
-        if enable_thinking:
+        if reasoning_mode == "/think":
             parts.append("<|im_start|>assistant\n")
         else:
-            # For no-thinking mode, this nudges the model to skip visible thinking.
             parts.append("<|im_start|>assistant\n<think>\n\n</think>\n")
 
     return "".join(parts)
+
+
 
 
 def make_map_fn_1_shot(split, data_source):
@@ -406,7 +434,7 @@ def make_map_fn_1_shot(split, data_source):
         messages = [
             {
                 "role": "system",
-                "content": "/think\n" + SOLUTION_PROMPT_1_SHOT_SYS_NO_EXAMPLE.strip(),
+                "content": "/no_think\n" + SOLUTION_PROMPT_1_SHOT_SYS_NO_EXAMPLE.strip(),
             },
             {
                 "role": "user",
