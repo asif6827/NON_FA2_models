@@ -306,6 +306,17 @@ The JSON keys must appear in this exact order:
 4. "reasoning"
 5. "solution"
 
+The "reasoning" field must strictly alternate:
+natural-language sentence, S-step, natural-language sentence, S-step, ...
+
+Every S-step must start with S1:, S2:, S3:, etc.
+Every S-step must be solver-checkable.
+Do not write table rows as S-steps.
+Do not write paragraph summaries.
+
+Keep the reasoning concise.
+Use only necessary S-steps.
+After writing </answer>, stop immediately.
 """
 
 def extract_clues_from_puzzle(puzzle_text):
