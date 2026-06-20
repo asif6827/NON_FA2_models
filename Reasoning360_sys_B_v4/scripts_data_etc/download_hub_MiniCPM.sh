@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J Download-Granite3_2B #job name
+#SBATCH -J Download-MiniCPM #job name
 #SBATCH -p gpu-all # queue used
 #SBATCH --gres gpu:1 #number of gpus needed, default is 1
 #SBATCH -c 8  #number of CPUs needed, default is 1 
