@@ -326,6 +326,13 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.rollout.multi_turn.enable=False \
     actor_rollout_ref.rollout.mode="sync" \
+    actor_rollout_ref.rollout.enable_chunked_prefill=False \
+    actor_rollout_ref.rollout.enforce_eager=True \
+    actor_rollout_ref.actor.use_torch_compile=False \
+    actor_rollout_ref.ref.use_torch_compile=False \
+    data.return_multi_modal_inputs=False \
+    actor_rollout_ref.model.dtype=bfloat16 \
+    actor_rollout_ref.rollout.dtype=bfloat16 \
     +actor_rollout_ref.actor.fsdp_config.wrap_policy.transformer_layer_cls_to_wrap='["Gemma3DecoderLayer"]' \
     +actor_rollout_ref.ref.fsdp_config.wrap_policy.transformer_layer_cls_to_wrap='["Gemma3DecoderLayer"]' \
     +actor_rollout_ref.model.override_config.attention_dropout=0. \
