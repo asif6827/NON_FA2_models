@@ -239,7 +239,7 @@ train_prompt_mini_bsz=20  # model grad update batchsize
 
 # Algorithm
 top_p=0.9
-top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
+top_k=0 # 0 for HF rollout, -1 for vLLM rollout
 
 # Training config
 # NOTE: sp_size and gen_tp are parallelism settings.
