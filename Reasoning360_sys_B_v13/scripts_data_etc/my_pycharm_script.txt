@@ -1,1 +1,0 @@
-data.path=/export/home/asifali/Reasoning360/evaluation_results/test_offline_guru_math_20/guru-7b-step320/math__math_500_20.parquet data.prompt_key=prompt data.response_key=responses  data.data_source_key=data_source data.reward_model_key=reward_model
