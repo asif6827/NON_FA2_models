@@ -9,8 +9,8 @@
 #SBATCH --partition=batch
 #SBATCH --job-name=download_qwen3
 #SBATCH --mail-type=ALL
-#SBATCH --output=%x-%j-slurm.out
-#SBATCH --error=%x-%j-slurm.err
+#SBATCH --output=./all_logs/%x-%j-slurm.out
+#SBATCH --error=./all_logs/%x-%j-slurm.err
 
 
 nvidia-smi
