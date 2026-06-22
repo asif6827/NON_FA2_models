@@ -17,6 +17,7 @@ nvidia-smi
 export TRANSFORMERS_CACHE="/ibex/scratch/zakroum/lab-asif/HF_cache"
 export HF_HOME="/ibex/scratch/zakroum/lab-asif/HF_cache"
 export HF_DATASETS_CACHE="/ibex/scratch/zakroum/lab-asif/HF_cache"
+export HF_TOKEN="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"
 
 source activate zebrapuzzles
 python ./scripts_data_etc/download_hub_Qwen2.py
