@@ -19,5 +19,5 @@ export HF_HOME="/ibex/scratch/zakroum/lab-asif/HF_cache"
 export HF_DATASETS_CACHE="/ibex/scratch/zakroum/lab-asif/HF_cache"
 
 source activate zebrapuzzles
-python ./scripts_data_etc/download_hub_Qwen3_ibex.py
+python ./scripts_data_etc/download_hub_Qwen2.py
 nvidia-smi
