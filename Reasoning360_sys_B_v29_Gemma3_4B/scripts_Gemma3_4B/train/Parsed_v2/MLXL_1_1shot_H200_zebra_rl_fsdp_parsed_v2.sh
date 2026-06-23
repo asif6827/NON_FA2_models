@@ -351,7 +351,7 @@ python -m recipe.dapo.main_dapo \
     trainer.n_gpus_per_node=${NUM_GPUS} \
     trainer.nnodes=1 \
     trainer.test_freq=${TEST_FREQUENCY} \
-    trainer.save_freq=1 \
+    trainer.save_freq=1000 \
     trainer.max_actor_ckpt_to_keep=1 \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.total_epochs=${EPOCH} \
