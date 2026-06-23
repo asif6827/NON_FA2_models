@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --time=6-05:30:00
 #SBATCH --nodes=1
-#SBATCH --gpus-per-node=v100:8
+#SBATCH --gpus-per-node=a100:8
 #SBATCH --cpus-per-gpu=6
 #SBATCH --mem=400G
 #SBATCH --partition=batch
