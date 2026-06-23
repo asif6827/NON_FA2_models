@@ -1,7 +1,5 @@
-#!/bin/bash -l
-
-
 #!/bin/bash
+
 #SBATCH --time=6-05:30:00
 #SBATCH --nodes=1
 #SBATCH --gpus-per-node=v100:8
@@ -14,18 +12,18 @@
 #SBATCH --error=./all_logs/%j-%x-slurm.err
 
 
-module load cuda12.4/toolkit
+
 nvidia-smi
 source activate zebrapuzzles
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 unset ROCR_VISIBLE_DEVICES
 
 #### MY Parameters
 #export USE_Thinking=1
-#export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
-export HF_HOME="/export/home/asifali/HF_cache"
-export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
+export TRANSFORMERS_CACHE="/ibex/scratch/zakroum/lab-asif/HF_cache"
+export HF_HOME="/ibex/scratch/zakroum/lab-asif/HF_cache"
+export HF_DATASETS_CACHE="/ibex/scratch/zakroum/lab-asif/HF_cache"
 
 #export RAY_TMPDIR="/export/home/asifali/HF_cache/RAY_TMP"
 #mkdir -p RAY_TMPDIR
@@ -80,7 +78,7 @@ ACC_W=$ACC_W, Z3_W=$Z3_W, EPOCH_SWITCH=$SWITCH_EPOCH SYSTEM_NAME=$SYSTEM_NAME EV
 
 # ===============================================================
 #SYSTEM_NAME="Reasoning360_sys_B_v2"
-export PYTHONPATH="/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}:${PYTHONPATH:-}"
+export PYTHONPATH="/ibex/scratch/zakroum/lab-asif/NON_FA2_models/${SYSTEM_NAME}:${PYTHONPATH:-}"
 echo "Python Path = ${PYTHONPATH}"
 
 
@@ -143,17 +141,18 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 #BASE_MODEL=Qwen/Qwen2.5-1.5B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-7B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-1.5B-Instruct
-BASE_MODEL=/export/home/asifali/HF_cache/Llama-3.2-3B-Instruct
+BASE_MODEL=/ibex/scratch/zakroum/lab-asif/HF_cache/Llama-3.2-3B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-1.7B
 MODEL_NAME=$(basename "$BASE_MODEL" | tr -s ' ' '_' | tr -d -c '[:alnum:]_')
 MODEL_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]')
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-1.7B
 
-export REWARD_LOG_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
-SHARED_DATA_PATH=/export/home/asifali/HF_cache/${DATA_PATH}
-VALID_GENERATION_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
-export PUZZLE_FEEDBACK_PATH=/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
-export PUZZLE_DIC_PATH=/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json
+
+export REWARD_LOG_PATH=/ibex/scratch/zakroum/lab-asif/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+SHARED_DATA_PATH=/ibex/scratch/zakroum/lab-asif/HF_cache/${DATA_PATH}
+VALID_GENERATION_PATH=/ibex/scratch/zakroum/lab-asif/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+export PUZZLE_FEEDBACK_PATH=/ibex/scratch/zakroum/lab-asif/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+export PUZZLE_DIC_PATH=/ibex/scratch/zakroum/lab-asif/HF_cache/ZebraLogic/pid_to_puzzle_dic.json
 
 
 
@@ -343,7 +342,7 @@ python -m recipe.dapo.main_dapo \
     trainer.n_gpus_per_node=${NUM_GPUS} \
     trainer.nnodes=1 \
     trainer.test_freq=${TEST_FREQUENCY} \
-    trainer.save_freq=100 \
+    trainer.save_freq=1000 \
     trainer.max_actor_ckpt_to_keep=1 \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.total_epochs=${EPOCH} \
