@@ -326,6 +326,7 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.rollout.multi_turn.enable=False \
     actor_rollout_ref.rollout.mode="sync" \
+    actor_rollout_ref.rollout.load_format=auto \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=True \
     actor_rollout_ref.actor.use_torch_compile=False \
