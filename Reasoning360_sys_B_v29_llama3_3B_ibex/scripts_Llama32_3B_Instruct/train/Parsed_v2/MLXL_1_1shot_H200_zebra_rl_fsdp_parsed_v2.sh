@@ -1,16 +1,17 @@
 #!/bin/bash -l
 
-#SBATCH -J MLXL-B-v29-H200-Llama3-3B #job name
-#SBATCH -p gpu-H200 # queue used
-#SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
-#SBATCH --gres gpu:4 #number of gpus needed, default is 1
-#SBATCH -c 128  #number of CPUs needed, default is 1
-#SBATCH --mem 256GB #amount of memory needed, default
-#SBATCH --output=./all_logs/%j-%x.out
-#SBATCH --error=./all_logs/%j-%x.err
-#SBATCH -A H200
-#SBATCH -q h200_qos
-#SBATCH --mail-user=asif6827@gmail.com
+
+#!/bin/bash
+#SBATCH --time=6-05:30:00
+#SBATCH --nodes=1
+#SBATCH --gpus-per-node=v100:8
+#SBATCH --cpus-per-gpu=20
+#SBATCH --mem=128G
+#SBATCH --partition=batch
+#SBATCH --job-name=llama3-3b
+#SBATCH --mail-type=ALL
+#SBATCH --output=./all_logs/%j-%x-slurm.out
+#SBATCH --error=./all_logs/%j-%x-slurm.err
 
 
 module load cuda12.4/toolkit
