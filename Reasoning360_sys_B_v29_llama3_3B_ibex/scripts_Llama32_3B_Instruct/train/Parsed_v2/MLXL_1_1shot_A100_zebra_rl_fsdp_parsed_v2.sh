@@ -1,10 +1,9 @@
 #!/bin/bash
-
 #SBATCH --time=6-05:30:00
 #SBATCH --nodes=1
-#SBATCH --gpus-per-node=A100:8
-#SBATCH --cpus-per-gpu=10
-#SBATCH --mem=128G
+#SBATCH --gpus-per-node=a100:8
+#SBATCH --cpus-per-gpu=6
+#SBATCH --mem=400G
 #SBATCH --partition=batch
 #SBATCH --job-name=llama3-3b
 #SBATCH --mail-type=ALL
