@@ -3,7 +3,7 @@ from pathlib import Path
 import os
 
 repo_id = "meta-llama/Llama-3.2-3B-Instruct"
-target = Path("/export/home/asifali/HF_cache/Llama-3.2-3B-Instruct")
+target = Path("/ibex/scratch/zakroum/lab-asif/HF_cache/Llama-3.2-3B-Instruct")
 
 path = snapshot_download(
     repo_id=repo_id,
