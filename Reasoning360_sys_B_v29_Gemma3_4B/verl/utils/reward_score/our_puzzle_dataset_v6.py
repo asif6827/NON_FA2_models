@@ -958,7 +958,8 @@ def compute_score(
         format_ok = False
     #print('Format reward = {}'.format(format_ok))
 
-
+    '''
+    
     # ---------------------------
     # Reasoning + Clues vs Solution Validator
     # ---------------------------
@@ -972,8 +973,59 @@ def compute_score(
         except Exception:
             consistency_score = 0
     #print("Consistency score:", consistency_score)
+    '''
+    consistency_score = 0.0
+    clue_solution_consistency = 0.0
+    reasoning_solution_consistency = 0.0
+    n_novel_reasoning_steps = 0
+    reasoning_vs_sol_validate = None
 
+    if syntactic_clues and predicted_arrangement and z3_out:
+        try:
+            # Prefer novel-only steps if your Z3 extraction already provides them.
+            # Otherwise, fall back to the old list that may include original clues.
+            list_novel_steps_only = z3_out.get("list_novel_steps_only", None)
 
+            if list_novel_steps_only is not None:
+                reasoning_steps_for_validation = list_novel_steps_only
+                exclude_clue_steps_from_reasoning = False
+            else:
+                reasoning_steps_for_validation = z3_out.get("list_novel_steps_inc_clues", [])
+                exclude_clue_steps_from_reasoning = True
+
+            reasoning_vs_sol_validate = verify_solution_two_step(
+                syntactic_clues,
+                reasoning_steps_for_validation,
+                predicted_arrangement,
+                exclude_clue_steps_from_reasoning=exclude_clue_steps_from_reasoning,
+                reward_if_no_novel_steps=0.0,
+            )
+
+            # r1: final table satisfies original clues
+            clue_solution_consistency = float(reasoning_vs_sol_validate.get("r1", 0.0))
+
+            # r2: final table satisfies novel reasoning steps
+            reasoning_solution_consistency = float(reasoning_vs_sol_validate.get("r2", 0.0))
+
+            # For "consistency_score", I recommend using r2, not average reward,
+            # because clue satisfaction is usually already rewarded elsewhere.
+            consistency_score = reasoning_solution_consistency
+
+            n_novel_reasoning_steps = int(
+                reasoning_vs_sol_validate
+                .get("step2", {})
+                .get("n_novel_steps", 0)
+            )
+
+        except Exception as e:
+            consistency_score = 0.0
+            clue_solution_consistency = 0.0
+            reasoning_solution_consistency = 0.0
+            n_novel_reasoning_steps = 0
+            reasoning_vs_sol_validate = {
+                "ok": False,
+                "error": str(e),
+            }
 
 
     # -----------------------

@@ -391,7 +391,7 @@ def _solver_check_sat(constraints: List[str], solution: Dict[str, Any], *, enfor
 # Public API: two-step verifier (requested)
 # ------------------------------------------------------------
 
-def verify_solution_two_step(
+def verify_solution_two_step_bkup(
     syntactic_clues: Any,
     reasoning: Any,
     solution: Dict[str, Any],
@@ -447,6 +447,135 @@ def verify_solution_two_step(
             "errors": step2_errors,
         },
     }
+
+
+
+
+def _constraint_key(constraint: Any) -> str:
+    """
+    Creates a stable-ish string key for comparing constraints.
+
+    This is mainly used to remove original clue constraints from
+    the reasoning-step constraints. If z3.simplify is available,
+    it gives a slightly more canonical form.
+    """
+    try:
+        from z3 import simplify
+        return str(simplify(constraint))
+    except Exception:
+        return str(constraint)
+
+
+def verify_solution_two_step(
+    syntactic_clues: Any,
+    reasoning: Any,
+    solution: Dict[str, Any],
+    *,
+    enforce_alldiff: bool = True,
+    exclude_clue_steps_from_reasoning: bool = True,
+    reward_if_no_novel_steps: float = 0.0,
+) -> Dict[str, Any]:
+    """
+    Two-step Z3 verification.
+
+    Step-1:
+        Check whether final solution satisfies the original puzzle clues.
+
+    Step-2:
+        Check whether final solution satisfies the model's generated reasoning steps.
+
+    Important:
+        If `reasoning` contains original clues as well as novel steps,
+        we remove constraints that duplicate original clues before computing r2.
+        This prevents r2 from being inflated by copied clues.
+
+    Returns:
+        r1: clue-vs-solution consistency
+        r2: reasoning-vs-solution consistency using novel steps only
+        reward: average of r1 and r2
+    """
+
+    # ------------------------------------------------------------
+    # Step-1: original clues + solution
+    # ------------------------------------------------------------
+    clue_pairs, clue_parse_errs = _iter_constraints_from_syntactic_clues(syntactic_clues)
+    clue_constraints = [c for _, c in clue_pairs]
+    clue_constraint_keys = {_constraint_key(c) for c in clue_constraints}
+
+    r1 = 0.0
+    step1_errors: List[str] = []
+
+    if clue_parse_errs:
+        step1_errors.extend([f"Clue parse: {e}" for e in clue_parse_errs])
+
+    if not step1_errors:
+        sat1, err1 = _solver_check_sat(
+            clue_constraints,
+            solution,
+            enforce_alldiff=enforce_alldiff,
+        )
+        step1_errors.extend(err1)
+        r1 = 1.0 if sat1 else 0.0
+
+    # ------------------------------------------------------------
+    # Step-2: reasoning steps + solution
+    # ------------------------------------------------------------
+    steps, step_parse_errs = extract_syntactic_steps_with_evidence(reasoning)
+
+    step_constraints_all = [d["constraint"] for d in steps]
+
+    removed_as_clue_constraints = []
+    novel_step_constraints = []
+
+    if exclude_clue_steps_from_reasoning:
+        for c in step_constraints_all:
+            if _constraint_key(c) in clue_constraint_keys:
+                removed_as_clue_constraints.append(c)
+            else:
+                novel_step_constraints.append(c)
+    else:
+        novel_step_constraints = step_constraints_all
+
+    r2 = 0.0
+    step2_errors: List[str] = []
+
+    if step_parse_errs:
+        step2_errors.extend([f"Reasoning parse: {e}" for e in step_parse_errs])
+
+    if not step2_errors:
+        if len(novel_step_constraints) == 0:
+            step2_errors.append(
+                "No novel reasoning steps found after removing original clue constraints."
+            )
+            r2 = reward_if_no_novel_steps
+        else:
+            sat2, err2 = _solver_check_sat(
+                novel_step_constraints,
+                solution,
+                enforce_alldiff=enforce_alldiff,
+            )
+            step2_errors.extend(err2)
+            r2 = 1.0 if sat2 else 0.0
+
+    final_reward = (r1 + r2) / 2.0
+
+    return {
+        "ok": (r1 == 1.0 and r2 == 1.0),
+        "r1": r1,
+        "r2": r2,
+        "reward": final_reward,
+        "step1": {
+            "n_clues": len(clue_constraints),
+            "errors": step1_errors,
+        },
+        "step2": {
+            "n_steps_total": len(step_constraints_all),
+            "n_steps_removed_as_original_clues": len(removed_as_clue_constraints),
+            "n_novel_steps": len(novel_step_constraints),
+            "errors": step2_errors,
+        },
+    }
+
 
 
 # Backward compatible wrapper name (used by some callers)
