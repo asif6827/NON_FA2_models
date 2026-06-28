@@ -22,12 +22,7 @@ Always produce the required final answer block.
 Your final answer must contain exactly one <answer>...</answer> block.
 The content inside <answer>...</answer> must be a single valid JSON object.
 
-Any text outside <answer>...</answer>, including <think>...</think>, is ignored by the grader and receives zero reasoning credit.
-
-Do not rely on <think> for the solution proof.
-All graded deduction steps must be repeated inside the JSON "reasoning" field.
-
-If a <think> block is generated, keep it brief. The formal proof must be inside "reasoning".
+If any internal reasoning or model-specific thinking markers are generated, they must appear before the <answer> block.
 Do not put thinking markers, markdown, comments, or explanations inside the <answer> block.
 
 The grading system will evaluate only the first complete <answer>...</answer> block.
@@ -176,71 +171,27 @@ Syntactic entry format:
 - Boolean operators may ONLY be applied to valid atomic expressions.
 - Nested Boolean expressions are allowed but MUST remain solver-verifiable.
 
-The "reasoning" field MUST follow this exact pair structure:
+Examples of valid INTERLEVED reasoning steps:
+    The engineer is assigned to house 2.
+    S1: engineer == 2.
 
-    "reasoning": [
-    "Natural-language explanation.",
-    "S1: formal_step.",
-    "Natural-language explanation.",
-    "S2: formal_step.",
-    "Natural-language explanation.",
-    "S3: formal_step."
-    ]
-    
-    Rules:
-    
-    * Natural-language entries must NOT start with any label.
-    * Natural-language entries must be plain explanatory sentences.
-    * S entries must start with S1:, S2:, S3:, ...
-    * The list must strictly alternate:
-      natural-language sentence, S-step, natural-language sentence, S-step, ...
-    * Every S entry must be a solver-checkable constraint.
-    * Every S entry must end with a period.
-    * Do not write paragraph summaries.
-    * Do not write table rows as S-steps.
-    * Do not use unsupported notation such as house(...), pos(...), abs(...), |...|, arrows, quotes, predicates, or table-row summaries.
-    * The model-specific <think> block is ignored by the grader.
-    * Only the JSON "reasoning" list inside <answer>...</answer> is graded for reasoning quality.
-    * Therefore, any formal deduction written in <think> must be repeated inside the JSON "reasoning" field.
-    
-    Examples of valid INTERLEAVED reasoning steps:
-    [
-    "The engineer is assigned to house 2.",
-    "S1: engineer == 2.",
-    "Since the engineer occupies house 2, the dog cannot also be in house 2.",
-    "S2: dog != 2.",
-    "The cat is immediately to the left of the coffee, so the cat’s house index plus one equals the coffee’s house index.",
-    "S3: cat + 1 == coffee.",
-    "The green house appears somewhere to the left of the white house.",
-    "S4: green < white.",
-    "The dog is not in the first house.",
-    "S5: Not(dog == 1).",
-    "The cat cannot be in house 1 or house 3.",
-    "S6: And(cat != 1, cat != 3).",
-    "The milk is located either in house 1 or in house 5.",
-    "S7: Or(milk == 1, milk == 5)."
-    ]
-    
-    Additional valid examples:
-    [
-    "Clue 4 states that Eric is the person who is very tall.",
-    "S1: Eric == very_tall.",
-    "Clue 8 states that the short person is directly left of Eric.",
-    "S2: short + 1 == Eric.",
-    "Since Eric is very tall, the short person is directly left of very_tall.",
-    "S3: short + 1 == very_tall."
-    ]
-    
-    Invalid examples:
-    [
-    "From the clues, Eric is very tall and the short person is left of him, so the solution follows.",
-    "S1: House 1: Name=Bob, Height=short.",
-    "S2: pos(short) + 1 == pos(Eric).",
-    "S3: short -> Eric.",
-    "S4: The short person is next to Eric.",
-    "S5: |pos(Alice) - pos(Bob)| == 2."
-    ]
+    Since the engineer occupies house 2, the dog cannot also be in house 2.
+    S2: dog != 2.
 
+    The cat is immediately to the left of the coffee, so the cat’s house index plus one equals the coffee’s house index.
+    S3: cat + 1 == coffee.
+
+    The green house appears somewhere to the left of the white house.
+    S4: green < white.
+
+    The dog is not in the first house.
+    S5: Not(dog == 1).
+
+    The cat cannot be in house 1 or house 3.
+    S6: And(cat != 1, cat != 3).
+
+    The milk is located either in house 1 or in house 5.
+    S7: Or(milk == 1, milk == 5).
 
 Logical validity requirement:
 - Every syntactic step MUST be logically entailed by the syntactic_clues plus any earlier syntactic steps.
@@ -297,7 +248,7 @@ FEWSHOT_ASSISTANT_ANSWER = """
     "C5: white == Meredith."
   ],
   "reasoning": [
-    "Clue 3 anchors the red color in the second house.",
+    "Clue 3 immediately anchors the red favorite color in the second house, which is a very strong positional fact to start from.",
     "S1: red == 2.",
     "Clue 1 then ties Arnold directly to the red color, so Arnold must be in that same second house.",
     "S2: Arnold == red.",
@@ -361,16 +312,7 @@ Your JSON MUST contain the fields in this exact order:
 4. "reasoning"
 5. "solution"
 
-Important reasoning-field rule:
-The "reasoning" field must NOT be a paragraph summary.
-It must be an alternating list:
-natural-language sentence, syntactic step, natural-language sentence, syntactic step, ...
-
-Every syntactic step must start with S1:, S2:, S3:, etc.
-The model-specific <think> block is ignored by the grader.
-Only the "reasoning" field inside <answer> is evaluated for reasoning quality.
-Therefore, repeat the formal deduction steps inside the "reasoning" field.
-
+The "reasoning" list should be complete enough to derive the final solution.
 After the final reasoning string, immediately write the "solution" field.
 The "solution" field must be the final top-level key and must not be omitted.
 
@@ -378,11 +320,6 @@ After the complete solution field, close the JSON object and end with:
 }}</answer>
 
 Return only one complete <answer>...</answer> block with no additional text.
-
-Reminder:
-The grader ignores <think> and any text outside <answer>.
-The only graded reasoning is the JSON "reasoning" list.
-If the "reasoning" list is a summary without S1:, S2:, S3: steps, the reasoning score is zero.
 """
 
 
@@ -666,8 +603,6 @@ if __name__ == '__main__':
             print(f"Data copied to HDFS: {args.hdfs_dir}")
         except ImportError:
             print("HDFS utilities not available. Install verl package for HDFS support.")
-
-
 
     print(f"Done! \n"
           f"Train data saved to {train_output_path}\n"
