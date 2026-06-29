@@ -1139,7 +1139,7 @@ def compute_score(
             reward = max(-0.1, min(1.0, base_reward))
 
         else:
-            reward = -0.1
+            reward = 0.0
 
 
         #reward = 0.6 * float(puzzle_acc_score)
