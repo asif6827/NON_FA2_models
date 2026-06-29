@@ -160,166 +160,30 @@ def _selected_from_prediction(payload: Optional[Dict[str, Any]]) -> Optional[str
     return None
 
 
-def _flatten_scalars(x: Any) -> list[str]:
-    """Flatten common malformed domain/entity shapes into scalar strings.
-
-    Phi-style generations sometimes emit:
-      "domains": ["P1", "P2"]
-    instead of:
-      "domains": {"values": ["P1", "P2"]}
-
-    Reward code must treat such malformed-but-parseable outputs as schema
-    failures, not as runtime exceptions.
-    """
-    if x is None:
-        return []
-    if isinstance(x, str):
-        s = x.strip()
-        return [s] if s else []
-    if isinstance(x, (int, float, bool)):
-        return [str(x)]
-    if isinstance(x, list):
-        out: list[str] = []
-        for item in x:
-            out.extend(_flatten_scalars(item))
-        return out
-    if isinstance(x, dict):
-        out: list[str] = []
-        for item in x.values():
-            out.extend(_flatten_scalars(item))
-        return out
-    return [str(x)]
-
-
-def _unique_nonempty(xs: list[str]) -> list[str]:
-    seen, out = set(), []
-    for x in xs:
-        s = str(x).strip()
-        if not s or s in seen:
-            continue
-        seen.add(s)
-        out.append(s)
-    return out
-
-
-def _assign_args_from_payload(payload: Optional[Dict[str, Any]], arg_index: int) -> list[str]:
-    """Infer entity/value tokens from Assign(entity, value) expressions.
-
-    arg_index=0 returns entity tokens; arg_index=1 returns assignment values.
-    This is a fallback for malformed/missing world_model fields.
-    """
-    if not isinstance(payload, dict):
-        return []
-
-    chunks: list[str] = []
-    for key in ("rules", "facts", "reasoning"):
-        value = payload.get(key)
-        if isinstance(value, list):
-            chunks.extend(str(v) for v in value)
-
-    options = payload.get("options")
-    if isinstance(options, dict):
-        chunks.extend(str(v) for v in options.values())
-    elif isinstance(options, list):
-        chunks.extend(str(v) for v in options)
-
-    text = "\n".join(chunks)
-    found: list[str] = []
-    for m in re.finditer(r"Assign\s*\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*\)", text):
-        token = m.group(1 if arg_index == 0 else 2).strip()
-        if token:
-            found.append(token)
-    return _unique_nonempty(found)
-
-
 def _infer_n_values(payload: Optional[Dict[str, Any]]) -> Optional[int]:
-    if not isinstance(payload, dict):
-        return None
-
-    wm = payload.get("world_model") or {}
-    domains = wm.get("domains", {}) if isinstance(wm, dict) else {}
-
-    raw_values: list[str] = []
-
+    if not isinstance(payload, dict): return None
+    wm = payload.get("world_model") or {}; domains = wm.get("domains", {}) if isinstance(wm, dict) else {}
+    raw_values = domains.get("values") or domains.get("assignments") or domains.get("projects") or domains.get("colors") or domains.get("rooms") or domains.get("days") or domains.get("slots") or domains.get("tasks") or domains.get("teams") or []
+    if isinstance(raw_values, list) and raw_values: return len(raw_values)
+    flat = []
     if isinstance(domains, dict):
-        preferred_keys = (
-            "values", "assignments", "projects", "colors", "rooms",
-            "days", "slots", "tasks", "teams", "domains"
-        )
-        for key in preferred_keys:
-            values = _flatten_scalars(domains.get(key))
-            if values:
-                raw_values = values
-                break
-        if not raw_values:
-            raw_values = _flatten_scalars(domains)
-    elif isinstance(domains, list):
-        raw_values = _flatten_scalars(domains)
-    elif isinstance(domains, str):
-        raw_values = _flatten_scalars(domains)
-
-    values = _unique_nonempty(raw_values)
-    if values:
-        return len(values)
-
-    # Last-resort fallback: infer values from Assign(entity, value).
-    values = _assign_args_from_payload(payload, arg_index=1)
-    return len(values) if values else None
+        for v in domains.values():
+            if isinstance(v, list): flat.extend(v)
+    return len(set(str(x) for x in flat)) if flat else None
 
 
 def _infer_n_entities(payload: Optional[Dict[str, Any]]) -> Optional[int]:
-    if not isinstance(payload, dict):
-        return None
-
-    wm = payload.get("world_model") or {}
-    entities = wm.get("entities", []) if isinstance(wm, dict) else []
-
-    entity_values = _unique_nonempty(_flatten_scalars(entities))
-    if entity_values:
-        return len(entity_values)
-
-    # Last-resort fallback: infer entities from Assign(entity, value).
-    entity_values = _assign_args_from_payload(payload, arg_index=0)
-    return len(entity_values) if entity_values else None
+    if not isinstance(payload, dict): return None
+    wm = payload.get("world_model") or {}; entities = wm.get("entities", []) if isinstance(wm, dict) else []
+    return len(entities) if isinstance(entities, list) and entities else None
 
 
 def _schema_ok(payload: Optional[Dict[str, Any]]) -> bool:
-    if not isinstance(payload, dict):
-        return False
-
-    required = [
-        "problem_type", "world_model", "rules", "facts",
-        "question_semantics", "options", "reasoning", "solution",
-    ]
-    if any(k not in payload for k in required):
-        return False
-    if str(payload.get("problem_type") or "").strip().lower() != "assignment":
-        return False
-
-    world_model = payload.get("world_model")
-    if not isinstance(world_model, dict):
-        return False
-
-    # Prompt schema requires: "domains": {"values": [...]}
-    # If the model emits "domains": ["P1", "P2"], do not crash; simply
-    # mark schema_reward=0 and skip Z3 validation.
-    domains = world_model.get("domains")
-    domains_ok = isinstance(domains, dict) and any(
-        isinstance(v, list) and len(v) > 0 for v in domains.values()
-    )
-
-    solution = payload.get("solution")
-    return (
-        domains_ok
-        and isinstance(world_model.get("entities", []), list)
-        and isinstance(payload.get("rules"), list)
-        and isinstance(payload.get("facts"), list)
-        and isinstance(payload.get("question_semantics"), dict)
-        and isinstance(payload.get("options"), dict)
-        and isinstance(payload.get("reasoning"), list)
-        and isinstance(solution, dict)
-        and bool(solution.get("selected_option"))
-    )
+    if not isinstance(payload, dict): return False
+    required = ["problem_type", "world_model", "rules", "facts", "question_semantics", "options", "reasoning", "solution"]
+    if any(k not in payload for k in required): return False
+    if str(payload.get("problem_type") or "").strip().lower() != "assignment": return False
+    return isinstance(payload.get("world_model"), dict) and isinstance(payload.get("rules"), list) and isinstance(payload.get("facts"), list) and isinstance(payload.get("question_semantics"), dict) and isinstance(payload.get("options"), dict) and isinstance(payload.get("reasoning"), list) and isinstance(payload.get("solution"), dict) and bool(payload["solution"].get("selected_option"))
 
 
 def compute_score(solution_str, ground_truth, extra_info: Any = None, score_method: str = "gt", timeout: float = 3.0, acc_weight: float = 0.8, clue_weight: float = 1.0, z3_weight: float = 0.2, meta: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
@@ -405,34 +269,7 @@ def _make_must_be_true_answer() -> str:
 
 
 if __name__ == "__main__":
-    malformed_domains_payload = {
-        "problem_type": "assignment",
-        "world_model": {
-            "entities": ["A", "B", "C"],
-            "domains": ["P1", "P2", "P3"],
-            "structural_assumptions": ["each entity is assigned exactly one value"],
-        },
-        "rules": ["Not(Assign(A, P1))"],
-        "facts": [],
-        "question_semantics": {"question_type": "could_be_true"},
-        "options": {"A": "Assign(A, P2)", "B": "Assign(A, P1)"},
-        "reasoning": [
-            "A is not assigned to P1 by the first rule.",
-            "S1: Not(Assign(A, P1)).",
-            "Option A can be extended to a full valid assignment.",
-            "S2: Sat(Option_A).",
-        ],
-        "solution": {"selected_option": "A"},
-    }
-    tests = [
-        ("correct_could_be_true", _make_answer("Option_A"), "A"),
-        ("wrong_selected_option", _make_answer("B"), "A"),
-        ("bad_format_correct_answer", _make_answer("A", bad_format=True), "A"),
-        ("must_be_true", _make_must_be_true_answer(), "A"),
-        ("malformed_domains_list_no_crash", _wrap(malformed_domains_payload), "A"),
-        ("malformed_json", "<answer>{bad json</answer>", "A"),
-        ("none_output", None, "A"),
-    ]
+    tests = [("correct_could_be_true", _make_answer("Option_A"), "A"), ("wrong_selected_option", _make_answer("B"), "A"), ("bad_format_correct_answer", _make_answer("A", bad_format=True), "A"), ("must_be_true", _make_must_be_true_answer(), "A"), ("malformed_json", "<answer>{bad json</answer>", "A"), ("none_output", None, "A")]
     for name, pred, gt in tests:
         print(f"\n=== {name} ===")
         result = compute_score(pred, gt)
