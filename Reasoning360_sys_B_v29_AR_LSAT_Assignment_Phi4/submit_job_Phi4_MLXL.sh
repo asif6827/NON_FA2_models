@@ -64,7 +64,7 @@ DATA_PATH_LIST=("AR_LSAT_assignment_v6a_${ACRONYM}/mlxl_train_mlxl_test")
 
 
 
-SLURM_SCRIPT_A100="./scripts_Phi4/train/Parsed_v2/${ACRONYM}_1_1shot_A100_zebra_rl_fsdp_parsed_v2.sh"
+SLURM_SCRIPT_A100="./scripts_Phi4/train/Parsed_v2/${ACRONYM}_1_1shot_A100_zebra_rl_fsdp_parsed_v2_2GPUs.sh"
 for i in "${!TRAIN_TEMP_LIST[@]}"; do
     TRAIN_TEMP=${TRAIN_TEMP_LIST[$i]}
     TEST_TEMP=${TEST_TEMP_LIST[$i]}
