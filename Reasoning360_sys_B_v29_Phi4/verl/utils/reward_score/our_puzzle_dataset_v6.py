@@ -1115,7 +1115,7 @@ def compute_score(
                     0.60 * puzzle_acc_score
                     + 0.10 * parsing_reward
                     + 0.10 * reasoning_format_score
-                    + 0.10 * reasoning_quality_score
+                    + 0.50 * reasoning_quality_score
             )
 
             # Do not allow wrong full solutions to receive high reward.
