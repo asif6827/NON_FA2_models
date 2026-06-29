@@ -1112,7 +1112,7 @@ def compute_score(
 
             # Main reward should always depend on actual solution correctness.
             base_reward = (
-                    0.70 * puzzle_acc_score
+                    0.60 * puzzle_acc_score
                     + 0.10 * parsing_reward
                     + 0.10 * reasoning_format_score
                     + 0.10 * reasoning_quality_score
