@@ -89,7 +89,7 @@ NUM_GPUS=4 # Set the number of GPUs to use on this node
 gpu_memory_utilization=0.8
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
-WANDB_PROJECT="Sys_B_v29_Phi4_MLXL_1_1shot_H200" # Your wandb project name
+WANDB_PROJECT="Sys_B_v29_Phi4_Grouping_MLXL_1_1shot_H200" # Your wandb project name
 
 # --- External Services ---
 export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as-judge hosted URL for 'STEM' domain evaluation
