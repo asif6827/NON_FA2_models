@@ -31,7 +31,10 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message
 logger = logging.getLogger(__name__)
 
 RESULT_KEYS = [
-    "acc", "score", "reward_logged", "ACCURACY", "parsing_reward", "schema_reward", "format_reward",
+    "acc", "score", "reward_logged", "ACCURACY", "parsing_reward",
+    "schema_reward", "schema_partial_reward", "schema_required_keys_present",
+    "schema_problem_type_ok", "schema_world_model_ok", "schema_entities_ok",
+    "schema_domains_ok", "schema_solution_ok", "format_reward",
     "z3_reward", "consistency_score", "Normalizer", "BASE_sat_full_GT", "missed_data",
     "BASE_n_steps_total", "BASE_n_steps_parsed_ok", "BASE_n_steps_valid", "BASE_n_steps_novel_inc_clues", "BASE_n_non_valid_contradiction",
     "novel_step_score", "contradiction_ratio", "selected_option_present", "ground_truth_present", "parse_status_ok", "schema_status_ok", "z3_status_ok", "format_status_ok",
@@ -322,6 +325,77 @@ def _schema_ok(payload: Optional[Dict[str, Any]]) -> bool:
     )
 
 
+def _schema_partial_score(payload: Optional[Dict[str, Any]]) -> tuple[float, Dict[str, float]]:
+    """Return a dense schema score plus diagnostics.
+
+    schema_reward remains a strict 0/1 gate for Z3 validation. This partial
+    score is only a shaping signal so RL can learn *which* parts of the JSON
+    schema are improving before the full schema is correct.
+    """
+    details = {
+        "schema_required_keys_present": 0.0,
+        "schema_problem_type_ok": 0.0,
+        "schema_world_model_ok": 0.0,
+        "schema_entities_ok": 0.0,
+        "schema_domains_ok": 0.0,
+        "schema_solution_ok": 0.0,
+    }
+
+    if not isinstance(payload, dict):
+        return 0.0, details
+
+    required = [
+        "problem_type", "world_model", "rules", "facts",
+        "question_semantics", "options", "reasoning", "solution",
+    ]
+
+    required_ratio = sum(1 for k in required if k in payload) / len(required)
+    details["schema_required_keys_present"] = required_ratio
+
+    if str(payload.get("problem_type") or "").strip().lower() == "assignment":
+        details["schema_problem_type_ok"] = 1.0
+
+    world_model = payload.get("world_model")
+    if isinstance(world_model, dict):
+        details["schema_world_model_ok"] = 1.0
+
+        entities = world_model.get("entities")
+        if isinstance(entities, list) and len(_unique_nonempty(_flatten_scalars(entities))) > 0:
+            details["schema_entities_ok"] = 1.0
+
+        # Full schema requires domains to be a dict containing at least one
+        # non-empty list, e.g. {"values": ["P1", "P2"]}. List-style domains
+        # are intentionally not schema-correct, although _infer_n_values can
+        # still read them for crash-safety.
+        domains = world_model.get("domains")
+        if isinstance(domains, dict) and any(isinstance(v, list) and len(v) > 0 for v in domains.values()):
+            details["schema_domains_ok"] = 1.0
+
+    solution = payload.get("solution")
+    if isinstance(solution, dict) and _norm_option_label(solution.get("selected_option")):
+        details["schema_solution_ok"] = 1.0
+
+    type_fields_ok = 0.0
+    type_fields_ok += 1.0 if isinstance(payload.get("rules"), list) else 0.0
+    type_fields_ok += 1.0 if isinstance(payload.get("facts"), list) else 0.0
+    type_fields_ok += 1.0 if isinstance(payload.get("question_semantics"), dict) else 0.0
+    type_fields_ok += 1.0 if isinstance(payload.get("options"), dict) else 0.0
+    type_fields_ok += 1.0 if isinstance(payload.get("reasoning"), list) else 0.0
+    type_fields_ratio = type_fields_ok / 5.0
+
+    # Weighted dense schema shaping. The strict schema_reward remains separate.
+    score = (
+        0.25 * details["schema_required_keys_present"]
+        + 0.15 * details["schema_problem_type_ok"]
+        + 0.10 * details["schema_world_model_ok"]
+        + 0.10 * details["schema_entities_ok"]
+        + 0.15 * details["schema_domains_ok"]
+        + 0.15 * type_fields_ratio
+        + 0.10 * details["schema_solution_ok"]
+    )
+    return min(max(score, 0.0), 1.0), details
+
+
 def compute_score(solution_str, ground_truth, extra_info: Any = None, score_method: str = "gt", timeout: float = 3.0, acc_weight: float = 0.8, clue_weight: float = 1.0, z3_weight: float = 0.2, meta: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
     try:
         out: Dict[str, Any] = _default_result(reward=0.0, missed_data=0.0)
@@ -334,7 +408,10 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         accuracy = 1.0 if selected and gt and selected == gt else 0.0
         out["ACCURACY"] = accuracy
         schema_reward = 1.0 if _schema_ok(payload) else 0.0
+        schema_partial_reward, schema_details = _schema_partial_score(payload)
         out["schema_reward"] = out["schema_status_ok"] = schema_reward
+        out["schema_partial_reward"] = schema_partial_reward
+        out.update(schema_details)
         reasoning = payload.get("reasoning") if isinstance(payload, dict) else None
         n_values = _infer_n_values(payload); n_entities = _infer_n_entities(payload)
         try:
@@ -367,19 +444,64 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         out["BASE_n_steps_novel_inc_clues"] = float(z3_out.get("n_steps_novel_inc_clues", 0) or 0)
         out["BASE_n_non_valid_contradiction"] = float(z3_out.get("n_non_valid_contradiction", 0) or 0)
         reward, normalizer = 0.0, 1.0
-        if isinstance(payload, dict) and n_values is not None and n_entities is not None:
-            normalizer = max(2.0 * max(int(n_values) * int(n_entities), 1), 1.0)
-            n_novel = out["BASE_n_steps_novel_inc_clues"]; n_contra = out["BASE_n_non_valid_contradiction"]
-            novel_step_score = min(n_novel / normalizer, 1.0); contradiction_ratio = min(n_contra / normalizer, 1.0)
-            if sat_ok == 0.0:
-                reward = 0.15 * parsing_reward + 0.10 * out["format_reward"] + 0.60 * accuracy - 0.20 * contradiction_ratio
+        if isinstance(payload, dict):
+            if n_values is not None and n_entities is not None:
+                normalizer = max(2.0 * max(int(n_values) * int(n_entities), 1), 1.0)
             else:
-                base_quality = 0.60 * accuracy + 0.20 * parsing_reward + 0.20 * out["format_reward"]
-                process_bonus = 0.40 * novel_step_score + 0.30 * out["consistency_score"] - 0.15 * contradiction_ratio
+                # Parsed JSON exists, but the domain/entity metadata cannot be
+                # inferred. Keep a small shaping signal instead of crashing or
+                # giving a high answer-only reward.
+                out["missed_data"] = 1.0
+
+            n_novel = out["BASE_n_steps_novel_inc_clues"]
+            n_contra = out["BASE_n_non_valid_contradiction"]
+            novel_step_score = min(n_novel / normalizer, 1.0)
+            contradiction_ratio = min(n_contra / normalizer, 1.0)
+
+            if schema_reward == 0.0:
+                # SCHEMA GATE: invalid-schema outputs must not receive a high
+                # reward even if the final selected option is correct. This
+                # forces RL to learn the JSON/world_model/rules/reasoning shape.
+                reward = (
+                    0.10 * parsing_reward
+                    + 0.30 * schema_partial_reward
+                    + 0.10 * out["selected_option_present"]
+                    + 0.10 * accuracy
+                    + 0.05 * out["format_reward"]
+                )
+                reward = min(reward, 0.35)
+            elif sat_ok == 0.0:
+                # Full schema is valid, but Z3/GT validation did not pass yet.
+                # Give meaningful credit for schema and format, but keep this
+                # clearly below a fully solver-valid answer.
+                reward = (
+                    0.10 * parsing_reward
+                    + 0.20 * schema_reward
+                    + 0.15 * out["format_reward"]
+                    + 0.35 * accuracy
+                    - 0.20 * contradiction_ratio
+                )
+                reward = min(reward, 0.70)
+            else:
+                base_quality = (
+                    0.35 * accuracy
+                    + 0.15 * parsing_reward
+                    + 0.15 * schema_reward
+                    + 0.15 * out["format_reward"]
+                    + 0.20 * sat_ok
+                )
+                process_bonus = (
+                    0.40 * novel_step_score
+                    + 0.30 * out["consistency_score"]
+                    - 0.15 * contradiction_ratio
+                )
                 reward = base_quality + accuracy * process_bonus
-            out["novel_step_score"] = novel_step_score; out["contradiction_ratio"] = contradiction_ratio
+
+            out["novel_step_score"] = novel_step_score
+            out["contradiction_ratio"] = contradiction_ratio
         else:
-            reward = -0.5; out["missed_data"] = 1.0
+            reward = -0.5
+            out["missed_data"] = 1.0
         out["Normalizer"] = normalizer
         out["acc"] = out["score"] = out["reward_logged"] = _clamp_reward(reward)
         return _numeric_only(out)

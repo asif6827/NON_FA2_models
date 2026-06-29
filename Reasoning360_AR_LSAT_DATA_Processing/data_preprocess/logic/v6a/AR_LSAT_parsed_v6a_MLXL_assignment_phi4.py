@@ -80,6 +80,16 @@ CRITICAL FORMAT REQUIREMENTS
 - Do NOT include extra text, markdown, explanations, or code fences.
 - Do NOT add any other keys.
 
+CRITICAL:
+- "problem_type" is NOT the question type.
+- "problem_type" MUST always be exactly "assignment".
+- The input question_type must appear only here:
+  "question_semantics": {
+    "question_type": "<input question_type>",
+    "option_interpretation_rule": "..."
+  }
+- Never set "problem_type" to "must_be_true", "could_be_true", "cannot_be_true", "acceptability",
+
 ================================================================================
 NORMALIZATION RULES FOR ASSIGNMENT
 ================================================================================
@@ -216,6 +226,23 @@ The "reasoning" field MUST follow this exact pair structure:
     "S3: formal_step."
     ]
 
+FORMAL STEP HARD REQUIREMENT:
+Every S-step MUST contain at least one allowed formal operator:
+Assign(...), Not(...), And(...), Or(...), Implies(...), Exactly(...), AtLeast(...), AtMost(...), Sat(...), Unsat(...).
+
+Invalid S-steps:
+- S1: French novels = 1, Russian novels = 2.
+- S2: Option A satisfies all rules.
+- S3: A is assigned to P2.
+- S4: French novels = 1 ≥ Russian novels = 2.
+
+Valid S-steps:
+- S1: Assign(A, P2).
+- S2: Not(Assign(B, P2)).
+- S3: Exactly(1, Assign(A, P2), Assign(B, P2), Assign(C, P2)).
+- S4: Sat(Option_C).
+- S5: Unsat(Not(Option_A)).
+
 Rules:
 * Natural-language entries must NOT start with any label.
 * Natural-language entries must be plain explanatory sentences.
@@ -229,6 +256,9 @@ Rules:
 * The model-specific <think> block is ignored by the grader.
 * Only the JSON "reasoning" list inside <answer>...</answer> is graded for reasoning quality.
 * Therefore, any formal deduction written in <think> must be repeated inside the JSON "reasoning" field.
+* Each S-step must be exactly one sentence.
+* Do not put explanations inside S-steps.
+* Put explanations only in the natural-language sentence immediately before the S-step.
 
 Logical validity requirements:
 - Each step must follow from rules + facts + prior steps.
@@ -330,17 +360,19 @@ ASSIGNMENT_FEWSHOT_ASSISTANT_ANSWER = """
     "E": "Assign(A, P3)"
   },
   "reasoning": [
-    "Exactly one employee is assigned to P2.",
-    "S1: Exactly(1, Assign(A, P2), Assign(B, P2), Assign(C, P2)).",
-    "B and C must share the same project.",
-    "S2: Assign(B, P1) == Assign(C, P1).",
-    "This forces both B and C to be assigned consistently.",
-    "S3: Assign(B, P3) == Assign(C, P3).",
-    "Option E is always true under all valid assignments.",
-    "S4: Unsat(Not(Option_E))."
+  "Exactly one employee is assigned to P2.",
+  "S1: Exactly(1, Assign(A, P2), Assign(B, P2), Assign(C, P2)).",
+  "B and C must share the same project, so they cannot be the unique single employee assigned to P2.",
+  "S2: Not(Assign(B, P2)).",
+  "Since B and C share the same project, C also cannot be assigned to P2.",
+  "S3: Not(Assign(C, P2)).",
+  "Therefore A must be the one employee assigned to P2.",
+  "S4: Assign(A, P2).",
+  "The negation of Option A is impossible under the rules.",
+  "S5: Unsat(Not(Option_A))."
   ],
   "solution": {
-    "selected_option": "E"
+    "selected_option": "A"
   }
 }</answer>
 """
