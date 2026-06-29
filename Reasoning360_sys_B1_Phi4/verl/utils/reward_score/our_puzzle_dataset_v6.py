@@ -1102,44 +1102,18 @@ def compute_score(
 
             format_reward = 1.0 if format_ok else 0.0
 
-            if sat_ok == 1.0:
-                reasoning_quality_score = (
-                        0.40 * novel_step_score
-                        + 0.40 * float(consistency_score)
-                        - 0.30 * contradiction_ratio)
-            else:
-                reasoning_quality_score = - 0.05 * contradiction_ratio
+
 
             # Main reward should always depend on actual solution correctness.
             base_reward = (
-                    0.70 * puzzle_acc_score
+                    0.60 * puzzle_acc_score
                     + 0.10 * parsing_reward
-                    + 0.10 * reasoning_format_score
-                    + 0.10 * reasoning_quality_score
             )
 
-            # Do not allow wrong full solutions to receive high reward.
-            if puzzle_acc_score == 0.0:
-                base_reward = min(base_reward, 0.30)
-
-            # Give extra bonus only for exact solution.
-            if puzzle_acc_score == 1.0:
-                base_reward += 0.10 * reasoning_quality_score
-
-
-
-            has_s_steps = any(
-                isinstance(x, str) and re.match(r"^\s*S\d+\s*:", x)
-                for x in parsed_reasoning or []
-            )
-
-            if parsed_reasoning and not has_s_steps:
-                base_reward -= 0.15
-
-            reward = max(-0.1, min(1.0, base_reward))
+            reward = base_reward
 
         else:
-            reward = -0.1
+            reward = 0.0
 
 
         #reward = 0.6 * float(puzzle_acc_score)
