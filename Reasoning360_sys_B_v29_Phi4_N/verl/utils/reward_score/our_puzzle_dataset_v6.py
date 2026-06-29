@@ -1104,7 +1104,7 @@ def compute_score(
 
             if sat_ok == 1.0:
                 reasoning_quality_score = (
-                        0.40 * novel_step_score
+                        0.0 * novel_step_score
                         + 0.40 * float(consistency_score)
                         - 0.30 * contradiction_ratio)
             else:
