@@ -165,10 +165,10 @@ TEST_DATA_DIR=${SHARED_DATA_PATH}/test
 
 
 ### Logic (train)
-zebra_train_path=${TRAIN_DATA_DIR}/logic_our_ar_lsat_ordering_new_reward_300.parquet
+zebra_train_path=${TRAIN_DATA_DIR}/logic_our_ar_lsat_ordering_new_reward_phi4_300.parquet
 
 ### Logic (test)
-zebralogic_test_path=${TEST_DATA_DIR}/logic_our_ar_lsat_ordering_new_reward_test_112.parquet
+zebralogic_test_path=${TEST_DATA_DIR}/logic_our_ar_lsat_ordering_new_reward_test_phi4_112.parquet
 
 
 train_files="['${zebra_train_path}']"  # Use math as example, add to more tasks as needed
