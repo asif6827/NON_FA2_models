@@ -13,102 +13,120 @@ sys.path.append(project_root)
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 
 
-ASSIGNMENT_PROMPT_1_SHOT_SYS = """
+ASSIGNMENT_SYSTEM_PROMPT = """
 You are an expert AR-LSAT assignment-game solver.
+
+This prompt is ONLY for AR-LSAT ASSIGNMENT problems.
 
 You are given:
 (i) one AR-LSAT assignment passage written in plain English,
 (ii) one question about that passage,
 (iii) a question_type label,
-(iv) a dictionary of answer options,
-and optionally
-(v) metadata such as tags or entity hints if available.
+(iv) a dictionary of answer options, and
+(v) optional metadata such as tags or entity hints if available.
 
-This prompt is ONLY for ASSIGNMENT problems.
-
-Your task is to parse the assignment problem into a solver-oriented logical representation and determine the correct answer by generating the following fields:
-
-1) reasoning — natural-language reasoning steps.
+Your task is to solve the assignment problem and produce the following TWO fields:
+1) reasoning — natural-language reasoning steps that justify the answer.
 2) solution — the final selected answer option.
 
-You MUST return the result STRICTLY as a single valid JSON object wrapped inside:
-<answer>...</answer>
+Your final answer must contain exactly one <answer>...</answer> block.
+The content inside <answer>...</answer> must be a single valid JSON object.
+
+Any text outside <answer>...</answer>, including <think>...</think>, is ignored by the grader and receives zero reasoning credit.
+
+Do not rely on <think> for the solution proof.
+All graded reasoning must be repeated inside the JSON "reasoning" field.
+
+If a <think> block is generated, keep it brief. The answer justification must be inside "reasoning".
+Do not put thinking markers, markdown, comments, or explanations inside the <answer> block.
+
+The grading system will evaluate only the first complete <answer>...</answer> block.
 
 ================================================================================
 CRITICAL FORMAT REQUIREMENTS
 ================================================================================
-- Output MUST contain ONLY ONE <answer>...</answer> block and NOTHING ELSE.
-- JSON MUST contain EXACTLY the 2 required keys.
-- All formal expressions MUST be strings.
-- No markdown, no code, no explanation outside <answer>.
+- The final graded output MUST contain exactly one <answer>...</answer> block.
+- Anything outside the answer block is ignored by the grader, but the answer block itself must contain only valid JSON.
+- Do NOT include extra text, markdown, explanations, or code fences.
+- Inside <answer>...</answer>, the content MUST be a single valid JSON object.
+- The JSON object MUST have exactly TWO top-level keys, spelled EXACTLY:
+    "reasoning",
+    "solution"
+- Do NOT add any other keys.
+- All formal expressions, if used, MUST be strings.
 
 ================================================================================
 REASONING REQUIREMENTS FOR ASSIGNMENT
 ================================================================================
-
 - "reasoning" MUST be a list of strings.
 - Each entry MUST be exactly one sentence and end with a period.
-
+- Do not write the reasoning as one paragraph summary.
+- The reasoning must contain enough explicit deductions to justify the selected option.
+- If the question asks what must be true, explain why the selected option is forced.
+- If the question asks what could be true, explain why the selected option is consistent with the rules.
+- If the question asks for a complete and accurate list, explain why included cases are possible and excluded cases are impossible.
+- The model-specific <think> block is ignored by the grader.
+- Only the JSON "reasoning" list inside <answer>...</answer> is graded for reasoning quality.
 
 ================================================================================
 SOLUTION REQUIREMENTS
 ================================================================================
-
-"solution": {
-  "selected_option": "X"
-}
+- "solution" MUST be an object with exactly one key:
+    "selected_option"
+- The selected option MUST be the option letter only, e.g., "A", "B", "C", "D", or "E".
+- Do not include option text inside "selected_option".
 
 ================================================================================
 OUTPUT SCHEMA
 ================================================================================
-
 <answer>{
   "reasoning": [],
   "solution": {
     "selected_option": ""
   }
 }</answer>
+"""
 
-================================================================================
-ONE-SHOT EXAMPLE: ASSIGNMENT
-================================================================================
 
-Example Passage:
-Three employees A, B, and C are each assigned to one of three projects P1, P2, and P3.
+FEWSHOT_PASSAGE = """
+Three employees A, B, and C are each assigned to exactly one of three projects P1, P2, and P3.
+Each project may have one or more employees assigned to it.
 
 Rules:
 1. A is not assigned to P1.
 2. B is assigned to the same project as C.
 3. Exactly one employee is assigned to P2.
+"""
 
-Example Question:
-Which of the following must be true?
+FEWSHOT_QUESTION = "Which of the following must be true?"
 
-question_type:
-must_be_true
+FEWSHOT_QUESTION_TYPE = "must_be_true"
 
-Options:
-A. A is assigned to P2
-B. B is assigned to P3
-C. C is assigned to P3
-D. B is assigned to P2
-E. A is assigned to P3
+FEWSHOT_OPTIONS = {
+    "A": "A is assigned to P2",
+    "B": "B is assigned to P3",
+    "C": "C is assigned to P3",
+    "D": "B is assigned to P2",
+    "E": "A is assigned to P3",
+}
 
-Correct Output:
+FEWSHOT_ASSISTANT_ANSWER = """
 <answer>{
   "reasoning": [
     "Exactly one employee is assigned to P2.",
-    "B and C must share the same project.",
-    "This forces both B and C to be assigned consistently.",
-    "Option E is always true under all valid assignments.",
+    "Because B and C must be assigned to the same project, B and C cannot be the only employee assigned to P2.",
+    "Therefore neither B nor C can be assigned to P2.",
+    "Since A is the only remaining employee who can be assigned to P2, A must be assigned to P2.",
+    "Thus option A is forced by all valid assignments."
   ],
   "solution": {
-    "selected_option": "E"
+    "selected_option": "A"
   }
 }</answer>
 """
 
-ASSIGNMENT_PROMPT_1_SHOT_USER = """
+
+ASSIGNMENT_USER_PROMPT_PHI = """
 --------------------------------
 AR-LSAT ASSIGNMENT PROBLEM TO SOLVE
 --------------------------------
@@ -123,85 +141,117 @@ options = {options}
 
 metadata = {metadata}
 
-Solve the AR-LSAT assignment problem above and return reasoning, and solution inside a single <answer>...</answer> block, with no additional text.
+Solve the AR-LSAT assignment problem above and provide reasoning and solution.
+
+Your final answer block MUST begin with the exact characters:
+<answer>{{
+
+Your JSON MUST contain the fields in this exact order:
+1. "reasoning"
+2. "solution"
+
+Important reasoning-field rule:
+The "reasoning" field must NOT be a paragraph summary.
+It must be a list of explicit one-sentence deductions.
+Every reasoning string must end with a period.
+The model-specific <think> block is ignored by the grader.
+Only the "reasoning" field inside <answer> is evaluated for reasoning quality.
+Therefore, repeat the answer justification inside the "reasoning" field.
+
+After the final reasoning string, immediately write the "solution" field.
+The "solution" field must be the final top-level key and must not be omitted.
+The "solution" object must contain only "selected_option".
+
+After the complete solution field, close the JSON object and end with:
+}}</answer>
+
+Return only one complete <answer>...</answer> block with no additional text.
+
+Reminder:
+The grader ignores <think> and any text outside <answer>.
+The only graded reasoning is the JSON "reasoning" list.
+If the "reasoning" list is a summary without explicit deductions, the reasoning score is zero.
 """
 
 
+def serialize_phi_messages(messages):
+    prompt = ""
+
+    for message in messages:
+        role = message["role"]
+        content = message["content"].strip()
+
+        if role not in {"system", "user", "assistant"}:
+            raise ValueError(f"Unsupported role: {role}")
+
+        prompt += f"<|{role}|>\n{content}\n<|end|>\n"
+
+    prompt += "<|assistant|>"
+    return prompt
 
 
-def extract_clues_from_puzzle(puzzle_text):
-    """Extract clues from the puzzle text."""
-    if "## Clues:" in puzzle_text:
-        clues_part = puzzle_text.split("## Clues:")[1]
-        # Extract each clue line
-        clues = []
-        for line in clues_part.splitlines():
-            line = line.strip()
-            if line and line[0].isdigit() and "." in line:
-                # Remove the numbering and keep the clue text
-                clue_text = line.split(".", 1)[1].strip()
-                clues.append(clue_text)
-        return clues
-    else:
-        return []
+def to_json_text(value):
+    """Serialize dictionaries/lists as JSON while leaving plain strings readable."""
+    if value is None:
+        return "null"
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False)
 
-def attribute_values_from_solution(solution: dict) -> dict:
-    """
-    Convert a solution table into attribute_values:
-      solution = {"header": [...], "rows": [[...], ...]}
-    Returns:
-      {"Name": [...], "CarModel": [...], ...}   (excludes "House")
-    """
-    header = solution.get("header", [])
-    rows = solution.get("rows", [])
 
-    # column indices, skipping "House"
-    col_indices = [(i, col) for i, col in enumerate(header) if col != "House"]
+def make_metadata(example):
+    """Collect optional metadata fields when they exist in the AR-LSAT examples."""
+    metadata = {}
+    for key in ("metadata", "tags", "tag", "entities", "entity_hints", "game_type"):
+        if key in example and example[key] is not None:
+            metadata[key] = example[key]
+    return metadata if metadata else None
 
-    values = {col: [] for _, col in col_indices}
-    seen = {col: set() for _, col in col_indices}
-
-    for row in rows:
-        if not isinstance(row, list):
-            continue
-        for i, col in col_indices:
-            if i >= len(row):
-                continue
-            v = "_".join(row[i].split(" "))
-            #v = row[i]
-            if v not in seen[col]:
-                seen[col].add(v)
-                values[col].append(v)
-
-    for key in values:
-        random.shuffle(values[key])
-    return values
 
 def make_map_fn_1_shot(split, data_source):
     def process_fn_1_shot(example, idx):
-        # Use 'ground_truth' instead of 'solution' since that's what the input data has
-        final_grid = example['answer']
-        # user_prompt = SOLUTION_PROMPT_USER_SOLUTION_BASED.format(puzzle=example['puzzle'])
-        user_prompt = ASSIGNMENT_PROMPT_1_SHOT_SYS + ASSIGNMENT_PROMPT_1_SHOT_USER.format(
-            passage=example['passage'],
-            question=example['question'],
-            question_type=example['question_type'],
-            options=example['options'],
-            metadata=None,
-        )
+        # Use 'answer' as ground truth since that is what the input AR-LSAT data uses.
+        final_grid = example["answer"]
+
+        target_metadata = make_metadata(example)
+
+        messages = [
+            {
+                "role": "system",
+                "content": ASSIGNMENT_SYSTEM_PROMPT.strip(),
+            },
+            {
+                "role": "user",
+                "content": ASSIGNMENT_USER_PROMPT_PHI.format(
+                    passage=FEWSHOT_PASSAGE.strip(),
+                    question=FEWSHOT_QUESTION,
+                    question_type=FEWSHOT_QUESTION_TYPE,
+                    options=json.dumps(FEWSHOT_OPTIONS, ensure_ascii=False),
+                    metadata="null",
+                ).strip(),
+            },
+            {
+                "role": "assistant",
+                "content": FEWSHOT_ASSISTANT_ANSWER.strip(),
+            },
+            {
+                "role": "user",
+                "content": ASSIGNMENT_USER_PROMPT_PHI.format(
+                    passage=example["passage"],
+                    question=example["question"],
+                    question_type=example["question_type"],
+                    options=to_json_text(example["options"]),
+                    metadata=to_json_text(target_metadata),
+                ).strip(),
+            },
+        ]
+
+        phi_prompt = serialize_phi_messages(messages)
 
         data = {
             "data_source": data_source,
-            "prompt": [
-                {
-                    "role": "user",
-                    "content": user_prompt
-                }],
-            'raw_prompt': [
-                {
-                    "role": "user",
-                    "content": user_prompt
-                }],
+            "prompt": phi_prompt,
+            "raw_prompt": phi_prompt,
             "ability": "logical_reasoning",
             "reward_model": {
                 "style": "rule",
@@ -209,9 +259,9 @@ def make_map_fn_1_shot(split, data_source):
             },
             "apply_chat_template": False,
             "extra_info": {
-                'id': example['id'] if 'id' in example else str(idx),
-                'split': split
-            }
+                "id": example["id"] if "id" in example else str(idx),
+                "split": split,
+            },
         }
 
         if idx != 0:
@@ -219,6 +269,7 @@ def make_map_fn_1_shot(split, data_source):
             print("\n" + "=" * 100 + f"{data_source} {split} {idx}" + "=" * 10)
             print(data)
             print("\n\n")
+
         return data
 
     return process_fn_1_shot
@@ -242,36 +293,31 @@ if __name__ == '__main__':
         raise ValueError('Invalid data_setting')
     args.output_dir = os.path.join(args.output_dir, args.data_setting)
 
-
-
     if args.data_setting == 'mlxl_train_mlxl_test':
-        # Load dataset from JSON or Parquet based on file extension
+        # Load dataset from JSON.
         train_dataset = datasets.load_dataset('json', data_files=args.train_data_file)['train']
         test_dataset = datasets.load_dataset('json', data_files=args.test_data_file)['train']
 
-
-
-        # Transform dataset
+        # Transform dataset.
         process_train_fn = make_map_fn_1_shot('train', args.data_source_train)
         train_dataset = train_dataset.map(function=process_train_fn, with_indices=True)
 
         process_test_fn = make_map_fn_1_shot('test', args.data_source_test)
         test_dataset = test_dataset.map(function=process_test_fn, with_indices=True)
 
-
-    # Store the original training dataset size
+    # Store the original training dataset size.
     original_train_size = len(train_dataset)
 
-    # Sample the training dataset if needed
+    # Sample the training dataset if needed.
     train_dataset = sample_dataset(train_dataset, args.train_sample_size)
 
-    # Create output directories
-    train_output_dir = os.path.join(args.output_dir ,"train")
+    # Create output directories.
+    train_output_dir = os.path.join(args.output_dir, "train")
     test_output_dir = os.path.join(args.output_dir, "test")
     os.makedirs(train_output_dir, exist_ok=True)
     os.makedirs(test_output_dir, exist_ok=True)
 
-    # Save train dataset
+    # Save train dataset.
     train_output_path = save_dataset(
         dataset=train_dataset,
         output_dir=train_output_dir,
@@ -279,7 +325,7 @@ if __name__ == '__main__':
         sample_size=args.train_sample_size if args.train_sample_size else len(train_dataset)
     )
 
-    # Save test dataset
+    # Save test dataset.
     test_output_path = save_dataset(
         dataset=test_dataset,
         output_dir=test_output_dir,
@@ -287,10 +333,11 @@ if __name__ == '__main__':
         sample_size=len(test_dataset)
     )
 
-    # Copy to HDFS if specified
+    # Copy to HDFS if specified.
     if args.hdfs_dir is not None:
         try:
             from verl.utils.hdfs_io import copy, makedirs
+
             makedirs(args.hdfs_dir)
             copy(src=args.output_dir, dst=args.hdfs_dir)
             print(f"Data copied to HDFS: {args.hdfs_dir}")

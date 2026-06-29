@@ -13,8 +13,25 @@ sys.path.append(project_root)
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 
 
-GROUPING_PROMPT_1_SHOT_SYS = """
+GROUPING_SYSTEM_PROMPT = """
 You are an expert AR-LSAT grouping-game solver.
+
+All AR-LSAT grouping problems in this dataset are complete, consistent, and solvable under their answer choices.
+Never say that the problem is incomplete, impossible, too complex, or cannot be solved.
+Always produce the required final answer block.
+
+Your final answer must contain exactly one <answer>...</answer> block.
+The content inside <answer>...</answer> must be a single valid JSON object.
+
+Any text outside <answer>...</answer>, including <think>...</think>, is ignored by the grader and receives zero reasoning credit.
+Do not rely on <think> for the solution proof.
+All graded deduction steps must be repeated inside the JSON "reasoning" field.
+
+If a <think> block is generated, keep it brief.
+The formal proof must be inside "reasoning".
+Do not put thinking markers, markdown, comments, or explanations inside the <answer> block.
+
+The grading system will evaluate only the first complete <answer>...</answer> block.
 
 You are given:
 (i) one AR-LSAT grouping passage written in plain English,
@@ -39,14 +56,29 @@ Your task is to parse the grouping problem into a solver-oriented logical repres
 You MUST return the result STRICTLY as a single valid JSON object wrapped inside:
 <answer>...</answer>
 
+The graded content must be inside exactly one <answer>...</answer> block.
+Anything outside the answer block is ignored by the grader.
+Inside the answer block, output only a single valid JSON object.
+
 ================================================================================
 CRITICAL FORMAT REQUIREMENTS
 ================================================================================
-- Output MUST contain ONLY ONE <answer>...</answer> block and NOTHING ELSE.
+- The final graded output MUST contain exactly one <answer>...</answer> block.
+- Anything outside the answer block is ignored by the grader, but the answer block itself must contain only valid JSON.
 - JSON MUST contain EXACTLY the 8 required keys.
+- The JSON object MUST have exactly EIGHT top-level keys, spelled EXACTLY:
+    "problem_type",
+    "world_model",
+    "rules",
+    "facts",
+    "question_semantics",
+    "options",
+    "reasoning",
+    "solution"
 - "problem_type" MUST be exactly "grouping".
 - All formal expressions MUST be strings.
-- No markdown, no code, no explanation outside <answer>.
+- Do NOT include extra text, markdown, explanations, or code fences.
+- Do NOT add any other keys.
 
 ================================================================================
 NORMALIZATION RULES FOR GROUPING
@@ -211,6 +243,30 @@ Allowed reasoning step types:
     If an option cannot be extended to any full valid grouping, use:
     S10: Unsat(Option_A).
 
+The "reasoning" field MUST follow this exact pair structure:
+    "reasoning": [
+    "Natural-language explanation.",
+    "S1: formal_step.",
+    "Natural-language explanation.",
+    "S2: formal_step.",
+    "Natural-language explanation.",
+    "S3: formal_step."
+    ]
+
+Rules:
+* Natural-language entries must NOT start with any label.
+* Natural-language entries must be plain explanatory sentences.
+* S entries must start with S1:, S2:, S3:, ...
+* The list must strictly alternate:
+  natural-language sentence, S-step, natural-language sentence, S-step, ...
+* Every S entry must be solver-checkable.
+* Every S entry must end with a period.
+* Do not write paragraph summaries.
+* Do not use unsupported notation such as arrows, quoted formal expressions, table-row summaries, or ordering notation unless the grouping problem explicitly includes ordered groups.
+* The model-specific <think> block is ignored by the grader.
+* Only the JSON "reasoning" list inside <answer>...</answer> is graded for reasoning quality.
+* Therefore, any formal deduction written in <think> must be repeated inside the JSON "reasoning" field.
+
 Logical validity requirements:
 - Every formal step MUST be entailed by rules + facts + earlier accepted formal steps, unless it is an option feasibility step.
 - For option feasibility steps:
@@ -241,7 +297,6 @@ Examples of valid interleaved grouping reasoning:
 
     Option D can be extended to a complete valid grouping.
     S6: Sat(Option_D).
-    
 
 ================================================================================
 SOLUTION REQUIREMENTS
@@ -276,10 +331,12 @@ OUTPUT SCHEMA
     "selected_option": ""
   }
 }</answer>
+"""
 
-================================================================================
-ONE-SHOT EXAMPLE: GROUPING
-================================================================================
+GROUPING_FEWSHOT_USER_PROMPT = """
+--------------------------------
+AR-LSAT GROUPING EXAMPLE
+--------------------------------
 
 Example Passage:
 Seven directors A, B, C, D, E, F, and G serve on either committee X or committee Y.
@@ -304,7 +361,10 @@ C. B and G are on X
 D. C and E are on Y
 E. G and E are on X
 
-Correct Output:
+Solve the AR-LSAT grouping example and return problem_type, world_model, rules, facts, question_semantics, options, reasoning, and solution inside a single <answer>...</answer> block, with no additional text.
+"""
+
+GROUPING_FEWSHOT_ASSISTANT_ANSWER = """
 <answer>{
   "problem_type": "grouping",
   "world_model": {
@@ -353,8 +413,7 @@ Correct Output:
 }</answer>
 """
 
-
-GROUPING_PROMPT_1_SHOT_USER = """
+GROUPING_USER_PROMPT_PHI = """
 --------------------------------
 AR-LSAT GROUPING PROBLEM TO SOLVE
 --------------------------------
@@ -369,10 +428,44 @@ options = {options}
 
 metadata = {metadata}
 
-Solve the AR-LSAT grouping problem above and return problem_type, world_model, rules, facts, question_semantics, options, reasoning, and solution inside a single <answer>...</answer> block, with no additional text.
+Solve the AR-LSAT grouping problem above and provide problem_type, world_model, rules, facts, question_semantics, options, reasoning, and solution.
+
+Your final answer block MUST begin with the exact characters:
+<answer>{{
+
+Your JSON MUST contain the fields in this exact order:
+1. "problem_type"
+2. "world_model"
+3. "rules"
+4. "facts"
+5. "question_semantics"
+6. "options"
+7. "reasoning"
+8. "solution"
+
+Important reasoning-field rule:
+The "reasoning" field must NOT be a paragraph summary.
+It must be an alternating list:
+natural-language sentence, syntactic/formal step, natural-language sentence, syntactic/formal step, ...
+
+Every formal step must start with S1:, S2:, S3:, etc.
+The model-specific <think> block is ignored by the grader.
+Only the "reasoning" field inside <answer> is evaluated for reasoning quality.
+Therefore, repeat the formal deduction steps inside the "reasoning" field.
+
+After the final reasoning string, immediately write the "solution" field.
+The "solution" field must be the final top-level key and must not be omitted.
+
+After the complete solution field, close the JSON object and end with:
+}}</answer>
+
+Return only one complete <answer>...</answer> block with no additional text.
+
+Reminder:
+The grader ignores <think> and any text outside <answer>.
+The only graded reasoning is the JSON "reasoning" list.
+If the "reasoning" list is a summary without S1:, S2:, S3: steps, the reasoning score is zero.
 """
-
-
 
 def extract_clues_from_puzzle(puzzle_text):
     """Extract clues from the puzzle text."""
@@ -422,31 +515,75 @@ def attribute_values_from_solution(solution: dict) -> dict:
         random.shuffle(values[key])
     return values
 
+
+def to_json_text(value):
+    """Serialize prompt fields deterministically and safely for model input."""
+    return json.dumps(value, ensure_ascii=False)
+
+
+def make_metadata(example):
+    """Keep optional metadata if present, without changing the core AR-LSAT fields."""
+    metadata = {}
+    for key in ("tags", "entities", "entity_hints", "game_type", "source", "difficulty"):
+        if key in example and example[key] is not None:
+            metadata[key] = example[key]
+    return metadata if metadata else None
+
+
+def serialize_phi_messages(messages):
+    prompt = ""
+
+    for message in messages:
+        role = message["role"]
+        content = message["content"].strip()
+
+        if role not in {"system", "user", "assistant"}:
+            raise ValueError(f"Unsupported role: {role}")
+
+        prompt += f"<|{role}|>\n{content}\n<|end|>\n"
+
+    prompt += "<|assistant|>"
+    return prompt
+
+
 def make_map_fn_1_shot(split, data_source):
     def process_fn_1_shot(example, idx):
-        # Use 'ground_truth' instead of 'solution' since that's what the input data has
+        # Use 'answer' as the rule-based ground truth for AR-LSAT.
         final_grid = example['answer']
-        # user_prompt = SOLUTION_PROMPT_USER_SOLUTION_BASED.format(puzzle=example['puzzle'])
-        user_prompt = GROUPING_PROMPT_1_SHOT_SYS + GROUPING_PROMPT_1_SHOT_USER.format(
-            passage=example['passage'],
-            question=example['question'],
-            question_type=example['question_type'],
-            options=example['options'],
-            metadata=None,
-        )
+
+        metadata = make_metadata(example)
+
+        messages = [
+            {
+                "role": "system",
+                "content": GROUPING_SYSTEM_PROMPT.strip(),
+            },
+            {
+                "role": "user",
+                "content": GROUPING_FEWSHOT_USER_PROMPT.strip(),
+            },
+            {
+                "role": "assistant",
+                "content": GROUPING_FEWSHOT_ASSISTANT_ANSWER.strip(),
+            },
+            {
+                "role": "user",
+                "content": GROUPING_USER_PROMPT_PHI.format(
+                    passage=example['passage'],
+                    question=example['question'],
+                    question_type=example['question_type'],
+                    options=to_json_text(example['options']),
+                    metadata=to_json_text(metadata),
+                ).strip(),
+            },
+        ]
+
+        phi_prompt = serialize_phi_messages(messages)
 
         data = {
             "data_source": data_source,
-            "prompt": [
-                {
-                    "role": "user",
-                    "content": user_prompt
-                }],
-            'raw_prompt': [
-                {
-                    "role": "user",
-                    "content": user_prompt
-                }],
+            "prompt": phi_prompt,
+            "raw_prompt": phi_prompt,
             "ability": "logical_reasoning",
             "reward_model": {
                 "style": "rule",
