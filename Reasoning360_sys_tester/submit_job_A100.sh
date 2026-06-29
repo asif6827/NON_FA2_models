@@ -87,6 +87,7 @@ fi
 
 
 #if false; then
+mkdir -p ./all_logs
 ACRONYM="MTMT"
 echo "Submitting Training job A100 + GT"
 TRAIN_TEMP_LIST=(0.8)
