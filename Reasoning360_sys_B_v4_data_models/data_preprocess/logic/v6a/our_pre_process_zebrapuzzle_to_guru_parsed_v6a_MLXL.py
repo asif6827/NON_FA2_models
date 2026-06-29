@@ -11,8 +11,6 @@ sys.path.append(project_root)
 
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 
-
-
 SOLUTION_PROMPT_1_SHOT_SYS = """
 You are an expert logic puzzle solver.
 
@@ -143,7 +141,7 @@ Syntactic entry format:
   ==, !=, <, >, + d ==, Not(...), And(...), Or(...)
 
 - Each syntactic step MUST be written in the exact form: S<k>
-    
+
   Atomic operators:
     ==        (same house / equivalence)
     !=        (not the same house)
@@ -336,7 +334,7 @@ def attribute_values_from_solution(solution: dict) -> dict:
             if i >= len(row):
                 continue
             v = "_".join(row[i].split(" "))
-            #v = row[i]
+            # v = row[i]
             if v not in seen[col]:
                 seen[col].add(v)
                 values[col].append(v)
@@ -423,8 +421,6 @@ if __name__ == '__main__':
         raise ValueError('Invalid data_setting')
     args.output_dir = os.path.join(args.output_dir, args.data_setting)
 
-
-
     if args.data_setting == 'mlxl_train_mlxl_test':
         # Load dataset from JSON or Parquet based on file extension
         file_extension = os.path.splitext(args.data_file)[1].lower()
@@ -441,7 +437,6 @@ if __name__ == '__main__':
             test_size=args.test_size,
             random_state=args.seed
         )
-
 
         # Create train and test datasets
         train_dataset = dataset.select(train_indices)
@@ -483,8 +478,6 @@ if __name__ == '__main__':
 
         process_test_fn = make_map_fn_1_shot('test', args.data_source_test)
         test_dataset = test_dataset.map(function=process_test_fn, with_indices=True)
-
-
 
     # Store the original training dataset size
     original_train_size = len(train_dataset)

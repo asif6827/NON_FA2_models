@@ -355,7 +355,6 @@ def extract_clues_from_puzzle(puzzle_text):
     else:
         return []
 
-
 def attribute_values_from_solution(solution: dict) -> dict:
     """
     Convert a solution table into attribute_values:
@@ -468,7 +467,6 @@ def make_map_fn_1_shot(split, data_source):
             print("\n" + "=" * 100 + f"{data_source} {split} {idx}" + "=" * 10)
             print(data)
             print("\n\n")
-
         return data
 
     return process_fn_1_shot
@@ -572,7 +570,7 @@ if __name__ == '__main__':
     train_dataset = sample_dataset(train_dataset, args.train_sample_size)
 
     # Create output directories
-    train_output_dir = os.path.join(args.output_dir, "train")
+    train_output_dir = os.path.join(args.output_dir ,"train")
     test_output_dir = os.path.join(args.output_dir, "test")
     os.makedirs(train_output_dir, exist_ok=True)
     os.makedirs(test_output_dir, exist_ok=True)
@@ -597,7 +595,6 @@ if __name__ == '__main__':
     if args.hdfs_dir is not None:
         try:
             from verl.utils.hdfs_io import copy, makedirs
-
             makedirs(args.hdfs_dir)
             copy(src=args.output_dir, dst=args.hdfs_dir)
             print(f"Data copied to HDFS: {args.hdfs_dir}")
