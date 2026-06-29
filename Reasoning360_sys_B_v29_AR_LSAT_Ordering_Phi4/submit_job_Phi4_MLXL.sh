@@ -4,6 +4,10 @@
 
 
 #if false; then
+
+mkdir -p ./all_logs
+
+
 ACRONYM="MLXL"
 echo "Submitting Training job H200 + GT"
 TRAIN_TEMP_LIST=(0.8)
