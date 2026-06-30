@@ -665,7 +665,7 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
             if "\\boxed" in raw or "\\begin" in raw:
                 reward -= 0.05
             reward = max(-0.10, min(reward, 0.02))
-            out["acc"] = 0.0
+            out["acc"] = _clamp_reward(reward)
             out["score"] = out["reward_logged"] = _clamp_reward(reward)
             out["missed_data"] = 1.0
             return _numeric_only(out)
