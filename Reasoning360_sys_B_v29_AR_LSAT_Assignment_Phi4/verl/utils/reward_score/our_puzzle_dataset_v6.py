@@ -396,9 +396,33 @@ def _schema_partial_score(payload: Optional[Dict[str, Any]]) -> tuple[float, Dic
     return min(max(score, 0.0), 1.0), details
 
 
+
+def _raw_output_shape_stats(solution_str: Any) -> Dict[str, float]:
+    text = "" if solution_str is None else (
+        solution_str.decode("utf-8", errors="ignore")
+        if isinstance(solution_str, bytes)
+        else str(solution_str)
+    )
+    stripped = text.strip()
+
+    refusal_re = re.compile(
+        r"(unfortunately|no correct answer|not enough information|cannot be solved|impossible|incomplete|none)",
+        re.IGNORECASE,
+    )
+
+    return {
+        "starts_with_answer_tag": 1.0 if stripped.startswith("<answer>{") else 0.0,
+        "contains_answer_tag": 1.0 if "<answer>" in stripped and "</answer>" in stripped else 0.0,
+        "no_think_prefix": 0.0 if stripped.startswith("</think>") or stripped.startswith("<think>") else 1.0,
+        "no_refusal_text": 0.0 if refusal_re.search(stripped) else 1.0,
+        "raw_json_like": 1.0 if ("{" in stripped and "}" in stripped) else 0.0,
+    }
+
 def compute_score(solution_str, ground_truth, extra_info: Any = None, score_method: str = "gt", timeout: float = 3.0, acc_weight: float = 0.8, clue_weight: float = 1.0, z3_weight: float = 0.2, meta: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
     try:
         out: Dict[str, Any] = _default_result(reward=0.0, missed_data=0.0)
+        raw_shape = _raw_output_shape_stats(solution_str)
+        out.update(raw_shape)
         payload, parse_status = parse_ar_lsat_answer(solution_str)
         parsing_reward = 1.0 if parse_status == "success_answer_tag" else 0.5 if parse_status == "success_direct_json" else 0.0
         out["parsing_reward"] = parsing_reward; out["parse_status_ok"] = 1.0 if parse_status == "success_answer_tag" else 0.0
@@ -444,6 +468,20 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         out["BASE_n_steps_novel_inc_clues"] = float(z3_out.get("n_steps_novel_inc_clues", 0) or 0)
         out["BASE_n_non_valid_contradiction"] = float(z3_out.get("n_non_valid_contradiction", 0) or 0)
         reward, normalizer = 0.0, 1.0
+
+        if payload is None:
+            reward = (
+                    0.10 * out["starts_with_answer_tag"]
+                    + 0.10 * out["contains_answer_tag"]
+                    + 0.10 * out["no_think_prefix"]
+                    + 0.10 * out["no_refusal_text"]
+                    + 0.05 * out["raw_json_like"]
+            )
+            reward = min(reward, 0.20)
+            out["acc"] = out["score"] = out["reward_logged"] = _clamp_reward(reward)
+            out["missed_data"] = 1.0
+            return _numeric_only(out)
+
         if isinstance(payload, dict):
             if n_values is not None and n_entities is not None:
                 normalizer = max(2.0 * max(int(n_values) * int(n_entities), 1), 1.0)

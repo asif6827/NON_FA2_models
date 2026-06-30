@@ -23,9 +23,9 @@ Always produce the required final answer block.
 Your final answer must contain exactly one <answer>...</answer> block.
 The content inside <answer>...</answer> must be a single valid JSON object.
 
-Any text outside <answer>...</answer>, including <think>...</think>, is ignored by the grader and receives zero reasoning credit.
-Do not rely on <think> for the solution proof.
-All graded deduction steps must be repeated inside the JSON "reasoning" field.
+Your response must start immediately with <answer>{.
+Do not write any text before <answer>.
+Do not write analysis, refusals, markdown, or explanations outside the JSON.
 
 
 The grading system will evaluate only the first complete <answer>...</answer> block.
@@ -53,7 +53,7 @@ You MUST return the result STRICTLY as a single valid JSON object wrapped inside
 <answer>...</answer>
 
 The graded content must be inside exactly one <answer>...</answer> block.
-Anything outside the answer block is ignored by the grader.
+Anything outside the answer block is invalid.
 Inside the answer block, output only a single valid JSON object.
 
 ================================================================================
@@ -344,7 +344,7 @@ options = {options}
 
 Solve the AR-LSAT assignment problem above and provide problem_type, world_model, rules, facts, question_semantics, options, reasoning, and solution.
 
-Your final answer block MUST begin with the exact characters:
+The first generated characters MUST be exactly:
 <answer>{{
 
 Your JSON MUST contain the fields in this exact order:
@@ -356,6 +356,9 @@ Your JSON MUST contain the fields in this exact order:
 6. "options"
 7. "reasoning"
 8. "solution"
+
+If the response starts with anything else, it is invalid.
+Do not start with </think>, <think>, "Unfortunately", "None", or any explanation.
 
 FINAL CHECK BEFORE OUTPUT:
 Before writing the answer, verify:
