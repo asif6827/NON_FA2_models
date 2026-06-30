@@ -66,7 +66,7 @@ def _safe_epoch(name: str, default: int) -> float:
 
 def _default_result(reward: float = -0.5, missed_data: float = 1.0) -> Dict[str, float]:
     out = {k: 0.0 for k in RESULT_KEYS}
-    out["acc"] = 0.0
+    out["acc"] = out["reward_logged"] = float(reward)
     out["score"] = out["reward_logged"] = float(reward)
     out["missed_data"] = float(missed_data)
     out["Normalizer"] = 1.0
