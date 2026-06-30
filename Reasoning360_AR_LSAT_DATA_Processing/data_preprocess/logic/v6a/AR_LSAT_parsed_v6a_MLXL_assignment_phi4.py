@@ -362,7 +362,7 @@ Before writing the answer, verify:
 1. The first top-level key is exactly "problem_type": "assignment".
 2. The JSON has exactly 8 top-level keys and no extra keys.
 3. "world_model.domains" is an object, not a list.
-4. Use "world_model": {"domains": {"values": [...]}}.
+4. Use "world_model": {{"domains": {{"values": [...]}}}}.
 5. "rules" is a list of formal strings using Assign/Not/And/Or/Implies/Exactly/AtLeast/AtMost.
 6. "options" is a JSON object mapping option labels to formal strings.
 7. "reasoning" alternates natural sentence, S-step, natural sentence, S-step.
