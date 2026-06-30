@@ -33,7 +33,7 @@ source activate zebrapuzzles
 
 #python ./data_preprocess/logic/v6a/AR_LSAT_parsed_v6a_MLXL_grouping_phi4.py --data_path '/export/home/asifali/HF_cache/AR_LSAT' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/AR_LSAT_grouping_v6a_MLXL'
 
-python ./data_preprocess/logic/v6a/AR_LSAT_parsed_v6a_MLXL_assignment_phi4.py --data_path '/export/home/asifali/HF_cache/AR_LSAT' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/AR_LSAT_assignment_v6a_MLXL'
+python ./data_preprocess/logic/v6a/AR_LSAT_parsed_v6a_MLXL_assignment_phi4_think.py --data_path '/export/home/asifali/HF_cache/AR_LSAT' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/AR_LSAT_assignment_v6a_MLXL'
 
 
 
