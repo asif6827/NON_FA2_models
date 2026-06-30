@@ -31,16 +31,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message
 logger = logging.getLogger(__name__)
 
 RESULT_KEYS = [
-    "acc", "score", "reward_logged", "ACCURACY", "parsing_reward",
-    "starts_with_think_json", "contains_think_marker", "think_not_followed_by_json",
-    "starts_with_answer_tag", "contains_answer_tag", "no_answer_tag",
-    "no_refusal_text", "raw_json_like", "no_markdown_fence",
-    "starts_with_latex_boxed", "starts_with_latex_begin",
-    "contains_latex_boxed", "contains_latex_begin", "contains_latex_text",
-    "no_latex_wrapper",
-    "schema_reward", "schema_partial_reward", "schema_required_keys_present",
-    "schema_problem_type_ok", "schema_world_model_ok", "schema_entities_ok",
-    "schema_domains_ok", "schema_solution_ok", "format_reward",
+    "acc", "score", "reward_logged", "ACCURACY", "parsing_reward", "schema_reward", "format_reward",
     "z3_reward", "consistency_score", "Normalizer", "BASE_sat_full_GT", "missed_data",
     "BASE_n_steps_total", "BASE_n_steps_parsed_ok", "BASE_n_steps_valid", "BASE_n_steps_novel_inc_clues", "BASE_n_non_valid_contradiction",
     "novel_step_score", "contradiction_ratio", "selected_option_present", "ground_truth_present", "parse_status_ok", "schema_status_ok", "z3_status_ok", "format_status_ok",
@@ -144,69 +135,14 @@ def _try_parse_first_json_obj(text: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _textify(solution_str: Any) -> str:
-    return "" if solution_str is None else (
-        solution_str.decode("utf-8", errors="ignore")
-        if isinstance(solution_str, bytes)
-        else str(solution_str)
-    )
-
-
-def _extract_after_think_marker(text: Any) -> str:
-    """Return text after the final </think> marker.
-
-    The new Phi4 prompt asks the model to emit:
-        </think>
-{ ... JSON ... }
-    so this is now the preferred extraction path.
-    """
-    raw = _textify(text)
-    if "</think>" in raw:
-        return raw.rsplit("</think>", 1)[1].strip()
-    return raw.strip()
-
-
 def parse_ar_lsat_answer(solution_str: Any):
-    """Parse AR-LSAT output.
-
-    Preferred new format is STRICT:
-        </think>
-        { ... JSON ... }
-
-    Important: for the new </think> format, we only parse when the first
-    non-space character after the final </think> marker is "{". This prevents
-    LaTeX wrappers such as </think>\boxed{...} or </think>\begin{...} from
-    receiving success_think_json parsing credit.
-    """
-    raw_text = _textify(solution_str)
-
-    # Preferred new format: strictly require JSON to begin immediately after
-    # optional whitespace following the final </think> marker.
-    json_candidate, think_status = _extract_json_after_think_marker(raw_text)
-    if think_status == "think_json_candidate":
-        parsed = _try_parse_first_json_obj(json_candidate)
-        if parsed is not None:
-            return parsed, "success_think_json"
-        return None, "think_json_parse_error"
-    if think_status == "think_not_followed_by_json":
-        return None, "think_not_followed_by_json"
-
-    # Backward compatibility with older <answer>...</answer> generations.
     block = find_last_answer_block(solution_str)
     if block is not None:
         parsed = _try_parse_first_json_obj(block)
         return (parsed, "success_answer_tag") if parsed is not None else (None, "answer_tag_json_error")
+    parsed = _try_parse_first_json_obj(solution_str)
+    return (parsed, "success_direct_json") if parsed is not None else (None, "parsing_failed")
 
-    # Last fallback: parse a direct JSON object only when the whole output,
-    # after trimming, starts with "{". Do not scan arbitrary inner braces here,
-    # because that rewards LaTeX wrappers and prose that merely contain JSON-like
-    # fragments.
-    stripped = raw_text.strip()
-    if stripped.startswith("{"):
-        parsed = _try_parse_first_json_obj(stripped)
-        return (parsed, "success_direct_json") if parsed is not None else (None, "direct_json_parse_error")
-
-    return None, think_status if think_status != "missing_think_marker" else "parsing_failed"
 
 def _selected_from_ground_truth(gt: Any) -> Optional[str]:
     if isinstance(gt, str): return _norm_option_label(gt)
@@ -224,358 +160,45 @@ def _selected_from_prediction(payload: Optional[Dict[str, Any]]) -> Optional[str
     return None
 
 
-def _flatten_scalars(x: Any) -> list[str]:
-    """Flatten common malformed domain/entity shapes into scalar strings.
-
-    Phi-style generations sometimes emit:
-      "domains": ["P1", "P2"]
-    instead of:
-      "domains": {"values": ["P1", "P2"]}
-
-    Reward code must treat such malformed-but-parseable outputs as schema
-    failures, not as runtime exceptions.
-    """
-    if x is None:
-        return []
-    if isinstance(x, str):
-        s = x.strip()
-        return [s] if s else []
-    if isinstance(x, (int, float, bool)):
-        return [str(x)]
-    if isinstance(x, list):
-        out: list[str] = []
-        for item in x:
-            out.extend(_flatten_scalars(item))
-        return out
-    if isinstance(x, dict):
-        out: list[str] = []
-        for item in x.values():
-            out.extend(_flatten_scalars(item))
-        return out
-    return [str(x)]
-
-
-def _unique_nonempty(xs: list[str]) -> list[str]:
-    seen, out = set(), []
-    for x in xs:
-        s = str(x).strip()
-        if not s or s in seen:
-            continue
-        seen.add(s)
-        out.append(s)
-    return out
-
-
-def _assign_args_from_payload(payload: Optional[Dict[str, Any]], arg_index: int) -> list[str]:
-    """Infer entity/value tokens from Assign(entity, value) expressions.
-
-    arg_index=0 returns entity tokens; arg_index=1 returns assignment values.
-    This is a fallback for malformed/missing world_model fields.
-    """
-    if not isinstance(payload, dict):
-        return []
-
-    chunks: list[str] = []
-    for key in ("rules", "facts", "reasoning"):
-        value = payload.get(key)
-        if isinstance(value, list):
-            chunks.extend(str(v) for v in value)
-
-    options = payload.get("options")
-    if isinstance(options, dict):
-        chunks.extend(str(v) for v in options.values())
-    elif isinstance(options, list):
-        chunks.extend(str(v) for v in options)
-
-    text = "\n".join(chunks)
-    found: list[str] = []
-    for m in re.finditer(r"Assign\s*\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*\)", text):
-        token = m.group(1 if arg_index == 0 else 2).strip()
-        if token:
-            found.append(token)
-    return _unique_nonempty(found)
-
-
 def _infer_n_values(payload: Optional[Dict[str, Any]]) -> Optional[int]:
-    if not isinstance(payload, dict):
-        return None
-
-    wm = payload.get("world_model") or {}
-    domains = wm.get("domains", {}) if isinstance(wm, dict) else {}
-
-    raw_values: list[str] = []
-
+    if not isinstance(payload, dict): return None
+    wm = payload.get("world_model") or {}; domains = wm.get("domains", {}) if isinstance(wm, dict) else {}
+    raw_values = domains.get("values") or domains.get("assignments") or domains.get("projects") or domains.get("colors") or domains.get("rooms") or domains.get("days") or domains.get("slots") or domains.get("tasks") or domains.get("teams") or []
+    if isinstance(raw_values, list) and raw_values: return len(raw_values)
+    flat = []
     if isinstance(domains, dict):
-        preferred_keys = (
-            "values", "assignments", "projects", "colors", "rooms",
-            "days", "slots", "tasks", "teams", "domains"
-        )
-        for key in preferred_keys:
-            values = _flatten_scalars(domains.get(key))
-            if values:
-                raw_values = values
-                break
-        if not raw_values:
-            raw_values = _flatten_scalars(domains)
-    elif isinstance(domains, list):
-        raw_values = _flatten_scalars(domains)
-    elif isinstance(domains, str):
-        raw_values = _flatten_scalars(domains)
-
-    values = _unique_nonempty(raw_values)
-    if values:
-        return len(values)
-
-    # Last-resort fallback: infer values from Assign(entity, value).
-    values = _assign_args_from_payload(payload, arg_index=1)
-    return len(values) if values else None
+        for v in domains.values():
+            if isinstance(v, list): flat.extend(v)
+    return len(set(str(x) for x in flat)) if flat else None
 
 
 def _infer_n_entities(payload: Optional[Dict[str, Any]]) -> Optional[int]:
-    if not isinstance(payload, dict):
-        return None
-
-    wm = payload.get("world_model") or {}
-    entities = wm.get("entities", []) if isinstance(wm, dict) else []
-
-    entity_values = _unique_nonempty(_flatten_scalars(entities))
-    if entity_values:
-        return len(entity_values)
-
-    # Last-resort fallback: infer entities from Assign(entity, value).
-    entity_values = _assign_args_from_payload(payload, arg_index=0)
-    return len(entity_values) if entity_values else None
+    if not isinstance(payload, dict): return None
+    wm = payload.get("world_model") or {}; entities = wm.get("entities", []) if isinstance(wm, dict) else []
+    return len(entities) if isinstance(entities, list) and entities else None
 
 
 def _schema_ok(payload: Optional[Dict[str, Any]]) -> bool:
-    if not isinstance(payload, dict):
-        return False
-
-    required = [
-        "problem_type", "world_model", "rules", "facts",
-        "question_semantics", "options", "reasoning", "solution",
-    ]
-    if any(k not in payload for k in required):
-        return False
-    if str(payload.get("problem_type") or "").strip().lower() != "assignment":
-        return False
-
-    world_model = payload.get("world_model")
-    if not isinstance(world_model, dict):
-        return False
-
-    # Prompt schema requires: "domains": {"values": [...]}
-    # If the model emits "domains": ["P1", "P2"], do not crash; simply
-    # mark schema_reward=0 and skip Z3 validation.
-    domains = world_model.get("domains")
-    domains_ok = isinstance(domains, dict) and any(
-        isinstance(v, list) and len(v) > 0 for v in domains.values()
-    )
-
-    solution = payload.get("solution")
-    return (
-        domains_ok
-        and isinstance(world_model.get("entities", []), list)
-        and isinstance(payload.get("rules"), list)
-        and isinstance(payload.get("facts"), list)
-        and isinstance(payload.get("question_semantics"), dict)
-        and isinstance(payload.get("options"), dict)
-        and isinstance(payload.get("reasoning"), list)
-        and isinstance(solution, dict)
-        and bool(solution.get("selected_option"))
-    )
+    if not isinstance(payload, dict): return False
+    required = ["problem_type", "world_model", "rules", "facts", "question_semantics", "options", "reasoning", "solution"]
+    if any(k not in payload for k in required): return False
+    if str(payload.get("problem_type") or "").strip().lower() != "assignment": return False
+    return isinstance(payload.get("world_model"), dict) and isinstance(payload.get("rules"), list) and isinstance(payload.get("facts"), list) and isinstance(payload.get("question_semantics"), dict) and isinstance(payload.get("options"), dict) and isinstance(payload.get("reasoning"), list) and isinstance(payload.get("solution"), dict) and bool(payload["solution"].get("selected_option"))
 
 
-def _schema_partial_score(payload: Optional[Dict[str, Any]]) -> tuple[float, Dict[str, float]]:
-    """Return a dense schema score plus diagnostics.
-
-    schema_reward remains a strict 0/1 gate for Z3 validation. This partial
-    score is only a shaping signal so RL can learn *which* parts of the JSON
-    schema are improving before the full schema is correct.
-    """
-    details = {
-        "schema_required_keys_present": 0.0,
-        "schema_problem_type_ok": 0.0,
-        "schema_world_model_ok": 0.0,
-        "schema_entities_ok": 0.0,
-        "schema_domains_ok": 0.0,
-        "schema_solution_ok": 0.0,
-    }
-
-    if not isinstance(payload, dict):
-        return 0.0, details
-
-    required = [
-        "problem_type", "world_model", "rules", "facts",
-        "question_semantics", "options", "reasoning", "solution",
-    ]
-
-    required_ratio = sum(1 for k in required if k in payload) / len(required)
-    details["schema_required_keys_present"] = required_ratio
-
-    if str(payload.get("problem_type") or "").strip().lower() == "assignment":
-        details["schema_problem_type_ok"] = 1.0
-
-    world_model = payload.get("world_model")
-    if isinstance(world_model, dict):
-        details["schema_world_model_ok"] = 1.0
-
-        entities = world_model.get("entities")
-        if isinstance(entities, list) and len(_unique_nonempty(_flatten_scalars(entities))) > 0:
-            details["schema_entities_ok"] = 1.0
-
-        # Full schema requires domains to be a dict containing at least one
-        # non-empty list, e.g. {"values": ["P1", "P2"]}. List-style domains
-        # are intentionally not schema-correct, although _infer_n_values can
-        # still read them for crash-safety.
-        domains = world_model.get("domains")
-        if isinstance(domains, dict) and any(isinstance(v, list) and len(v) > 0 for v in domains.values()):
-            details["schema_domains_ok"] = 1.0
-
-    solution = payload.get("solution")
-    if isinstance(solution, dict) and _norm_option_label(solution.get("selected_option")):
-        details["schema_solution_ok"] = 1.0
-
-    type_fields_ok = 0.0
-    type_fields_ok += 1.0 if isinstance(payload.get("rules"), list) else 0.0
-    type_fields_ok += 1.0 if isinstance(payload.get("facts"), list) else 0.0
-    type_fields_ok += 1.0 if isinstance(payload.get("question_semantics"), dict) else 0.0
-    type_fields_ok += 1.0 if isinstance(payload.get("options"), dict) else 0.0
-    type_fields_ok += 1.0 if isinstance(payload.get("reasoning"), list) else 0.0
-    type_fields_ratio = type_fields_ok / 5.0
-
-    # Weighted dense schema shaping. The strict schema_reward remains separate.
-    score = (
-        0.25 * details["schema_required_keys_present"]
-        + 0.15 * details["schema_problem_type_ok"]
-        + 0.10 * details["schema_world_model_ok"]
-        + 0.10 * details["schema_entities_ok"]
-        + 0.15 * details["schema_domains_ok"]
-        + 0.15 * type_fields_ratio
-        + 0.10 * details["schema_solution_ok"]
-    )
-    return min(max(score, 0.0), 1.0), details
-
-
-
-def _raw_output_shape_stats(solution_str: Any) -> Dict[str, float]:
-    text = _textify(solution_str)
-    stripped = text.strip()
-
-    zero = {
-        "starts_with_think_json": 0.0,
-        "contains_think_marker": 0.0,
-        "think_not_followed_by_json": 0.0,
-        "no_answer_tag": 0.0,
-        "starts_with_answer_tag": 0.0,
-        "contains_answer_tag": 0.0,
-        "no_refusal_text": 0.0,
-        "raw_json_like": 0.0,
-        "no_markdown_fence": 0.0,
-        "starts_with_latex_boxed": 0.0,
-        "starts_with_latex_begin": 0.0,
-        "contains_latex_boxed": 0.0,
-        "contains_latex_begin": 0.0,
-        "contains_latex_text": 0.0,
-        "no_latex_wrapper": 0.0,
-    }
-    if not stripped:
-        return zero
-
-    after_think = _extract_after_think_marker(stripped)
-    after_lstrip = after_think.lstrip()
-
-    starts_with_latex_boxed = after_lstrip.startswith("\\boxed")
-    starts_with_latex_begin = after_lstrip.startswith("\\begin")
-    contains_latex_boxed = "\\boxed" in stripped
-    contains_latex_begin = "\\begin" in stripped
-    contains_latex_text = any(tok in stripped for tok in ("\\text", "\\textbf", "\\mathrm", "\\begin{aligned}", "\\end{aligned}"))
-    no_latex_wrapper = not (
-        starts_with_latex_boxed
-        or starts_with_latex_begin
-        or contains_latex_boxed
-        or contains_latex_begin
-        or contains_latex_text
-    )
-
-    refusal_re = re.compile(
-        r"(unfortunately|no correct answer|not enough information|cannot be solved|impossible|incomplete|none)",
-        re.IGNORECASE,
-    )
-
-    starts_with_think = stripped.startswith("</think>")
-    starts_with_think_json = starts_with_think and after_lstrip.startswith("{")
-    think_not_followed_by_json = 1.0 if ("</think>" in stripped and not after_lstrip.startswith("{")) else 0.0
-
-    return {
-        # New preferred format diagnostics.
-        "starts_with_think_json": 1.0 if starts_with_think_json else 0.0,
-        "contains_think_marker": 1.0 if "</think>" in stripped else 0.0,
-        "think_not_followed_by_json": think_not_followed_by_json,
-        "no_answer_tag": 1.0 if "<answer" not in stripped.lower() and "</answer" not in stripped.lower() else 0.0,
-
-        # Backward compatibility diagnostics for old runs.
-        "starts_with_answer_tag": 1.0 if stripped.startswith("<answer>{") else 0.0,
-        "contains_answer_tag": 1.0 if "<answer" in stripped.lower() and "</answer" in stripped.lower() else 0.0,
-
-        # General shape diagnostics.
-        "no_refusal_text": 0.0 if refusal_re.search(stripped) else 1.0,
-        "raw_json_like": 1.0 if ("{" in after_think and "}" in after_think) else 0.0,
-        "no_markdown_fence": 0.0 if "```" in stripped else 1.0,
-
-        # LaTeX wrapper diagnostics.
-        "starts_with_latex_boxed": 1.0 if starts_with_latex_boxed else 0.0,
-        "starts_with_latex_begin": 1.0 if starts_with_latex_begin else 0.0,
-        "contains_latex_boxed": 1.0 if contains_latex_boxed else 0.0,
-        "contains_latex_begin": 1.0 if contains_latex_begin else 0.0,
-        "contains_latex_text": 1.0 if contains_latex_text else 0.0,
-        "no_latex_wrapper": 1.0 if no_latex_wrapper else 0.0,
-    }
-
-def _extract_json_after_think_marker(text: Any) -> tuple[Optional[str], str]:
-    """Strictly extract the JSON candidate after the final </think> marker.
-
-    Returns:
-      (candidate, "think_json_candidate") when after </think> starts with "{".
-      (None, "think_not_followed_by_json") when </think> exists but is followed
-          by LaTeX/prose/markdown/etc. instead of a raw JSON object.
-      (None, "missing_think_marker") when the marker is absent.
-
-    This intentionally rejects outputs like:
-      </think>\boxed{...}
-      </think>\begin{aligned}...
-      </think>```json
-    even if they contain braces later.
-    """
-    raw = _textify(text)
-
-    if "</think>" not in raw:
-        return None, "missing_think_marker"
-
-    after = raw.rsplit("</think>", 1)[1].lstrip()
-
-    if not after.startswith("{"):
-        return None, "think_not_followed_by_json"
-
-    return after, "think_json_candidate"
 def compute_score(solution_str, ground_truth, extra_info: Any = None, score_method: str = "gt", timeout: float = 3.0, acc_weight: float = 0.8, clue_weight: float = 1.0, z3_weight: float = 0.2, meta: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
     try:
         out: Dict[str, Any] = _default_result(reward=0.0, missed_data=0.0)
-        raw_shape = _raw_output_shape_stats(solution_str)
-        out.update(raw_shape)
         payload, parse_status = parse_ar_lsat_answer(solution_str)
-        parsing_reward = 1.0 if parse_status == "success_think_json" else 0.9 if parse_status == "success_answer_tag" else 0.5 if parse_status == "success_direct_json" else 0.0
-        out["parsing_reward"] = parsing_reward; out["parse_status_ok"] = 1.0 if parse_status in {"success_think_json", "success_answer_tag"} else 0.0
-        out["parse_error_flag"] = 0.0 if parse_status in {"success_think_json", "success_answer_tag", "success_direct_json"} else 1.0
+        parsing_reward = 1.0 if parse_status == "success_answer_tag" else 0.5 if parse_status == "success_direct_json" else 0.0
+        out["parsing_reward"] = parsing_reward; out["parse_status_ok"] = 1.0 if parse_status == "success_answer_tag" else 0.0
+        out["parse_error_flag"] = 0.0 if parse_status in {"success_answer_tag", "success_direct_json"} else 1.0
         selected = _selected_from_prediction(payload); gt = _selected_from_ground_truth(ground_truth)
         out["selected_option_present"] = 1.0 if selected else 0.0; out["ground_truth_present"] = 1.0 if gt else 0.0
         accuracy = 1.0 if selected and gt and selected == gt else 0.0
         out["ACCURACY"] = accuracy
         schema_reward = 1.0 if _schema_ok(payload) else 0.0
-        schema_partial_reward, schema_details = _schema_partial_score(payload)
         out["schema_reward"] = out["schema_status_ok"] = schema_reward
-        out["schema_partial_reward"] = schema_partial_reward
-        out.update(schema_details)
         reasoning = payload.get("reasoning") if isinstance(payload, dict) else None
         n_values = _infer_n_values(payload); n_entities = _infer_n_entities(payload)
         try:
@@ -608,93 +231,19 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         out["BASE_n_steps_novel_inc_clues"] = float(z3_out.get("n_steps_novel_inc_clues", 0) or 0)
         out["BASE_n_non_valid_contradiction"] = float(z3_out.get("n_non_valid_contradiction", 0) or 0)
         reward, normalizer = 0.0, 1.0
-
-        if payload is None:
-            # Parse-failure shaping: reward only the desired raw shape. Do NOT
-            # reward LaTeX wrappers such as </think>\boxed{...} or
-            # </think>\begin{...}, even if they contain braces.
-            reward = (
-                0.15 * out["starts_with_think_json"]
-                + 0.05 * out["contains_think_marker"]
-                + 0.05 * out["no_answer_tag"]
-                + 0.05 * out["no_refusal_text"]
-                + 0.05 * out["no_markdown_fence"]
-                + 0.10 * out["no_latex_wrapper"]
-                # Backward compatibility: old <answer> outputs get small credit.
-                + 0.03 * out["contains_answer_tag"]
-            )
-
-            if (
-                out["starts_with_latex_boxed"] > 0.0
-                or out["starts_with_latex_begin"] > 0.0
-                or out["contains_latex_boxed"] > 0.0
-                or out["contains_latex_begin"] > 0.0
-            ):
-                reward -= 0.20
-
-            reward = max(-0.20, min(reward, 0.10))
-            out["acc"] = out["score"] = out["reward_logged"] = _clamp_reward(reward)
-            out["missed_data"] = 1.0
-            return _numeric_only(out)
-
-        if isinstance(payload, dict):
-            if n_values is not None and n_entities is not None:
-                normalizer = max(2.0 * max(int(n_values) * int(n_entities), 1), 1.0)
+        if isinstance(payload, dict) and n_values is not None and n_entities is not None:
+            normalizer = max(2.0 * max(int(n_values) * int(n_entities), 1), 1.0)
+            n_novel = out["BASE_n_steps_novel_inc_clues"]; n_contra = out["BASE_n_non_valid_contradiction"]
+            novel_step_score = min(n_novel / normalizer, 1.0); contradiction_ratio = min(n_contra / normalizer, 1.0)
+            if sat_ok == 0.0:
+                reward = 0.15 * parsing_reward + 0.10 * out["format_reward"] + 0.60 * accuracy - 0.20 * contradiction_ratio
             else:
-                # Parsed JSON exists, but the domain/entity metadata cannot be
-                # inferred. Keep a small shaping signal instead of crashing or
-                # giving a high answer-only reward.
-                out["missed_data"] = 1.0
-
-            n_novel = out["BASE_n_steps_novel_inc_clues"]
-            n_contra = out["BASE_n_non_valid_contradiction"]
-            novel_step_score = min(n_novel / normalizer, 1.0)
-            contradiction_ratio = min(n_contra / normalizer, 1.0)
-
-            if schema_reward == 0.0:
-                # SCHEMA GATE: invalid-schema outputs must not receive a high
-                # reward even if the final selected option is correct. This
-                # forces RL to learn the JSON/world_model/rules/reasoning shape.
-                reward = (
-                    0.10 * parsing_reward
-                    + 0.30 * schema_partial_reward
-                    + 0.10 * out["selected_option_present"]
-                    + 0.10 * accuracy
-                    + 0.05 * out["format_reward"]
-                )
-                reward = min(reward, 0.35)
-            elif sat_ok == 0.0:
-                # Full schema is valid, but Z3/GT validation did not pass yet.
-                # Give meaningful credit for schema and format, but keep this
-                # clearly below a fully solver-valid answer.
-                reward = (
-                    0.10 * parsing_reward
-                    + 0.20 * schema_reward
-                    + 0.15 * out["format_reward"]
-                    + 0.35 * accuracy
-                    - 0.20 * contradiction_ratio
-                )
-                reward = min(reward, 0.70)
-            else:
-                base_quality = (
-                    0.35 * accuracy
-                    + 0.15 * parsing_reward
-                    + 0.15 * schema_reward
-                    + 0.15 * out["format_reward"]
-                    + 0.20 * sat_ok
-                )
-                process_bonus = (
-                    0.40 * novel_step_score
-                    + 0.30 * out["consistency_score"]
-                    - 0.15 * contradiction_ratio
-                )
+                base_quality = 0.60 * accuracy + 0.20 * parsing_reward + 0.20 * out["format_reward"]
+                process_bonus = 0.40 * novel_step_score + 0.30 * out["consistency_score"] - 0.15 * contradiction_ratio
                 reward = base_quality + accuracy * process_bonus
-
-            out["novel_step_score"] = novel_step_score
-            out["contradiction_ratio"] = contradiction_ratio
+            out["novel_step_score"] = novel_step_score; out["contradiction_ratio"] = contradiction_ratio
         else:
-            reward = -0.5
-            out["missed_data"] = 1.0
+            reward = -0.5; out["missed_data"] = 1.0
         out["Normalizer"] = normalizer
         out["acc"] = out["score"] = out["reward_logged"] = _clamp_reward(reward)
         return _numeric_only(out)
@@ -704,7 +253,7 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
 
 
 def _wrap(payload: Dict[str, Any]) -> str:
-    return "</think>\n" + json.dumps(payload, ensure_ascii=False, indent=2)
+    return "<answer>" + json.dumps(payload, ensure_ascii=False, indent=2) + "</answer>"
 
 
 def _make_answer(selected: str = "A", bad_format: bool = False) -> str:
@@ -720,37 +269,7 @@ def _make_must_be_true_answer() -> str:
 
 
 if __name__ == "__main__":
-    malformed_domains_payload = {
-        "problem_type": "assignment",
-        "world_model": {
-            "entities": ["A", "B", "C"],
-            "domains": ["P1", "P2", "P3"],
-            "structural_assumptions": ["each entity is assigned exactly one value"],
-        },
-        "rules": ["Not(Assign(A, P1))"],
-        "facts": [],
-        "question_semantics": {"question_type": "could_be_true"},
-        "options": {"A": "Assign(A, P2)", "B": "Assign(A, P1)"},
-        "reasoning": [
-            "A is not assigned to P1 by the first rule.",
-            "S1: Not(Assign(A, P1)).",
-            "Option A can be extended to a full valid assignment.",
-            "S2: Sat(Option_A).",
-        ],
-        "solution": {"selected_option": "A"},
-    }
-    tests = [
-        ("correct_could_be_true", _make_answer("Option_A"), "A"),
-        ("wrong_selected_option", _make_answer("B"), "A"),
-        ("bad_format_correct_answer", _make_answer("A", bad_format=True), "A"),
-        ("must_be_true", _make_must_be_true_answer(), "A"),
-        ("malformed_domains_list_no_crash", _wrap(malformed_domains_payload), "A"),
-        ("old_answer_tag_backward_compatible", "<answer>{\"solution\": {\"selected_option\": \"A\"}}</answer>", "A"),
-        ("latex_boxed_rejected", "</think>\\boxed{{\"solution\": {\"selected_option\": \"A\"}}}", "A"),
-        ("latex_begin_rejected", "</think>\\begin{aligned}{\"solution\": {\"selected_option\": \"A\"}}\\end{aligned}", "A"),
-        ("malformed_json", "</think>{bad json", "A"),
-        ("none_output", None, "A"),
-    ]
+    tests = [("correct_could_be_true", _make_answer("Option_A"), "A"), ("wrong_selected_option", _make_answer("B"), "A"), ("bad_format_correct_answer", _make_answer("A", bad_format=True), "A"), ("must_be_true", _make_must_be_true_answer(), "A"), ("malformed_json", "<answer>{bad json</answer>", "A"), ("none_output", None, "A")]
     for name, pred, gt in tests:
         print(f"\n=== {name} ===")
         result = compute_score(pred, gt)
