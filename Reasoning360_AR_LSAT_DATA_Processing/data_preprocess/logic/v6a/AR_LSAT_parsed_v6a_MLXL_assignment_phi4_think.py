@@ -32,6 +32,10 @@ Do NOT use markdown, code fences, refusals, or explanations outside the JSON.
 The grader will parse the first JSON object that appears after </think>.
 
 Invalid outputs:
+</think>\n{
+</think> \n {
+</think>
+{
 </think>\\boxed{...}
 </think>\\begin{aligned}...
 </think>```json
