@@ -32,9 +32,12 @@ logger = logging.getLogger(__name__)
 
 RESULT_KEYS = [
     "acc", "score", "reward_logged", "ACCURACY", "parsing_reward",
-    "starts_with_think_json", "contains_think_marker", "starts_with_answer_tag",
-    "contains_answer_tag", "no_answer_tag", "no_refusal_text", "raw_json_like",
-    "no_markdown_fence",
+    "starts_with_think_json", "contains_think_marker", "think_not_followed_by_json",
+    "starts_with_answer_tag", "contains_answer_tag", "no_answer_tag",
+    "no_refusal_text", "raw_json_like", "no_markdown_fence",
+    "starts_with_latex_boxed", "starts_with_latex_begin",
+    "contains_latex_boxed", "contains_latex_begin", "contains_latex_text",
+    "no_latex_wrapper",
     "schema_reward", "schema_partial_reward", "schema_required_keys_present",
     "schema_problem_type_ok", "schema_world_model_ok", "schema_entities_ok",
     "schema_domains_ok", "schema_solution_ok", "format_reward",
@@ -164,13 +167,29 @@ def _extract_after_think_marker(text: Any) -> str:
 
 
 def parse_ar_lsat_answer(solution_str: Any):
-    # Preferred new format: </think> followed by one JSON object.
+    """Parse AR-LSAT output.
+
+    Preferred new format is STRICT:
+        </think>
+        { ... JSON ... }
+
+    Important: for the new </think> format, we only parse when the first
+    non-space character after the final </think> marker is "{". This prevents
+    LaTeX wrappers such as </think>\boxed{...} or </think>\begin{...} from
+    receiving success_think_json parsing credit.
+    """
     raw_text = _textify(solution_str)
-    if "</think>" in raw_text:
-        after_think = _extract_after_think_marker(raw_text)
-        parsed = _try_parse_first_json_obj(after_think)
+
+    # Preferred new format: strictly require JSON to begin immediately after
+    # optional whitespace following the final </think> marker.
+    json_candidate, think_status = _extract_json_after_think_marker(raw_text)
+    if think_status == "think_json_candidate":
+        parsed = _try_parse_first_json_obj(json_candidate)
         if parsed is not None:
             return parsed, "success_think_json"
+        return None, "think_json_parse_error"
+    if think_status == "think_not_followed_by_json":
+        return None, "think_not_followed_by_json"
 
     # Backward compatibility with older <answer>...</answer> generations.
     block = find_last_answer_block(solution_str)
@@ -178,10 +197,16 @@ def parse_ar_lsat_answer(solution_str: Any):
         parsed = _try_parse_first_json_obj(block)
         return (parsed, "success_answer_tag") if parsed is not None else (None, "answer_tag_json_error")
 
-    # Last fallback: parse first JSON object anywhere in the output.
-    parsed = _try_parse_first_json_obj(solution_str)
-    return (parsed, "success_direct_json") if parsed is not None else (None, "parsing_failed")
+    # Last fallback: parse a direct JSON object only when the whole output,
+    # after trimming, starts with "{". Do not scan arbitrary inner braces here,
+    # because that rewards LaTeX wrappers and prose that merely contain JSON-like
+    # fragments.
+    stripped = raw_text.strip()
+    if stripped.startswith("{"):
+        parsed = _try_parse_first_json_obj(stripped)
+        return (parsed, "success_direct_json") if parsed is not None else (None, "direct_json_parse_error")
 
+    return None, think_status if think_status != "missing_think_marker" else "parsing_failed"
 
 def _selected_from_ground_truth(gt: Any) -> Optional[str]:
     if isinstance(gt, str): return _norm_option_label(gt)
@@ -440,27 +465,53 @@ def _raw_output_shape_stats(solution_str: Any) -> Dict[str, float]:
     zero = {
         "starts_with_think_json": 0.0,
         "contains_think_marker": 0.0,
+        "think_not_followed_by_json": 0.0,
         "no_answer_tag": 0.0,
         "starts_with_answer_tag": 0.0,
         "contains_answer_tag": 0.0,
         "no_refusal_text": 0.0,
         "raw_json_like": 0.0,
         "no_markdown_fence": 0.0,
+        "starts_with_latex_boxed": 0.0,
+        "starts_with_latex_begin": 0.0,
+        "contains_latex_boxed": 0.0,
+        "contains_latex_begin": 0.0,
+        "contains_latex_text": 0.0,
+        "no_latex_wrapper": 0.0,
     }
     if not stripped:
         return zero
 
     after_think = _extract_after_think_marker(stripped)
+    after_lstrip = after_think.lstrip()
+
+    starts_with_latex_boxed = after_lstrip.startswith("\\boxed")
+    starts_with_latex_begin = after_lstrip.startswith("\\begin")
+    contains_latex_boxed = "\\boxed" in stripped
+    contains_latex_begin = "\\begin" in stripped
+    contains_latex_text = any(tok in stripped for tok in ("\\text", "\\textbf", "\\mathrm", "\\begin{aligned}", "\\end{aligned}"))
+    no_latex_wrapper = not (
+        starts_with_latex_boxed
+        or starts_with_latex_begin
+        or contains_latex_boxed
+        or contains_latex_begin
+        or contains_latex_text
+    )
 
     refusal_re = re.compile(
         r"(unfortunately|no correct answer|not enough information|cannot be solved|impossible|incomplete|none)",
         re.IGNORECASE,
     )
 
+    starts_with_think = stripped.startswith("</think>")
+    starts_with_think_json = starts_with_think and after_lstrip.startswith("{")
+    think_not_followed_by_json = 1.0 if ("</think>" in stripped and not after_lstrip.startswith("{")) else 0.0
+
     return {
         # New preferred format diagnostics.
-        "starts_with_think_json": 1.0 if stripped.startswith("</think>") and after_think.lstrip().startswith("{") else 0.0,
+        "starts_with_think_json": 1.0 if starts_with_think_json else 0.0,
         "contains_think_marker": 1.0 if "</think>" in stripped else 0.0,
+        "think_not_followed_by_json": think_not_followed_by_json,
         "no_answer_tag": 1.0 if "<answer" not in stripped.lower() and "</answer" not in stripped.lower() else 0.0,
 
         # Backward compatibility diagnostics for old runs.
@@ -471,9 +522,42 @@ def _raw_output_shape_stats(solution_str: Any) -> Dict[str, float]:
         "no_refusal_text": 0.0 if refusal_re.search(stripped) else 1.0,
         "raw_json_like": 1.0 if ("{" in after_think and "}" in after_think) else 0.0,
         "no_markdown_fence": 0.0 if "```" in stripped else 1.0,
+
+        # LaTeX wrapper diagnostics.
+        "starts_with_latex_boxed": 1.0 if starts_with_latex_boxed else 0.0,
+        "starts_with_latex_begin": 1.0 if starts_with_latex_begin else 0.0,
+        "contains_latex_boxed": 1.0 if contains_latex_boxed else 0.0,
+        "contains_latex_begin": 1.0 if contains_latex_begin else 0.0,
+        "contains_latex_text": 1.0 if contains_latex_text else 0.0,
+        "no_latex_wrapper": 1.0 if no_latex_wrapper else 0.0,
     }
 
+def _extract_json_after_think_marker(text: Any) -> tuple[Optional[str], str]:
+    """Strictly extract the JSON candidate after the final </think> marker.
 
+    Returns:
+      (candidate, "think_json_candidate") when after </think> starts with "{".
+      (None, "think_not_followed_by_json") when </think> exists but is followed
+          by LaTeX/prose/markdown/etc. instead of a raw JSON object.
+      (None, "missing_think_marker") when the marker is absent.
+
+    This intentionally rejects outputs like:
+      </think>\boxed{...}
+      </think>\begin{aligned}...
+      </think>```json
+    even if they contain braces later.
+    """
+    raw = _textify(text)
+
+    if "</think>" not in raw:
+        return None, "missing_think_marker"
+
+    after = raw.rsplit("</think>", 1)[1].lstrip()
+
+    if not after.startswith("{"):
+        return None, "think_not_followed_by_json"
+
+    return after, "think_json_candidate"
 def compute_score(solution_str, ground_truth, extra_info: Any = None, score_method: str = "gt", timeout: float = 3.0, acc_weight: float = 0.8, clue_weight: float = 1.0, z3_weight: float = 0.2, meta: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
     try:
         out: Dict[str, Any] = _default_result(reward=0.0, missed_data=0.0)
@@ -526,17 +610,29 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         reward, normalizer = 0.0, 1.0
 
         if payload is None:
+            # Parse-failure shaping: reward only the desired raw shape. Do NOT
+            # reward LaTeX wrappers such as </think>\boxed{...} or
+            # </think>\begin{...}, even if they contain braces.
             reward = (
-                    0.15 * out["starts_with_think_json"]
-                    + 0.10 * out["contains_think_marker"]
-                    + 0.05 * out["no_answer_tag"]
-                    + 0.10 * out["no_refusal_text"]
-                    + 0.05 * out["raw_json_like"]
-                    + 0.05 * out["no_markdown_fence"]
-                    # Backward compatibility: old <answer> outputs get small credit.
-                    + 0.05 * out["contains_answer_tag"]
+                0.15 * out["starts_with_think_json"]
+                + 0.05 * out["contains_think_marker"]
+                + 0.05 * out["no_answer_tag"]
+                + 0.05 * out["no_refusal_text"]
+                + 0.05 * out["no_markdown_fence"]
+                + 0.10 * out["no_latex_wrapper"]
+                # Backward compatibility: old <answer> outputs get small credit.
+                + 0.03 * out["contains_answer_tag"]
             )
-            reward = min(reward, 0.25)
+
+            if (
+                out["starts_with_latex_boxed"] > 0.0
+                or out["starts_with_latex_begin"] > 0.0
+                or out["contains_latex_boxed"] > 0.0
+                or out["contains_latex_begin"] > 0.0
+            ):
+                reward -= 0.20
+
+            reward = max(-0.20, min(reward, 0.10))
             out["acc"] = out["score"] = out["reward_logged"] = _clamp_reward(reward)
             out["missed_data"] = 1.0
             return _numeric_only(out)
@@ -650,6 +746,8 @@ if __name__ == "__main__":
         ("must_be_true", _make_must_be_true_answer(), "A"),
         ("malformed_domains_list_no_crash", _wrap(malformed_domains_payload), "A"),
         ("old_answer_tag_backward_compatible", "<answer>{\"solution\": {\"selected_option\": \"A\"}}</answer>", "A"),
+        ("latex_boxed_rejected", "</think>\\boxed{{\"solution\": {\"selected_option\": \"A\"}}}", "A"),
+        ("latex_begin_rejected", "</think>\\begin{aligned}{\"solution\": {\"selected_option\": \"A\"}}\\end{aligned}", "A"),
         ("malformed_json", "</think>{bad json", "A"),
         ("none_output", None, "A"),
     ]

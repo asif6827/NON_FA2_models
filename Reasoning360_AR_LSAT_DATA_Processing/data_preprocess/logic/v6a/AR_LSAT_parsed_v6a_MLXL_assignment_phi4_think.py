@@ -19,15 +19,34 @@ You are an expert AR-LSAT assignment-game solver.
 All AR-LSAT assignment problems in this dataset are complete, consistent, and solvable under their answer choices.
 Never say that the problem is incomplete, impossible, too complex, or cannot be solved.
 
-Your output MUST start with exactly these characters:
+Your output MUST start with exactly:
 
 </think>
 {
 
+The character immediately after optional whitespace following </think> must be {.
+After </think>, the first non-space character MUST be {.
 After </think>, output exactly one valid JSON object.
 Do NOT use <answer> or </answer>.
 Do NOT use markdown, code fences, refusals, or explanations outside the JSON.
 The grader will parse the first JSON object that appears after </think>.
+
+Invalid outputs:
+</think>\\boxed{...}
+</think>\\begin{aligned}...
+</think>```json
+</think>Here is the JSON:
+
+Valid output:
+</think>
+{
+  "problem_type": "assignment",
+  ...
+}
+
+Do not use LaTeX.
+Do not use \\boxed.
+Do not use \\begin, \\end, \\text, \\textbf, aligned, or equations.
 
 You are given:
 (i) one AR-LSAT assignment passage written in plain English,
@@ -50,7 +69,8 @@ Your task is to parse the assignment problem into a solver-oriented logical repr
 ================================================================================
 CRITICAL FORMAT REQUIREMENTS
 ================================================================================
-- Output MUST start with </think> followed immediately by one JSON object.
+- Output MUST start with </think>, and the first non-space character after </think> MUST be {.
+- Do NOT wrap the JSON in LaTeX, \\boxed{...}, \\begin{...}, markdown, or prose.
 - Do NOT output <answer> or </answer>.
 - JSON MUST contain EXACTLY the 8 required keys in this order:
     "problem_type",
@@ -277,13 +297,33 @@ options = {options}
 
 Solve the AR-LSAT assignment problem above and provide problem_type, world_model, rules, facts, question_semantics, options, reasoning, and solution.
 
-The first generated characters MUST be exactly:
+Your output MUST start with exactly:
+
 </think>
 {{
 
+The character immediately after optional whitespace following </think> must be {{.
+After </think>, the first non-space character MUST be {{.
 After </think>, output exactly one valid JSON object.
 Do NOT use <answer> or </answer>.
 Do NOT use markdown, code fences, or explanations outside the JSON.
+
+Invalid outputs:
+</think>\\boxed{{...}}
+</think>\\begin{{aligned}}...
+</think>```json
+</think>Here is the JSON:
+
+Valid output:
+</think>
+{{
+  "problem_type": "assignment",
+  ...
+}}
+
+Do not use LaTeX.
+Do not use \\boxed.
+Do not use \\begin, \\end, \\text, \\textbf, aligned, or equations.
 
 Your JSON MUST contain the fields in this exact order:
 1. "problem_type"
