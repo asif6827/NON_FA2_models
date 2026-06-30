@@ -481,7 +481,7 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
                     + 0.35 * accuracy
                     - 0.20 * contradiction_ratio
                 )
-                reward = min(reward, 0.70)
+                reward = min(reward, 0.35)
             else:
                 base_quality = (
                     0.35 * accuracy
@@ -495,7 +495,7 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
                     + 0.30 * out["consistency_score"]
                     - 0.15 * contradiction_ratio
                 )
-                reward = base_quality + accuracy * process_bonus
+                reward = base_quality + accuracy * 5 * process_bonus
 
             out["novel_step_score"] = novel_step_score
             out["contradiction_ratio"] = contradiction_ratio
