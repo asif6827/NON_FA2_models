@@ -86,7 +86,7 @@ echo "Python Path = ${PYTHONPATH}"
 # =================== User-Configurable Settings ===================
 # --- Execution Environment ---
 NUM_GPUS=4 # Set the number of GPUs to use on this node
-gpu_memory_utilization=0.7
+gpu_memory_utilization=0.5
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
 WANDB_PROJECT="Sys_B_v1_Qwen3_4B_MLXL_1_1shot_H200" # Your wandb project name
