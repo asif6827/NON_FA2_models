@@ -313,6 +313,10 @@ Do NOT use <answer> or </answer>.
 Do NOT use markdown, code fences, or explanations outside the JSON.
 
 Invalid outputs:
+</think>\n{
+</think> \n {
+</think>
+{
 </think>\\boxed{{...}}
 </think>\\begin{{aligned}}...
 </think>```json
