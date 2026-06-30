@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 RESULT_KEYS = [
     "acc", "score", "reward_logged", "ACCURACY", "parsing_reward",
+    "starts_with_think_json", "contains_think_marker", "starts_with_answer_tag",
+    "contains_answer_tag", "no_answer_tag", "no_refusal_text", "raw_json_like",
+    "no_markdown_fence",
     "schema_reward", "schema_partial_reward", "schema_required_keys_present",
     "schema_problem_type_ok", "schema_world_model_ok", "schema_entities_ok",
     "schema_domains_ok", "schema_solution_ok", "format_reward",
@@ -138,11 +141,44 @@ def _try_parse_first_json_obj(text: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _textify(solution_str: Any) -> str:
+    return "" if solution_str is None else (
+        solution_str.decode("utf-8", errors="ignore")
+        if isinstance(solution_str, bytes)
+        else str(solution_str)
+    )
+
+
+def _extract_after_think_marker(text: Any) -> str:
+    """Return text after the final </think> marker.
+
+    The new Phi4 prompt asks the model to emit:
+        </think>
+{ ... JSON ... }
+    so this is now the preferred extraction path.
+    """
+    raw = _textify(text)
+    if "</think>" in raw:
+        return raw.rsplit("</think>", 1)[1].strip()
+    return raw.strip()
+
+
 def parse_ar_lsat_answer(solution_str: Any):
+    # Preferred new format: </think> followed by one JSON object.
+    raw_text = _textify(solution_str)
+    if "</think>" in raw_text:
+        after_think = _extract_after_think_marker(raw_text)
+        parsed = _try_parse_first_json_obj(after_think)
+        if parsed is not None:
+            return parsed, "success_think_json"
+
+    # Backward compatibility with older <answer>...</answer> generations.
     block = find_last_answer_block(solution_str)
     if block is not None:
         parsed = _try_parse_first_json_obj(block)
         return (parsed, "success_answer_tag") if parsed is not None else (None, "answer_tag_json_error")
+
+    # Last fallback: parse first JSON object anywhere in the output.
     parsed = _try_parse_first_json_obj(solution_str)
     return (parsed, "success_direct_json") if parsed is not None else (None, "parsing_failed")
 
@@ -398,12 +434,23 @@ def _schema_partial_score(payload: Optional[Dict[str, Any]]) -> tuple[float, Dic
 
 
 def _raw_output_shape_stats(solution_str: Any) -> Dict[str, float]:
-    text = "" if solution_str is None else (
-        solution_str.decode("utf-8", errors="ignore")
-        if isinstance(solution_str, bytes)
-        else str(solution_str)
-    )
+    text = _textify(solution_str)
     stripped = text.strip()
+
+    zero = {
+        "starts_with_think_json": 0.0,
+        "contains_think_marker": 0.0,
+        "no_answer_tag": 0.0,
+        "starts_with_answer_tag": 0.0,
+        "contains_answer_tag": 0.0,
+        "no_refusal_text": 0.0,
+        "raw_json_like": 0.0,
+        "no_markdown_fence": 0.0,
+    }
+    if not stripped:
+        return zero
+
+    after_think = _extract_after_think_marker(stripped)
 
     refusal_re = re.compile(
         r"(unfortunately|no correct answer|not enough information|cannot be solved|impossible|incomplete|none)",
@@ -411,12 +458,21 @@ def _raw_output_shape_stats(solution_str: Any) -> Dict[str, float]:
     )
 
     return {
+        # New preferred format diagnostics.
+        "starts_with_think_json": 1.0 if stripped.startswith("</think>") and after_think.lstrip().startswith("{") else 0.0,
+        "contains_think_marker": 1.0 if "</think>" in stripped else 0.0,
+        "no_answer_tag": 1.0 if "<answer" not in stripped.lower() and "</answer" not in stripped.lower() else 0.0,
+
+        # Backward compatibility diagnostics for old runs.
         "starts_with_answer_tag": 1.0 if stripped.startswith("<answer>{") else 0.0,
-        "contains_answer_tag": 1.0 if "<answer>" in stripped and "</answer>" in stripped else 0.0,
-        "no_think_prefix": 0.0 if stripped.startswith("</think>") or stripped.startswith("<think>") else 1.0,
+        "contains_answer_tag": 1.0 if "<answer" in stripped.lower() and "</answer" in stripped.lower() else 0.0,
+
+        # General shape diagnostics.
         "no_refusal_text": 0.0 if refusal_re.search(stripped) else 1.0,
-        "raw_json_like": 1.0 if ("{" in stripped and "}" in stripped) else 0.0,
+        "raw_json_like": 1.0 if ("{" in after_think and "}" in after_think) else 0.0,
+        "no_markdown_fence": 0.0 if "```" in stripped else 1.0,
     }
+
 
 def compute_score(solution_str, ground_truth, extra_info: Any = None, score_method: str = "gt", timeout: float = 3.0, acc_weight: float = 0.8, clue_weight: float = 1.0, z3_weight: float = 0.2, meta: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
     try:
@@ -424,9 +480,9 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         raw_shape = _raw_output_shape_stats(solution_str)
         out.update(raw_shape)
         payload, parse_status = parse_ar_lsat_answer(solution_str)
-        parsing_reward = 1.0 if parse_status == "success_answer_tag" else 0.5 if parse_status == "success_direct_json" else 0.0
-        out["parsing_reward"] = parsing_reward; out["parse_status_ok"] = 1.0 if parse_status == "success_answer_tag" else 0.0
-        out["parse_error_flag"] = 0.0 if parse_status in {"success_answer_tag", "success_direct_json"} else 1.0
+        parsing_reward = 1.0 if parse_status == "success_think_json" else 0.9 if parse_status == "success_answer_tag" else 0.5 if parse_status == "success_direct_json" else 0.0
+        out["parsing_reward"] = parsing_reward; out["parse_status_ok"] = 1.0 if parse_status in {"success_think_json", "success_answer_tag"} else 0.0
+        out["parse_error_flag"] = 0.0 if parse_status in {"success_think_json", "success_answer_tag", "success_direct_json"} else 1.0
         selected = _selected_from_prediction(payload); gt = _selected_from_ground_truth(ground_truth)
         out["selected_option_present"] = 1.0 if selected else 0.0; out["ground_truth_present"] = 1.0 if gt else 0.0
         accuracy = 1.0 if selected and gt and selected == gt else 0.0
@@ -471,13 +527,16 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
 
         if payload is None:
             reward = (
-                    0.10 * out["starts_with_answer_tag"]
-                    + 0.10 * out["contains_answer_tag"]
-                    + 0.10 * out["no_think_prefix"]
+                    0.15 * out["starts_with_think_json"]
+                    + 0.10 * out["contains_think_marker"]
+                    + 0.05 * out["no_answer_tag"]
                     + 0.10 * out["no_refusal_text"]
                     + 0.05 * out["raw_json_like"]
+                    + 0.05 * out["no_markdown_fence"]
+                    # Backward compatibility: old <answer> outputs get small credit.
+                    + 0.05 * out["contains_answer_tag"]
             )
-            reward = min(reward, 0.20)
+            reward = min(reward, 0.25)
             out["acc"] = out["score"] = out["reward_logged"] = _clamp_reward(reward)
             out["missed_data"] = 1.0
             return _numeric_only(out)
@@ -549,7 +608,7 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
 
 
 def _wrap(payload: Dict[str, Any]) -> str:
-    return "<answer>" + json.dumps(payload, ensure_ascii=False, indent=2) + "</answer>"
+    return "</think>\n" + json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def _make_answer(selected: str = "A", bad_format: bool = False) -> str:
@@ -590,7 +649,8 @@ if __name__ == "__main__":
         ("bad_format_correct_answer", _make_answer("A", bad_format=True), "A"),
         ("must_be_true", _make_must_be_true_answer(), "A"),
         ("malformed_domains_list_no_crash", _wrap(malformed_domains_payload), "A"),
-        ("malformed_json", "<answer>{bad json</answer>", "A"),
+        ("old_answer_tag_backward_compatible", "<answer>{\"solution\": {\"selected_option\": \"A\"}}</answer>", "A"),
+        ("malformed_json", "</think>{bad json", "A"),
         ("none_output", None, "A"),
     ]
     for name, pred, gt in tests:
