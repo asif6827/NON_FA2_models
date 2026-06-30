@@ -27,9 +27,6 @@ Any text outside <answer>...</answer>, including <think>...</think>, is ignored 
 Do not rely on <think> for the solution proof.
 All graded deduction steps must be repeated inside the JSON "reasoning" field.
 
-If a <think> block is generated, keep it brief.
-The formal proof must be inside "reasoning".
-Do not put thinking markers, markdown, comments, or explanations inside the <answer> block.
 
 The grading system will evaluate only the first complete <answer>...</answer> block.
 
@@ -37,9 +34,8 @@ You are given:
 (i) one AR-LSAT assignment passage written in plain English,
 (ii) one question about that passage,
 (iii) a question_type label,
-(iv) a dictionary of answer options,
-and optionally
-(v) metadata such as tags or entity hints if available.
+(iv) a dictionary of answer options.
+
 
 This prompt is ONLY for ASSIGNMENT problems.
 
@@ -80,15 +76,27 @@ CRITICAL FORMAT REQUIREMENTS
 - Do NOT include extra text, markdown, explanations, or code fences.
 - Do NOT add any other keys.
 
-CRITICAL:
-- "problem_type" is NOT the question type.
-- "problem_type" MUST always be exactly "assignment".
-- The input question_type must appear only here:
+CRITICAL TYPE RULE:
+- "problem_type" is a fixed dataset label.
+- For every output, "problem_type" MUST be exactly "assignment".
+- Never copy question_type into problem_type.
+- Never copy passage tags, metadata, or subtype labels into problem_type.
+- Invalid problem_type values include:
+  "must_be_true",
+  "could_be_true",
+  "cannot_be_true",
+  "could_be_false",
+  "acceptability",
+  "rule_substitution",
+  "determined assignment",
+  "undetermined assignment",
+  "assignment problem",
+  "logic game"
+- The input question_type must appear only in:
   "question_semantics": {
     "question_type": "<input question_type>",
     "option_interpretation_rule": "..."
   }
-- Never set "problem_type" to "must_be_true", "could_be_true", "cannot_be_true", "acceptability",
 
 ================================================================================
 NORMALIZATION RULES FOR ASSIGNMENT
@@ -125,6 +133,7 @@ Parse question semantics:
 
 Parse options:
 - Represent using Assign(...) expressions.
+
 
 ================================================================================
 ALLOWED FORMAL OPERATORS FOR ASSIGNMENT
@@ -172,100 +181,42 @@ If A has X then B has Y:
 Exactly one assignment:
     Exactly(1, Assign(A, X1), Assign(A, X2), ...)
 
+
 ================================================================================
-REASONING REQUIREMENTS FOR ASSIGNMENT
+REASONING REQUIREMENTS
 ================================================================================
-
-- "reasoning" MUST be a list of strings.
-- Each entry MUST be exactly one sentence and end with a period.
-- Reasoning MUST be interleaved:
-    Odd-numbered entries: natural-language reasoning.
-    Even-numbered entries: formal solver-oriented step.
-
-Formal steps MUST:
-- Start with "S<k>: "
-- End with a period.
-- Be logically valid and solver-verifiable.
-
-Allowed step types:
-
-- Direct facts:
-    S1: Assign(A, X).
-
-- Derived assignments:
-    S2: Assign(B, Y).
-
-- Exclusions:
-    S3: Not(Assign(C, Z)).
-
-- Equality relations:
-    S4: Assign(A, X) == Assign(B, X).
-
-- Inequality relations:
-    S5: Assign(A, X) != Assign(B, X).
-
-- Conditional rules:
-    S6: Implies(Assign(A, X), Assign(B, Y)).
-
-- Counting constraints:
-    S7: Exactly(1, Assign(A, X), Assign(A, Y)).
-
-- Option feasibility:
-    S8: Sat(Option_C).
-
-- Option contradiction:
-    S9: Unsat(Option_A).
-
-The "reasoning" field MUST follow this exact pair structure:
-    "reasoning": [
-    "Natural-language explanation.",
-    "S1: formal_step.",
-    "Natural-language explanation.",
-    "S2: formal_step.",
-    "Natural-language explanation.",
-    "S3: formal_step."
-    ]
-
-FORMAL STEP HARD REQUIREMENT:
-Every S-step MUST contain at least one allowed formal operator:
-Assign(...), Not(...), And(...), Or(...), Implies(...), Exactly(...), AtLeast(...), AtMost(...), Sat(...), Unsat(...).
-
-Invalid S-steps:
-- S1: French novels = 1, Russian novels = 2.
-- S2: Option A satisfies all rules.
-- S3: A is assigned to P2.
-- S4: French novels = 1 ≥ Russian novels = 2.
-
-Valid S-steps:
-- S1: Assign(A, P2).
-- S2: Not(Assign(B, P2)).
-- S3: Exactly(1, Assign(A, P2), Assign(B, P2), Assign(C, P2)).
-- S4: Sat(Option_C).
-- S5: Unsat(Not(Option_A)).
+"reasoning" MUST be an alternating list:
+natural-language sentence, S-step, natural-language sentence, S-step, ...
 
 Rules:
-* Natural-language entries must NOT start with any label.
-* Natural-language entries must be plain explanatory sentences.
-* S entries must start with S1:, S2:, S3:, ...
-* The list must strictly alternate:
-  natural-language sentence, S-step, natural-language sentence, S-step, ...
-* Every S entry must be solver-checkable.
-* Every S entry must end with a period.
-* Do not write paragraph summaries.
-* Do not use unsupported notation such as arrows, quotes around formal expressions, or table-row summaries.
-* The model-specific <think> block is ignored by the grader.
-* Only the JSON "reasoning" list inside <answer>...</answer> is graded for reasoning quality.
-* Therefore, any formal deduction written in <think> must be repeated inside the JSON "reasoning" field.
-* Each S-step must be exactly one sentence.
-* Do not put explanations inside S-steps.
-* Put explanations only in the natural-language sentence immediately before the S-step.
+- Use at least 5 S-steps.
+- At least 3 S-steps must be non-option deductions.
+- At least 1 S-step must test the selected option.
+- Natural-language entries must not start with S.
+- Every S-step must start with S1:, S2:, S3:, etc., in order.
+- Every S-step must end with a period.
+- Every S-step must use one of:
+  Assign(...), Not(...), And(...), Or(...), Implies(...), Exactly(...), AtLeast(...), AtMost(...), Sat(...), Unsat(...).
 
-Logical validity requirements:
-- Each step must follow from rules + facts + prior steps.
-- No contradictions.
-- No tautologies.
-- No hallucinated assumptions.
-- No ordering operators unless explicitly required.
+Preferred S-step order:
+1. Question facts, if any.
+2. Relevant passage rule.
+3. Derived exclusion or assignment.
+4. Another derived consequence.
+5. Final option test.
+
+Question-type option test:
+- could_be_true: Sat(Option_X).
+- must_be_true: Unsat(Not(Option_X)).
+- cannot_be_true: Unsat(Option_X).
+- could_be_false: Sat(Not(Option_X)).
+- acceptability: Sat(Option_X).
+
+Invalid S-steps:
+- S1: Option A is correct.
+- S2: French novels = 2.
+- S3: A is assigned to P2.
+- S4: A -> P2.
 
 ================================================================================
 SOLUTION REQUIREMENTS
@@ -390,7 +341,6 @@ question_type = {question_type}
 
 options = {options}
 
-metadata = {metadata}
 
 Solve the AR-LSAT assignment problem above and provide problem_type, world_model, rules, facts, question_semantics, options, reasoning, and solution.
 
@@ -407,28 +357,21 @@ Your JSON MUST contain the fields in this exact order:
 7. "reasoning"
 8. "solution"
 
-Important reasoning-field rule:
-The "reasoning" field must NOT be a paragraph summary.
-It must be an alternating list:
-natural-language sentence, syntactic/formal step, natural-language sentence, syntactic/formal step, ...
-
-Every formal step must start with S1:, S2:, S3:, etc.
-The model-specific <think> block is ignored by the grader.
-Only the "reasoning" field inside <answer> is evaluated for reasoning quality.
-Therefore, repeat the formal deduction steps inside the "reasoning" field.
-
-After the final reasoning string, immediately write the "solution" field.
-The "solution" field must be the final top-level key and must not be omitted.
-
-After the complete solution field, close the JSON object and end with:
-}}</answer>
-
-Return only one complete <answer>...</answer> block with no additional text.
-
-Reminder:
-The grader ignores <think> and any text outside <answer>.
-The only graded reasoning is the JSON "reasoning" list.
-If the "reasoning" list is a summary without S1:, S2:, S3: steps, the reasoning score is zero.
+FINAL CHECK BEFORE OUTPUT:
+Before writing the answer, verify:
+1. The first top-level key is exactly "problem_type": "assignment".
+2. The JSON has exactly 8 top-level keys and no extra keys.
+3. "world_model.domains" is an object, not a list.
+4. Use "world_model": {"domains": {"values": [...]}}.
+5. "rules" is a list of formal strings using Assign/Not/And/Or/Implies/Exactly/AtLeast/AtMost.
+6. "options" is a JSON object mapping option labels to formal strings.
+7. "reasoning" alternates natural sentence, S-step, natural sentence, S-step.
+8. Every S-step starts with S1:, S2:, S3: in order.
+9. Every S-step contains Assign(...), Not(...), And(...), Or(...), Implies(...), Exactly(...), AtLeast(...), AtMost(...), Sat(...), or Unsat(...).
+10. "solution" is the final key.
+11. The reasoning list has at least 5 S-steps.
+12. At least 3 S-steps are non-option deductions.
+13. The final option-testing S-step matches question_type.
 """
 
 
@@ -515,8 +458,6 @@ def make_map_fn_1_shot(split, data_source):
         # Use 'answer' as the rule-based ground truth for AR-LSAT.
         final_grid = example['answer']
 
-        metadata = make_metadata(example)
-
         messages = [
             {
                 "role": "system",
@@ -537,7 +478,6 @@ def make_map_fn_1_shot(split, data_source):
                     question=example['question'],
                     question_type=example['question_type'],
                     options=to_json_text(example['options']),
-                    metadata=to_json_text(metadata),
                 ).strip(),
             },
         ]
