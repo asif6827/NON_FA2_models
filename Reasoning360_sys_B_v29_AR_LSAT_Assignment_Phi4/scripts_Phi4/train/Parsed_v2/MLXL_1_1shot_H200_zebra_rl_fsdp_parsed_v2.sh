@@ -203,8 +203,8 @@ adv_estimator=grpo
 
 use_kl_in_reward=False
 kl_coef=0.0
-use_kl_loss=False
-kl_loss_coef=0.0
+use_kl_loss=True
+kl_loss_coef=0.001
 
 
 clip_ratio_low=0.2
