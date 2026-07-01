@@ -41,7 +41,6 @@ You are given:
 and optionally
 (v) metadata such as tags or entity hints if available.
 
-This prompt is ONLY for ASSIGNMENT problems.
 
 Your task is to parse the assignment problem into a solver-oriented logical representation and determine the correct answer by generating the following EIGHT fields:
 1) problem_type — must be "assignment".
@@ -125,7 +124,13 @@ Parse question semantics:
 
 Parse options:
 - Represent using Assign(...) expressions.
-
+- The "options" field is the most important solver field.
+- Every option value MUST be a formal expression.
+- Never copy the English option text into "options".
+Invalid:
+- "A": "Helen and Nina"
+Valid:
+- "A": "And(Assign(Helen, Wednesday), Assign(Nina, Wednesday))"
 ================================================================================
 ALLOWED FORMAL OPERATORS FOR ASSIGNMENT
 ================================================================================
