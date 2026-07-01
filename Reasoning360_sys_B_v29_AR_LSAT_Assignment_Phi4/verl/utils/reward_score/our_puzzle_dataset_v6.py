@@ -748,8 +748,8 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         elif sat_ok == 0.0:
             # Core formula preserved, with format now assignment-specific.
             reward = (
-                0.10 * parsing_reward
-                + 0.20 * schema_reward
+                0.05 * parsing_reward
+                + 0.05 * schema_reward
                 + 0.15 * out["format_reward"]
                 + 0.35 * accuracy
                 - 0.20 * contradiction_ratio

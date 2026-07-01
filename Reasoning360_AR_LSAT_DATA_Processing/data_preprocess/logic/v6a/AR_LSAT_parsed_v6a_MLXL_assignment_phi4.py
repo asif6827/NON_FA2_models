@@ -20,18 +20,10 @@ All AR-LSAT assignment problems in this dataset are complete, consistent, and so
 Never say that the problem is incomplete, impossible, too complex, or cannot be solved.
 Always produce the required final answer block.
 
-Your final answer must contain exactly one <answer>...</answer> block.
-The content inside <answer>...</answer> must be a single valid JSON object.
-
-Any text outside <answer>...</answer>, including <think>...</think>, is ignored by the grader and receives zero reasoning credit.
-Do not rely on <think> for the solution proof.
-All graded deduction steps must be repeated inside the JSON "reasoning" field.
-
+The grading system will evaluate only the first complete <answer>...</answer> block.
 If a <think> block is generated, keep it brief.
 The formal proof must be inside "reasoning".
 Do not put thinking markers, markdown, comments, or explanations inside the <answer> block.
-
-The grading system will evaluate only the first complete <answer>...</answer> block.
 
 You are given:
 (i) one AR-LSAT assignment passage written in plain English,
@@ -41,28 +33,11 @@ You are given:
 and optionally
 (v) metadata such as tags or entity hints if available.
 
-This prompt is ONLY for ASSIGNMENT problems.
+Your task is to parse the assignment problem into a solver-oriented logical representation and determine the correct answer.
 
-Your task is to parse the assignment problem into a solver-oriented logical representation and determine the correct answer by generating the following EIGHT fields:
-1) problem_type — must be "assignment".
-2) world_model — entities, attribute domains, and structural assumptions.
-3) rules — formalized passage rules only.
-4) facts — question-specific temporary conditions only.
-5) question_semantics — how the options must be evaluated using the provided question_type.
-6) options — formalized answer options.
-7) reasoning — interleaved natural-language reasoning and formal solver-oriented steps.
-8) solution — the final selected answer option.
-
-You MUST return the result STRICTLY as a single valid JSON object wrapped inside:
-<answer>...</answer>
-
-The grader reads only the first complete <answer>...</answer> block.
-You may write internal thinking before it.
-The final answer must be a JSON object inside <answer>...</answer>.
-
-================================================================================
+=============================
 CRITICAL FORMAT REQUIREMENTS
-================================================================================
+=============================
 - The final graded output MUST contain exactly one <answer>...</answer> block.
 - Anything outside the answer block is ignored by the grader, but the answer block itself must contain only valid JSON.
 - JSON MUST contain EXACTLY the 8 required keys.
@@ -80,112 +55,200 @@ CRITICAL FORMAT REQUIREMENTS
 - Do NOT include extra text, markdown, explanations, or code fences.
 - Do NOT add any other keys.
 
-CRITICAL:
-- "problem_type" is NOT the question type.
+
+
+==============
+PROBLEM TYPE
+==============
+
 - "problem_type" MUST always be exactly "assignment".
+- "problem_type" MUST be a string, not an object, list, boolean, or null.
+- The input question_type must NOT be copied into "problem_type".
 - The input question_type must appear only here:
   "question_semantics": {
     "question_type": "<input question_type>",
     "option_interpretation_rule": "..."
   }
-- Never set "problem_type" to "must_be_true", "could_be_true", "cannot_be_true", "acceptability",
+- Never set "problem_type" to "must_be_true", "could_be_true", "cannot_be_true", "acceptability", or any other question_type label.
+- Valid example:
+  "problem_type": "assignment"
+- Invalid examples:
+  "problem_type": "must_be_true"
+  "problem_type": {"type": "assignment"}
+  "problem_type": ["assignment"]
 
-================================================================================
-NORMALIZATION RULES FOR ASSIGNMENT
-================================================================================
-- Use concise symbolic tokens.
-- Preserve entity names exactly (A, B, C, etc.).
-- Represent assignments using:
+=============
+WORLD MODEL
+=============
 
-    Assign(entity, value)
+- "world_model" MUST be a JSON object.
+- "world_model" MUST describe the global assignment universe before applying question-specific facts or answer options.
+- "world_model" MUST contain exactly these three keys:
+  "entities",
+  "domains",
+  "structural_assumptions"
+- "entities" MUST be a list of strings.
+- "entities" MUST contain the objects/people/items that receive assignments.
+- Preserve entity names exactly as they appear in the passage whenever possible.
+- "domains" MUST be a JSON object whose values are lists of strings.
+- If the problem has one assignment attribute, use:
+  "domains": {
+    "values": ["..."]
+  }
+- If the problem has multiple assignment attributes, use meaningful attribute names:
+  "domains": {
+    "day": ["Monday", "Tuesday"],
+    "room": ["Room1", "Room2"]
+  }
+- "structural_assumptions" MUST be a list of strings.
+- "structural_assumptions" MUST include general assignment assumptions such as exactly-one assignment, mutual exclusivity, uniqueness, or consistency when applicable.
+- Do NOT put passage rules in "world_model".
+- Do NOT put question-specific facts in "world_model".
+- Do NOT put answer options in "world_model".
+- Valid shape:
+  "world_model": {
+    "entities": ["A", "B", "C"],
+    "domains": {"values": ["P1", "P2", "P3"]},
+    "structural_assumptions": ["each entity is assigned exactly one value"]
+  }
+- Invalid examples:
+  "world_model": "A, B, and C are assigned to projects"
+  "world_model": []
+  "world_model": {"rules": ["Not(Assign(A, P1))"]}
 
-- Each entity must be assigned exactly one value per attribute.
-- Do NOT use positional operators like <, > unless explicitly required.
+=======
+RULES
+=======
 
-================================================================================
-PARSING INSTRUCTIONS FOR ASSIGNMENT
-================================================================================
+- "rules" MUST be a list of strings.
+- Each item in "rules" MUST be one formalized passage constraint.
+- Include ONLY constraints stated or implied by the passage.
+- Do NOT include question-specific temporary conditions in "rules".
+- Do NOT include answer options in "rules".
+- Do NOT include reasoning steps in "rules".
+- Do NOT write natural-language explanations in "rules".
+- Each rule string MUST use allowed formal operators such as Assign(...), Not(...), And(...), Or(...), Implies(...), Exactly(...), AtLeast(...), or AtMost(...).
+- Use one string per rule whenever possible.
+- If a passage rule requires multiple formal constraints, split it into multiple strings.
+- Valid examples:
+  "rules": [
+    "Not(Assign(A, P1))",
+    "Assign(B, P1) == Assign(C, P1)",
+    "Exactly(1, Assign(A, P2), Assign(B, P2), Assign(C, P2))"
+  ]
+- Invalid examples:
+  "rules": "A is not assigned to P1"
+  "rules": ["A is not assigned to P1"]
+  "rules": [{"rule": "Not(Assign(A, P1))"}]
 
-Construct world_model:
-- Extract entities.
-- Extract attribute domains (e.g., floors, cities, colors).
-- Add assumptions:
-    each entity is assigned exactly one value,
-    assignments are consistent across attributes.
+=======
+FACTS
+=======
 
-Parse rules:
-- Include ONLY passage constraints.
-- Do NOT include question facts.
+- "facts" MUST be a list of strings.
+- "facts" MUST contain ONLY temporary conditions introduced by the question stem.
+- If the question stem adds no temporary condition, "facts" MUST be an empty list: [].
+- Do NOT copy passage rules into "facts".
+- Do NOT copy answer options into "facts".
+- Do NOT copy derived reasoning steps into "facts".
+- Each fact string MUST be a formal expression using allowed operators.
+- Use "facts" for phrases such as "if A is assigned to P2", "suppose B is not assigned to P3", or "if exactly two employees are assigned to P1" when they appear in the question.
+- Valid examples:
+  "facts": []
+  "facts": ["Assign(A, P2)"]
+  "facts": ["Not(Assign(B, P3))"]
+- Invalid examples:
+  "facts": "None"
+  "facts": ["There are no extra facts."]
+  "facts": ["Option A says A is assigned to P2"]
 
-Parse facts:
-- Include temporary assumptions from question.
+====================
+QUESTION SEMANTICS
+====================
 
-Parse question semantics:
-- Use question_type mapping exactly as provided.
+- "question_semantics" MUST be a JSON object.
+- "question_semantics" MUST contain exactly these two keys:
+  "question_type",
+  "option_interpretation_rule"
+- "question_type" MUST be a string.
+- "question_type" MUST exactly copy the input question_type label.
+- Do NOT normalize, rename, or paraphrase the input question_type.
+- "option_interpretation_rule" MUST be a string.
+- "option_interpretation_rule" MUST explain how each answer option is tested under the given question_type.
+- For "must_be_true", use a rule equivalent to: choose the option whose negation is unsatisfiable under passage rules plus facts.
+- For "could_be_true", use a rule equivalent to: choose the option whose assertion is satisfiable under passage rules plus facts.
+- For "cannot_be_true", use a rule equivalent to: choose the option whose assertion is unsatisfiable under passage rules plus facts.
+- For "acceptability", use a rule equivalent to: choose the complete option assignment that satisfies all passage rules plus facts.
+- The input question_type must appear here and nowhere else except natural-language text inside "reasoning" if needed.
+- Valid example:
+  "question_semantics": {
+    "question_type": "must_be_true",
+    "option_interpretation_rule": "choose option whose negation is unsatisfiable"
+  }
+- Invalid examples:
+  "question_semantics": "must_be_true"
+  "question_semantics": {"type": "must_be_true"}
+  "question_semantics": {"question_type": "assignment"}
 
-Parse options:
-- Represent using Assign(...) expressions.
+=========
+OPTIONS
+=========
 
-================================================================================
-ALLOWED FORMAL OPERATORS FOR ASSIGNMENT
-================================================================================
+- "options" MUST be a JSON object.
+- The keys of "options" MUST exactly match the input answer-option labels, such as "A", "B", "C", "D", and "E".
+- Each value in "options" MUST be a formal expression string.
+- Do NOT use natural-language option text as the value unless it has been formalized.
+- Do NOT add option labels that are not present in the input.
+- Do NOT omit any input option labels.
+- Do NOT select the answer inside "options".
+- Use Option_A, Option_B, etc. only inside reasoning feasibility checks, not as replacements for the actual option formalization.
+- Valid example:
+  "options": {
+    "A": "Assign(A, P2)",
+    "B": "Assign(B, P3)",
+    "C": "Assign(C, P3)",
+    "D": "Assign(B, P2)",
+    "E": "Assign(A, P3)"
+  }
+- Invalid examples:
+  "options": ["A", "B", "C", "D", "E"]
+  "options": {"A": "A is assigned to P2"}
+  "options": {"selected_option": "A"}
 
-Assignment:
-    Assign(A, X)
 
-Equality:
-    Assign(A, X) == Assign(B, Y)
-    Assign(A, X) != Assign(B, Y)
-
-Boolean:
-    And(...)
-    Or(...)
-    Not(...)
-    Implies(...)
-    Xor(...)
-
-Counting:
-    AtLeast(k, ...)
-    AtMost(k, ...)
-    Exactly(k, ...)
-
-Solver:
-    Sat(...)
-    Unsat(...)
-
-================================================================================
-ASSIGNMENT EXPRESSION GUIDE
-================================================================================
-
-A is assigned to X:
-    Assign(A, X)
-
-A and B share same attribute:
-    Assign(A, X) == Assign(B, X)
-
-A and B have different attributes:
-    Assign(A, X) != Assign(B, X)
-
-If A has X then B has Y:
-    Implies(Assign(A, X), Assign(B, Y))
-
-Exactly one assignment:
-    Exactly(1, Assign(A, X1), Assign(A, X2), ...)
-
-================================================================================
-REASONING REQUIREMENTS FOR ASSIGNMENT
-================================================================================
+=================
+REASONING
+=================
 
 - "reasoning" MUST be a list of strings.
-- Each entry MUST be exactly one sentence and end with a period.
-- Reasoning MUST be interleaved:
-    Odd-numbered entries: natural-language reasoning.
-    Even-numbered entries: formal solver-oriented step.
+- "reasoning" MUST NOT be a single paragraph string.
+- "reasoning" MUST strictly alternate between natural-language explanation sentences and formal solver-oriented S-steps.
+- Odd-numbered entries MUST be natural-language explanation sentences.
+- Even-numbered entries MUST be formal solver-oriented S-steps.
+- Each natural-language entry MUST be exactly one sentence and end with a period.
+- Natural-language entries MUST NOT start with S1:, S2:, or any other S-label.
+- Each formal entry MUST start with the next sequential step label: S1:, S2:, S3:, etc.
+- Each formal entry MUST be exactly one sentence and end with a period.
+- Every S-step MUST be logically valid, solver-checkable, and must not contain prose explanations.
+- Put explanations only in the natural-language sentence immediately before the S-step.
+- The reasoning MUST justify the selected option using rules, facts, option feasibility, option contradiction, or option necessity.
+- The model-specific <think> block is ignored by the grader, so any deduction needed for credit MUST be repeated inside the JSON "reasoning" field.
+- Do NOT write paragraph summaries.
+- Do NOT use unsupported notation such as arrows, informal equations, quotes around formal expressions, or table-row summaries.
+- Each step MUST follow from rules + facts + prior steps.
+- Do NOT introduce contradictions.
+- Do NOT use tautological steps.
+- Do NOT hallucinate assumptions.
+- Do NOT use ordering operators unless explicitly required by the passage.
 
 Formal steps MUST:
-- Start with "S<k>: "
+- Start with "S<k>: ".
 - End with a period.
 - Be logically valid and solver-verifiable.
+- Contain at least one allowed formal operator.
+
+Every S-step MUST contain at least one of the following allowed formal operators:
+Assign(...), Not(...), And(...), Or(...), Implies(...), Exactly(...), AtLeast(...), AtMost(...), Sat(...), Unsat(...).
 
 Allowed step types:
 
@@ -218,17 +281,26 @@ Allowed step types:
 
 The "reasoning" field MUST follow this exact pair structure:
     "reasoning": [
-    "Natural-language explanation.",
-    "S1: formal_step.",
-    "Natural-language explanation.",
-    "S2: formal_step.",
-    "Natural-language explanation.",
-    "S3: formal_step."
+      "Natural-language explanation.",
+      "S1: formal_step.",
+      "Natural-language explanation.",
+      "S2: formal_step.",
+      "Natural-language explanation.",
+      "S3: formal_step."
     ]
 
-FORMAL STEP HARD REQUIREMENT:
-Every S-step MUST contain at least one allowed formal operator:
-Assign(...), Not(...), And(...), Or(...), Implies(...), Exactly(...), AtLeast(...), AtMost(...), Sat(...), Unsat(...).
+Valid reasoning shape:
+    "reasoning": [
+      "Exactly one employee is assigned to P2.",
+      "S1: Exactly(1, Assign(A, P2), Assign(B, P2), Assign(C, P2)).",
+      "The negation of Option A is impossible under the rules.",
+      "S2: Unsat(Not(Option_A))."
+    ]
+
+Invalid reasoning examples:
+- "reasoning": "A must be assigned to P2, so the answer is A."
+- "reasoning": ["S1: A is assigned to P2."]
+- "reasoning": ["Therefore A is correct.", "S1: Option A is correct."]
 
 Invalid S-steps:
 - S1: French novels = 1, Russian novels = 2.
@@ -243,37 +315,148 @@ Valid S-steps:
 - S4: Sat(Option_C).
 - S5: Unsat(Not(Option_A)).
 
-Rules:
-* Natural-language entries must NOT start with any label.
-* Natural-language entries must be plain explanatory sentences.
-* S entries must start with S1:, S2:, S3:, ...
-* The list must strictly alternate:
-  natural-language sentence, S-step, natural-language sentence, S-step, ...
-* Every S entry must be solver-checkable.
-* Every S entry must end with a period.
-* Do not write paragraph summaries.
-* Do not use unsupported notation such as arrows, quotes around formal expressions, or table-row summaries.
-* The model-specific <think> block is ignored by the grader.
-* Only the JSON "reasoning" list inside <answer>...</answer> is graded for reasoning quality.
-* Therefore, any formal deduction written in <think> must be repeated inside the JSON "reasoning" field.
-* Each S-step must be exactly one sentence.
-* Do not put explanations inside S-steps.
-* Put explanations only in the natural-language sentence immediately before the S-step.
 
-Logical validity requirements:
-- Each step must follow from rules + facts + prior steps.
-- No contradictions.
-- No tautologies.
-- No hallucinated assumptions.
-- No ordering operators unless explicitly required.
+===========
+SOLUTION
+===========
+
+- "solution" MUST be a JSON object.
+- "solution" MUST be the final top-level key.
+- "solution" MUST contain exactly one key:
+  "selected_option"
+- "selected_option" MUST be a string.
+- "selected_option" MUST exactly match one input answer-option label, such as "A", "B", "C", "D", or "E".
+- Do NOT put explanations inside "solution".
+- Do NOT put the option text inside "selected_option".
+- Do NOT add confidence, score, proof, or any other key inside "solution".
+- Valid example:
+  "solution": {
+    "selected_option": "A"
+  }
+- Invalid examples:
+  "solution": "A"
+  "solution": {"answer": "A"}
+  "solution": {"selected_option": "A", "confidence": 0.9}
+  
 
 ================================================================================
-SOLUTION REQUIREMENTS
+ASSIGNMENT CANONICALIZATION AND FORMALIZATION
 ================================================================================
 
-"solution": {
-  "selected_option": "X"
-}
+Use this section to normalize the passage, construct the solver-oriented schema fields, and write all formal expressions consistently.
+
+========================
+SYMBOL NORMALIZATION
+========================
+
+- Use concise symbolic tokens.
+- Preserve entity names exactly as they appear when they are already symbolic, such as A, B, C, etc.
+- Normalize multi-word values by using readable compact tokens when needed.
+- Represent all assignment relations using:
+
+    Assign(entity, value)
+
+- Each entity must be assigned exactly one value per relevant attribute.
+- Assignments must be mutually consistent across attributes.
+- Do NOT use positional operators such as <, >, <=, or >= unless the passage explicitly requires ordering.
+
+========================
+FIELD CONSTRUCTION RULES
+========================
+
+Construct "world_model":
+- Extract all entities.
+- Extract all attribute domains, such as floors, cities, colors, projects, days, rooms, or other assignable values.
+- Include structural assumptions such as:
+    each entity is assigned exactly one value,
+    values are mutually exclusive when required,
+    assignments are consistent across attributes.
+
+Construct "rules":
+- Include ONLY constraints stated in the passage.
+- Do NOT include temporary question conditions.
+- Do NOT include answer option assumptions.
+- Express each rule as a formal-expression string.
+
+Construct "facts":
+- Include ONLY temporary assumptions introduced by the question stem.
+- If the question has no temporary condition, use an empty list.
+- Do NOT copy passage rules into "facts".
+
+Construct "question_semantics":
+- Use the input question_type exactly as provided.
+- Explain how each option should be evaluated for that question_type.
+- Store the input question_type only inside "question_semantics", not inside "problem_type".
+
+Construct "options":
+- Formalize each answer option using assignment expressions.
+- Each option label must map to one formal-expression string.
+- Use labels exactly as provided, such as "A", "B", "C", "D", and "E".
+
+========================
+ALLOWED FORMAL OPERATORS
+========================
+
+Assignment:
+    Assign(A, X)
+
+Equality and inequality:
+    Assign(A, X) == Assign(B, Y)
+    Assign(A, X) != Assign(B, Y)
+
+Boolean operators:
+    And(...)
+    Or(...)
+    Not(...)
+    Implies(...)
+    Xor(...)
+
+Counting operators:
+    AtLeast(k, ...)
+    AtMost(k, ...)
+    Exactly(k, ...)
+
+Solver-status operators:
+    Sat(...)
+    Unsat(...)
+
+========================
+ASSIGNMENT EXPRESSION GUIDE
+========================
+
+A is assigned to X:
+    Assign(A, X)
+
+A is not assigned to X:
+    Not(Assign(A, X))
+
+A and B share the same value:
+    Assign(A, X) == Assign(B, X)
+
+A and B have different values:
+    Assign(A, X) != Assign(B, X)
+
+If A has X, then B has Y:
+    Implies(Assign(A, X), Assign(B, Y))
+
+A has exactly one value among X1, X2, and X3:
+    Exactly(1, Assign(A, X1), Assign(A, X2), Assign(A, X3))
+
+At least two entities are assigned to X:
+    AtLeast(2, Assign(A, X), Assign(B, X), Assign(C, X))
+
+At most one entity is assigned to X:
+    AtMost(1, Assign(A, X), Assign(B, X), Assign(C, X))
+
+An option is feasible:
+    Sat(Option_C)
+
+An option is impossible:
+    Unsat(Option_A)
+
+The negation of an option is impossible:
+    Unsat(Not(Option_A))
+    
 
 ================================================================================
 OUTPUT SCHEMA
@@ -407,23 +590,6 @@ Your JSON MUST contain the fields in this exact order:
 7. "reasoning"
 8. "solution"
 
-Important reasoning-field rule:
-The "reasoning" field must NOT be a paragraph summary.
-It must be an alternating list:
-natural-language sentence, syntactic/formal step, natural-language sentence, syntactic/formal step, ...
-
-Every formal step must start with S1:, S2:, S3:, etc.
-The model-specific <think> block is ignored by the grader.
-Only the "reasoning" field inside <answer> is evaluated for reasoning quality.
-Therefore, repeat the formal deduction steps inside the "reasoning" field.
-
-After the final reasoning string, immediately write the "solution" field.
-The "solution" field must be the final top-level key and must not be omitted.
-
-After the complete solution field, close the JSON object and end with:
-}}</answer>
-
-Return only one complete <answer>...</answer> block with no additional text.
 
 Reminder:
 The grader ignores <think> and any text outside <answer>.
