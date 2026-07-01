@@ -196,7 +196,6 @@ ${CONDA_BIN_PATH}ray start --head --temp-dir="$RAY_TMPDIR" --num-gpus ${NUM_GPUS
 sleep 5
 
 
-
 # =================== RL Config ===================
 # Note, we borrowed the config format from DAPO while here disabled all DAPO features to run the naive RL baseline.
 
@@ -211,7 +210,7 @@ kl_loss_coef=0.0
 clip_ratio_low=0.2
 clip_ratio_high=0.2
 
-max_prompt_length=$((1024 * 4))
+max_prompt_length=$((1024 * 8))
 max_response_length=$((1024 * 4))
 enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
