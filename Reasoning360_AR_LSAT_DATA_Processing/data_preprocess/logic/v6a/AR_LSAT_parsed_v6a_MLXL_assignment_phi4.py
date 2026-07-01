@@ -127,10 +127,10 @@ Parse options:
 - The "options" field is the most important solver field.
 - Every option value MUST be a formal expression.
 - Never copy the English option text into "options".
-Invalid:
-- "A": "Helen and Nina"
-Valid:
-- "A": "And(Assign(Helen, Wednesday), Assign(Nina, Wednesday))"
+    Invalid:
+    - "A": "Helen and Nina"
+    Valid:
+    - "A": "And(Assign(Helen, Wednesday), Assign(Nina, Wednesday))"
 ================================================================================
 ALLOWED FORMAL OPERATORS FOR ASSIGNMENT
 ================================================================================
@@ -383,6 +383,88 @@ ASSIGNMENT_FEWSHOT_ASSISTANT_ANSWER = """
 """
 
 ASSIGNMENT_USER_PROMPT_PHI = """
+--------------------------------
+AR-LSAT ASSIGNMENT PROBLEM TO SOLVE
+--------------------------------
+
+passage = {passage}
+
+question = {question}
+
+question_type = {question_type}
+
+options = {options}
+
+metadata = {metadata}
+
+Solve the AR-LSAT assignment problem above.
+
+Return exactly one <answer>...</answer> block.
+The response MUST start with:
+<answer>{{
+
+The response MUST end with:
+}}</answer>
+
+Inside <answer>, return one valid JSON object with exactly these EIGHT top-level keys in this exact order:
+1. "problem_type"
+2. "world_model"
+3. "rules"
+4. "facts"
+5. "question_semantics"
+6. "options"
+7. "reasoning"
+8. "solution"
+
+Key requirements:
+- "problem_type" MUST be exactly "assignment", not the question_type.
+- "question_type" MUST appear only inside "question_semantics".
+- "rules" MUST contain only passage constraints.
+- "facts" MUST contain only temporary conditions from the question stem, or [] if none.
+- "options" MUST formalize every answer option.
+- "solution" MUST be the final key and contain only "selected_option".
+
+Formalization requirements:
+- Do NOT copy English passage rules into "rules".
+- Do NOT copy English question text into "facts".
+- Do NOT copy English option text into "options".
+- "rules", "facts", "options", and formal S-steps MUST use formal operators.
+- Allowed operators are:
+  Assign(...), Not(...), And(...), Or(...), Implies(...), Exactly(...), AtLeast(...), AtMost(...), Sat(...), Unsat(...).
+
+Valid options shape:
+"options": {{
+  "A": "Assign(A, X)",
+  "B": "Not(Assign(B, Y))",
+  "C": "And(Assign(C, X), Not(Assign(D, Y)))",
+  "D": "Or(Assign(E, X), Assign(F, X))",
+  "E": "Implies(Assign(G, X), Assign(H, Y))"
+}}
+
+Reasoning requirements:
+- "reasoning" MUST be a list of strings.
+- It MUST alternate:
+  natural-language sentence,
+  formal S-step,
+  natural-language sentence,
+  formal S-step,
+  ...
+- Formal steps MUST start with S1:, S2:, S3:, etc.
+- Every formal S-step MUST contain at least one allowed formal operator.
+- Do NOT write paragraph summaries, markdown bullets, bold text, or numbered explanations.
+
+Valid reasoning shape:
+"reasoning": [
+  "George cannot report on Monday or Wednesday.",
+  "S1: And(Not(Assign(George, Monday_Morning)), Not(Assign(George, Monday_Afternoon)), Not(Assign(George, Wednesday_Morning)), Not(Assign(George, Wednesday_Afternoon))).",
+  "Option C is satisfiable under the rules and facts.",
+  "S2: Sat(Option_C)."
+]
+
+Return only the <answer>...</answer> block with no <think>, markdown, explanation, LaTeX, or extra text.
+"""
+
+ASSIGNMENT_USER_PROMPT_PHI_old = """
 --------------------------------
 AR-LSAT ASSIGNMENT PROBLEM TO SOLVE
 --------------------------------
