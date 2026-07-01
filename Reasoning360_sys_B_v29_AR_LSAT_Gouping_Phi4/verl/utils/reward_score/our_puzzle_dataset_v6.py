@@ -156,25 +156,65 @@ def _selected_from_prediction(payload: Optional[Dict[str, Any]]) -> Optional[str
     return _norm_option_label(sol.get("selected_option")) if isinstance(sol, dict) else None
 
 
-def _infer_n_groups(payload: Optional[Dict[str, Any]]) -> Optional[int]:
+def _as_list(value: Any) -> list:
+    """Return a safe list view for model-generated schema fields."""
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return []
+    if isinstance(value, (str, int, float, bool)):
+        return [value]
+    return []
+
+
+def _get_world_model(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Return world_model only when it is a dict; otherwise return {}."""
     if not isinstance(payload, dict):
-        return None
-    wm = payload.get("world_model") or {}
-    domains = wm.get("domains", {}) if isinstance(wm, dict) else {}
-    groups = domains.get("groups") or domains.get("committees") or domains.get("values") or domains.get("group") or []
-    if isinstance(groups, list) and groups:
-        return len(groups)
-    return None
+        return {}
+    wm = payload.get("world_model")
+    return wm if isinstance(wm, dict) else {}
+
+
+def _get_domains_for_inference(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Return domains as a dict for crash-safe inference only.
+
+    This is intentionally tolerant because model outputs may incorrectly use:
+      "domains": ["X", "Y"]
+    instead of:
+      "domains": {"groups": ["X", "Y"]}
+
+    The schema checker remains strict and should still reject malformed domains.
+    """
+    wm = _get_world_model(payload)
+    domains = wm.get("domains", {})
+
+    if isinstance(domains, dict):
+        return domains
+
+    if isinstance(domains, list):
+        return {"groups": domains}
+
+    return {}
+
+
+def _infer_n_groups(payload: Optional[Dict[str, Any]]) -> Optional[int]:
+    domains = _get_domains_for_inference(payload)
+    groups = (
+        domains.get("groups")
+        or domains.get("committees")
+        or domains.get("values")
+        or domains.get("group")
+        or []
+    )
+    groups = _as_list(groups)
+    return len(groups) if groups else None
 
 
 def _infer_n_entities(payload: Optional[Dict[str, Any]]) -> Optional[int]:
-    if not isinstance(payload, dict):
-        return None
-    wm = payload.get("world_model") or {}
-    entities = wm.get("entities", []) if isinstance(wm, dict) else []
-    if isinstance(entities, list) and entities:
-        return len(entities)
-    return None
+    wm = _get_world_model(payload)
+    entities = _as_list(wm.get("entities", []))
+    return len(entities) if entities else None
 
 
 def _schema_ok(payload: Optional[Dict[str, Any]]) -> bool:
