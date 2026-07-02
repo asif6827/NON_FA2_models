@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Crash-safe reward scoring for AR-LSAT GROUPING outputs.
+"""Crash-safe reward scoring for AR-LSAT ASSIGNMENT outputs.
 
 VERL-safe: compute_score always returns the same numeric keys.
-Updated for AR-LSAT grouping runs where the model often emits:
+Updated for AR-LSAT assignment runs where the model often emits:
   <answer>{ ... balanced JSON ... }
 without a closing </answer> tag.
 """
@@ -20,7 +20,7 @@ except Exception:
         def solve_and_validate_payload(payload, *, timeout_s=2.0, conflict_tolerant_clues=False):
             return {"parse_status": "Z3_IMPORT_FAIL", "base_sat_full_GT": False}
 
-# Kept for backward compatibility, but this script now uses an AR-LSAT grouping
+# Kept for backward compatibility, but this script now uses an AR-LSAT assignment
 # specific reasoning/format checker instead of Zebra-style check_interleaved_reasoning.
 try:
     from check_interleved_format import check_interleaved_reasoning
@@ -47,7 +47,7 @@ RESULT_KEYS = [
     # Formal field and raw reasoning diagnostics
     "formal_fields_reward", "raw_n_reasoning_items", "raw_n_s_steps_total",
     "raw_n_s_steps_parseable", "raw_n_non_option_s_steps", "raw_n_option_s_steps",
-    "raw_s_step_parse_rate", "grouping_format_reward", "selected_option_test_ok",
+    "raw_s_step_parse_rate", "assignment_format_reward", "selected_option_test_ok",
     # Z3 / process diagnostics
     "z3_reward", "consistency_score", "Normalizer", "BASE_sat_full_GT", "missed_data",
     "BASE_n_steps_total", "BASE_n_steps_parsed_ok", "BASE_n_steps_valid", "BASE_n_steps_novel_inc_clues", "BASE_n_non_valid_contradiction",
@@ -264,14 +264,14 @@ def parse_ar_lsat_answer(solution_str: Any):
     return None, "parsing_failed"
 
 
-def _normalize_grouping_payload(payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _normalize_assignment_payload(payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Inject pipeline-known metadata that the LLM should not be punished for."""
     if not isinstance(payload, dict):
         return payload
     normalized = dict(payload)
     # Z3/validator can still receive problem_type, but the model no longer needs
     # to generate it correctly.
-    normalized["problem_type"] = "grouping"
+    normalized["problem_type"] = "assignment"
     return normalized
 
 
@@ -351,7 +351,7 @@ def _assign_args_from_payload(payload: Optional[Dict[str, Any]], arg_index: int)
     return _unique_nonempty(found)
 
 
-def _infer_n_groups(payload: Optional[Dict[str, Any]]) -> Optional[int]:
+def _infer_n_values(payload: Optional[Dict[str, Any]]) -> Optional[int]:
     if not isinstance(payload, dict):
         return None
 
@@ -361,7 +361,8 @@ def _infer_n_groups(payload: Optional[Dict[str, Any]]) -> Optional[int]:
 
     if isinstance(domains, dict):
         preferred_keys = (
-            "groups", "committees", "values", "group", "teams", "domains"
+            "values", "assignments", "projects", "colors", "rooms",
+            "days", "slots", "tasks", "teams", "domains"
         )
         for key in preferred_keys:
             values = _flatten_scalars(domains.get(key))
@@ -445,7 +446,7 @@ def _schema_partial_score(payload: Optional[Dict[str, Any]]) -> tuple[float, Dic
 
     # problem_type is normalized internally, so this diagnostic means the final
     # payload sent to Z3 has the correct type; it is not a model-output gate.
-    if str(payload.get("problem_type") or "").strip().lower() == "grouping":
+    if str(payload.get("problem_type") or "").strip().lower() == "assignment":
         details["schema_problem_type_ok"] = 1.0
 
     required = [
@@ -529,7 +530,7 @@ FORMAL_STEP_RE = re.compile(
 OPTION_STEP_RE = re.compile(r"^S\d+:\s*(Sat|Unsat)\s*\(.*Option_[A-E].*\)\.$")
 
 
-def _grouping_reasoning_stats(reasoning: Any) -> Dict[str, float]:
+def _assignment_reasoning_stats(reasoning: Any) -> Dict[str, float]:
     out = {
         "raw_n_reasoning_items": 0.0,
         "raw_n_s_steps_total": 0.0,
@@ -537,7 +538,7 @@ def _grouping_reasoning_stats(reasoning: Any) -> Dict[str, float]:
         "raw_n_non_option_s_steps": 0.0,
         "raw_n_option_s_steps": 0.0,
         "raw_s_step_parse_rate": 0.0,
-        "grouping_format_reward": 0.0,
+        "assignment_format_reward": 0.0,
     }
 
     if not isinstance(reasoning, list):
@@ -583,7 +584,7 @@ def _grouping_reasoning_stats(reasoning: Any) -> Dict[str, float]:
     option_score = 1.0 if len(option_steps) >= 1 else 0.0
     parse_score = out["raw_s_step_parse_rate"]
 
-    out["grouping_format_reward"] = (
+    out["assignment_format_reward"] = (
         0.30 * alternation_score
         + 0.25 * min_step_score
         + 0.20 * non_option_score
@@ -634,7 +635,7 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         out.update(_raw_output_shape_stats(solution_str))
 
         payload, parse_status = parse_ar_lsat_answer(solution_str)
-        payload = _normalize_grouping_payload(payload)
+        payload = _normalize_assignment_payload(payload)
 
         parsing_reward = (
             1.0 if parse_status == "success_answer_tag"
@@ -676,19 +677,19 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         out.update(schema_details)
 
         reasoning = payload.get("reasoning") if isinstance(payload, dict) else None
-        reasoning_stats = _grouping_reasoning_stats(reasoning)
+        reasoning_stats = _assignment_reasoning_stats(reasoning)
         out.update(reasoning_stats)
-        out["format_reward"] = out["format_status_ok"] = out["grouping_format_reward"]
+        out["format_reward"] = out["format_status_ok"] = out["assignment_format_reward"]
         out["formal_fields_reward"] = _formal_fields_score(payload)
         out["selected_option_test_ok"] = _selected_option_test_ok(payload, extra_info)
 
-        n_groups = _infer_n_groups(payload)
+        n_values = _infer_n_values(payload)
         n_entities = _infer_n_entities(payload)
 
         z3_out: Dict[str, Any] = {}
         if isinstance(payload, dict) and schema_reward > 0.0:
             z3_payload = dict(payload)
-            z3_payload["problem_type"] = "grouping"
+            z3_payload["problem_type"] = "assignment"
             z3_payload["ground_truth"] = ground_truth
             if isinstance(extra_info, dict) and extra_info.get("question_type"):
                 z3_payload["question_type"] = extra_info["question_type"]
@@ -716,8 +717,8 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         out["BASE_n_non_valid_contradiction"] = float(z3_out.get("n_non_valid_contradiction", 0) or 0)
 
         reward, normalizer = 0.0, 1.0
-        if n_groups is not None and n_entities is not None:
-            normalizer = max(2.0 * max(int(n_groups) * int(n_entities), 1), 1.0)
+        if n_values is not None and n_entities is not None:
+            normalizer = max(2.0 * max(int(n_values) * int(n_entities), 1), 1.0)
         else:
             out["missed_data"] = 1.0
 
@@ -735,7 +736,7 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
                 + 0.10 * schema_partial_reward
                 + 0.05 * out["selected_option_present"]
                 + 0.10 * accuracy
-                + 0.10 * out["grouping_format_reward"]
+                + 0.10 * out["assignment_format_reward"]
                 + 0.10 * out["formal_fields_reward"]
                 + 0.05 * out["selected_option_test_ok"]
             )
@@ -745,7 +746,7 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
                 reward = min(reward, 0.05)
             reward = min(reward, 0.18)
         elif sat_ok == 0.0:
-            # Core formula preserved, with format now grouping-specific.
+            # Core formula preserved, with format now assignment-specific.
             reward = (
                 0.05 * parsing_reward
                 + 0.05 * schema_reward
@@ -776,7 +777,7 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         out["score"] = out["reward_logged"] = _clamp_reward(reward)
         return _numeric_only(out)
     except Exception:
-        logger.exception("grouping compute_score failed; returning complete penalty reward dict")
+        logger.exception("assignment compute_score failed; returning complete penalty reward dict")
         out = _default_result(reward=-0.5, missed_data=1.0)
         out["reward_exception"] = 1.0
         return out
@@ -787,95 +788,38 @@ def _wrap(payload: Dict[str, Any], close: bool = True) -> str:
     return s + "</answer>" if close else s
 
 
-def _make_grouping_answer(selected: str = "D", bad_format: bool = False, close: bool = True) -> str:
-    """Small self-test payload for AR-LSAT grouping reward sanity checks."""
+def _make_answer(selected: str = "A", bad_format: bool = False, close: bool = True) -> str:
     reasoning = [
-        "The question condition places D and F in group X.",
-        "S1: And(Assign(D, X), Assign(F, X)).",
-        "Since F and G must be in different groups and F is in X, G must be in Y.",
-        "S2: Assign(G, Y).",
-        "Since C in X would force D into Y while D is already in X, C cannot be in X.",
-        "S3: Not(Assign(C, X)).",
-        "Option D can be extended to a complete valid grouping.",
-        "S4: Sat(Option_D).",
+        "A is not assigned to P1 by the first rule.",
+        "S1: Not(Assign(A, P1)).",
+        "Exactly one employee is assigned to P2.",
+        "S2: Exactly(1, Assign(A, P2), Assign(B, P2), Assign(C, P2)).",
+        "Option A can be extended to a full valid assignment.",
+        "S3: Sat(Option_A).",
     ]
-
     if bad_format:
-        reasoning = [
-            "S1: And(Assign(D, X), Assign(F, X)).",
-            "This starts with a formal step, so the interleaved format should fail.",
-        ]
-
+        reasoning = ["S1: Not(Assign(A, P1)).", "This starts with a formal step, so format should fail."]
     payload = {
-        "world_model": {
-            "entities": ["A", "B", "C", "D", "E", "F", "G"],
-            "domains": {"groups": ["X", "Y"]},
-            "structural_assumptions": [
-                "each entity belongs to exactly one group",
-                "groups are mutually exclusive",
-            ],
-        },
-        "rules": [
-            "Implies(Assign(A, X), Assign(B, Y))",
-            "Implies(Assign(C, X), And(Assign(D, Y), Assign(E, Y)))",
-            "Assign(F, X) != Assign(G, X)",
-            "Assign(E, X) != Assign(A, X)",
-            "Implies(Assign(G, X), Assign(B, X))",
-        ],
-        "facts": ["Assign(D, X)", "Assign(F, X)"],
-        "question_semantics": {
-            "question_type": "could_be_true",
-            "option_interpretation_rule": "SAT(option)",
-        },
-        "options": {
-            "A": "And(Assign(A, X), Assign(C, X))",
-            "B": "And(Assign(A, Y), Assign(E, Y))",
-            "C": "And(Assign(B, X), Assign(G, X))",
-            "D": "And(Assign(C, Y), Assign(E, Y))",
-            "E": "And(Assign(G, X), Assign(E, X))",
-        },
+        "world_model": {"entities": ["A", "B", "C"], "domains": {"values": ["P1", "P2", "P3"]}, "structural_assumptions": ["each entity is assigned exactly one value"]},
+        "rules": ["Not(Assign(A, P1))", "Assign(B, P1) == Assign(C, P1)", "Exactly(1, Assign(A, P2), Assign(B, P2), Assign(C, P2))"],
+        "facts": [],
+        "question_semantics": {"question_type": "could_be_true"},
+        "options": {"Option_A": "Assign(A, P2)", "B": "Assign(A, P1)", "C": "Assign(B, P2)"},
         "reasoning": reasoning,
         "solution": {"selected_option": selected},
     }
     return _wrap(payload, close=close)
 
 
-def _make_grouping_must_be_true_answer() -> str:
+def _make_must_be_true_answer() -> str:
     payload = {
-        "world_model": {
-            "entities": ["A", "B", "C"],
-            "domains": {"groups": ["X", "Y"]},
-            "structural_assumptions": ["each entity belongs to exactly one group"],
-        },
-        "rules": [
-            "Assign(A, X)",
-            "Assign(B, X) == Assign(C, X)",
-        ],
+        "world_model": {"entities": ["A", "B"], "domains": {"values": ["P1", "P2"]}, "structural_assumptions": ["each entity is assigned exactly one value"]},
+        "rules": ["Assign(A, P1)"],
         "facts": [],
-        "question_semantics": {
-            "question_type": "must_be_true",
-            "option_interpretation_rule": "UNSAT(Not(option))",
-        },
-        "options": {
-            "A": "Assign(A, X)",
-            "B": "Assign(B, X)",
-            "C": "Assign(C, Y)",
-        },
-        "reasoning": [
-            "A is fixed in group X by the first rule.",
-            "S1: Assign(A, X).",
-            "Option A is forced in every valid grouping.",
-            "S2: Unsat(Not(Option_A)).",
-        ],
-        "solution": {"selected_option": "A"},
-    }
-    return _wrap(payload)
-
-
-def _make_missing_schema_answer() -> str:
-    payload = {
-        "solution": {"selected_option": "D"},
-        "reasoning": ["Option D is feasible.", "S1: Sat(Option_D)."],
+        "question_semantics": {"question_type": "must_be_true"},
+        "options": {"A": "Assign(A, P1)", "B": "Assign(A, P2)"},
+        "reasoning": ["The passage directly fixes A to P1.", "S1: Assign(A, P1).", "Option A is forced by all valid assignments.", "S2: Unsat(Not(Option_A))."],
+        "solution": {"selected_option": "Option_A"},
     }
     return _wrap(payload)
 
@@ -884,34 +828,31 @@ if __name__ == "__main__":
     malformed_domains_payload = {
         "world_model": {
             "entities": ["A", "B", "C"],
-            "domains": ["X", "Y"],
-            "structural_assumptions": ["each entity belongs to exactly one group"],
+            "domains": ["P1", "P2", "P3"],
+            "structural_assumptions": ["each entity is assigned exactly one value"],
         },
-        "rules": ["Assign(A, X)"],
+        "rules": ["Not(Assign(A, P1))"],
         "facts": [],
         "question_semantics": {"question_type": "could_be_true"},
-        "options": {"A": "Assign(A, X)", "B": "Assign(A, Y)"},
+        "options": {"A": "Assign(A, P2)", "B": "Assign(A, P1)"},
         "reasoning": [
-            "A is fixed in group X by the first rule.",
-            "S1: Assign(A, X).",
-            "Option A is satisfiable under the rules and facts.",
+            "A is not assigned to P1 by the first rule.",
+            "S1: Not(Assign(A, P1)).",
+            "Option A can be extended to a full valid assignment.",
             "S2: Sat(Option_A).",
         ],
         "solution": {"selected_option": "A"},
     }
     tests = [
-        ("correct_could_be_true", _make_grouping_answer("D"), "D"),
-        ("open_answer_json_no_close", _make_grouping_answer("D", close=False), "D"),
-        ("wrong_selected_option", _make_grouping_answer("A"), "D"),
-        ("bad_format_correct_answer", _make_grouping_answer("D", bad_format=True), "D"),
-        ("must_be_true", _make_grouping_must_be_true_answer(), "A"),
+        ("correct_could_be_true", _make_answer("Option_A"), "A"),
+        ("open_answer_json_no_close", _make_answer("A", close=False), "A"),
+        ("wrong_selected_option", _make_answer("B"), "A"),
+        ("bad_format_correct_answer", _make_answer("A", bad_format=True), "A"),
+        ("must_be_true", _make_must_be_true_answer(), "A"),
         ("malformed_domains_list_no_crash", _wrap(malformed_domains_payload), "A"),
-        ("malformed_json", "<answer>{this is not valid json}</answer>", "D"),
-        ("missing_answer_tag_direct_json", json.dumps(json.loads(find_last_answer_block(_make_grouping_answer("D")))), "D"),
-        ("missing_schema", _make_missing_schema_answer(), "D"),
-        ("none_output", None, "D"),
+        ("malformed_json", "<answer>{bad json</answer>", "A"),
+        ("none_output", None, "A"),
     ]
-
     for name, pred, gt in tests:
         print(f"\n=== {name} ===")
         result = compute_score(pred, gt)
