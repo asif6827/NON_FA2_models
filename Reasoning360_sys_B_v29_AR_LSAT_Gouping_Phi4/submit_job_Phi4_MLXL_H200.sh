@@ -22,7 +22,6 @@ EVAL_PATH_LIST=("mlxl_train_mlxl_test_1_parsed_v6a_${ACRONYM}")
 DATA_PATH_LIST=("AR_LSAT_grouping_v6a_${ACRONYM}/mlxl_train_mlxl_test")
 
 
-
 SLURM_SCRIPT_H200="./scripts_Phi4/train/Parsed_v2/${ACRONYM}_1_1shot_H200_zebra_rl_fsdp_parsed_v2.sh"
 for i in "${!TRAIN_TEMP_LIST[@]}"; do
     TRAIN_TEMP=${TRAIN_TEMP_LIST[$i]}
