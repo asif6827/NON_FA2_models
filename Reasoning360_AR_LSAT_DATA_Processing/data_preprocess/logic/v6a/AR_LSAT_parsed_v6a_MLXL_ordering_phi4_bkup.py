@@ -40,6 +40,8 @@ You are given:
 and optionally
 (v) metadata such as tags or entity hints if available.
 
+This prompt is ONLY for ORDERING problems.
+
 Your task is to parse the ordering problem into a solver-oriented logical representation and determine the correct answer by generating the following EIGHT fields:
 1) problem_type — must be "ordering".
 2) world_model — ordered entities, position domain, and structural assumptions.
@@ -53,16 +55,13 @@ Your task is to parse the ordering problem into a solver-oriented logical repres
 You MUST return the result STRICTLY as a single valid JSON object wrapped inside:
 <answer>...</answer>
 
-The grader reads only the first complete <answer>...</answer> block.
-You may write internal thinking before it.
-The final answer must be a JSON object inside <answer>...</answer>.
+No additional text, commentary, markdown, or formatting outside the <answer> block is permitted.
 
 ================================================================================
 CRITICAL FORMAT REQUIREMENTS
 ================================================================================
-- The final graded output MUST contain exactly one <answer>...</answer> block.
-- Anything outside the answer block is ignored by the grader, but the answer block itself must contain only valid JSON.
-- JSON MUST contain EXACTLY the 8 required keys.
+- Output MUST contain ONLY ONE <answer>...</answer> block and NOTHING ELSE.
+- Inside <answer>...</answer>, the content MUST be a single valid JSON object.
 - The JSON object MUST have exactly EIGHT top-level keys, spelled EXACTLY:
     "problem_type",
     "world_model",
@@ -73,235 +72,205 @@ CRITICAL FORMAT REQUIREMENTS
     "reasoning",
     "solution"
 - "problem_type" MUST be exactly "ordering".
+- Do NOT add any other top-level keys.
+- Do NOT output Python code.
+- Do NOT output executable Z3 code.
+- Do NOT use markdown or code fences.
 - All formal expressions MUST be strings.
-- Do NOT include extra text, markdown, explanations, or code fences.
-- Do NOT add any other keys.
-
-CRITICAL:
-- "problem_type" is NOT the question type.
-- "problem_type" MUST always be exactly "ordering".
-- The input question_type must appear only here:
-  "question_semantics": {
-    "question_type": "<input question_type>",
-    "option_interpretation_rule": "..."
-  }
-- Never set "problem_type" to "must_be_true", "could_be_true", "cannot_be_true", "acceptability", or any other question_type label.
 
 ================================================================================
 NORMALIZATION RULES FOR ORDERING
 ================================================================================
 - Use concise symbolic tokens for entities.
 - Preserve single-letter entity labels exactly when used, e.g., A, B, C, D.
-- Use underscores instead of spaces in multi-word tokens.
-- Convert ordinal positions to integers, e.g., first=1, second=2, third=3, fourth=4.
-- Positions, ranks, seats, slots, shelves, folders, hangers, or time slots in a sequence must be represented with integers.
+- Use underscores instead of spaces in multi-word tokens, e.g., first_shift, red_book.
+- Convert ordinals to integers when used as positions:
+    first=1, second=2, third=3, fourth=4, fifth=5, sixth=6, seventh=7, eighth=8.
+- Positions, ranks, seats, slots, days, shelves in a sequence, bays, folders, hangers, or time slots must be represented with integers.
 - Do not invent entities, positions, rules, facts, or assumptions not supported by the passage or metadata.
+- If metadata provides canonical names or tags, use them when consistent with the passage.
 
 ================================================================================
 PARSING INSTRUCTIONS FOR ORDERING
 ================================================================================
+The problem is already classified as ordering.
 
-Construct world_model:
-- Extract ordered entities.
+Construct the world model:
+- Extract all ordered entities.
 - Extract the position domain, usually 1..N.
-- Add assumptions:
+- Include structural assumptions such as:
     each entity occupies exactly one position,
     each position is occupied by exactly one entity,
     positions are ordered from 1 to N.
+- Include Distinct(...) in rules when the passage states or implies unique positions.
 
-Parse rules:
-- Include ONLY passage constraints.
-- Do NOT include question facts.
-- Every rule MUST be a formal expression string.
-- Never copy English passage rules into "rules".
+Parse passage rules:
+- "rules" MUST contain only permanent passage constraints.
+- Do NOT include question-specific facts in "rules".
+- Each rule must be a single solver-oriented logical expression.
 
-Parse facts:
-- Include ONLY temporary assumptions from the question stem.
-- If there are no question-specific facts, use [].
-- Every fact MUST be a formal expression string.
-- Never copy English question text into "facts".
+Parse question facts:
+- "facts" MUST contain only temporary assumptions introduced by the question stem.
+- If there are no question-specific facts, output [].
 
 Parse question semantics:
-- Use question_type mapping exactly as provided.
+- Use the provided question_type input.
+- "question_type" MUST be copied from the input question_type.
+- Use the correct solver interpretation:
+    could_be_true => option is satisfiable with rules + facts.
+    must_be_true => Not(option) is unsatisfiable with rules + facts.
+    cannot_be_true => option is unsatisfiable with rules + facts.
+    could_be_false => Not(option) is satisfiable with rules + facts.
+    acceptability => option is a complete or partial arrangement that is satisfiable with rules + facts.
+    rule_substitution => option preserves the same solution space as the replaced rule.
+    other => infer the closest solver interpretation from the question text.
 
-Parse options:
-- The "options" field is the most important solver field.
-- Every option value MUST be a formal expression string.
-- Never copy the English option text into "options".
-    Invalid:
-    - "A": "A speaks second"
-    Valid:
-    - "A": "A == 2"
+Parse answer options:
+- "options" MUST be a JSON object mapping option labels to formal expressions.
+- Each option must be formalized independently.
+- Do not let one option affect another option.
+- Use the exact option labels from the input.
 
-================================================================================
-ALLOWED FORMAL OPERATORS FOR ORDERING
-================================================================================
+Allowed formal operators:
+- Logical: And(...), Or(...), Not(...), Xor(...), Implies(...)
+- Equality: ==, !=
+- Ordering: <, >, <=, >=, + k ==, - k ==
+- Distinctness: Distinct(...)
+- Counting if needed: AtLeast(k, ...), AtMost(k, ...), Exactly(k, ...)
+- Solver-status steps in reasoning only: Sat(...), Unsat(...)
 
-Ordering:
-    A < B
-    A > B
-    A <= B
-    A >= B
-    A == 3
-    A != 1
-    A + 1 == B
-    A - 1 == B
-
-Equality and distinctness:
-    A == B
-    A != B
-    Distinct(A, B, C, ...)
-
-Boolean:
-    And(...)
-    Or(...)
-    Not(...)
-    Implies(...)
-    Xor(...)
-
-Counting:
-    AtLeast(k, ...)
-    AtMost(k, ...)
-    Exactly(k, ...)
-
-Solver:
-    Sat(...)
-    Unsat(...)
+Ordering expression guide:
+- A before B => A < B.
+- A after B => A > B.
+- A immediately before B => A + 1 == B.
+- A immediately after B => A - 1 == B.
+- A is in position 3 => A == 3.
+- A is not first => A != 1.
+- A and B are adjacent => Or(A + 1 == B, B + 1 == A).
+- Exactly one item per position => Distinct(A, B, C, ...).
 
 ================================================================================
-ORDERING EXPRESSION GUIDE
+REASONING REQUIREMENTS FOR ORDERING PROBLEMS
 ================================================================================
-
-A is before B:
-    A < B
-
-A is after B:
-    A > B
-
-A is immediately before B:
-    A + 1 == B
-
-A is immediately after B:
-    A - 1 == B
-
-A is in position 3:
-    A == 3
-
-A is not first:
-    A != 1
-
-A and B are adjacent:
-    Or(A + 1 == B, B + 1 == A)
-
-Exactly one entity per position:
-    Distinct(A, B, C, ...)
-
-================================================================================
-REASONING REQUIREMENTS FOR ORDERING
-================================================================================
-
 - "reasoning" MUST be a list of strings.
 - Each entry MUST be exactly one sentence and end with a period.
 - Reasoning MUST be interleaved:
     Odd-numbered entries: natural-language reasoning.
     Even-numbered entries: formal solver-oriented step.
+- Natural-language entries must explain why the next formal step follows from rules, facts, earlier steps, or option testing.
+- Formal entries must encode a newly derived ordering fact, domain restriction, option feasibility result, or forced/impossible position.
 
-Formal steps MUST:
-- Start with "S<k>: ".
-- End with a period.
-- Be logically valid and solver-verifiable.
+Formal step format:
+- Every formal step MUST start with "S<k>: " and MUST end with a period.
+- <k> starts at 1 and increments by 1 for each formal step only.
+- Formal steps must be solver-verifiable and may use ONLY:
+    ==, !=, <, >, <=, >=, + d ==, - d ==, Not(...), And(...), Or(...), Implies(...), Distinct(...), Sat(...), Unsat(...)
 
-Allowed step types:
+Atomic ordering operators:
+    A == H          entity A is in position H.
+    A != H          entity A is not in position H.
+    A < B           A is before B.
+    A > B           A is after B.
+    A + d == B      A is exactly d positions before B.
+    A - d == B      A is exactly d positions after B.
+    A <= B          A is not after B.
+    A >= B          A is not before B.
 
-- Direct facts:
+Boolean operators:
+    Not(e)
+    And(e1, e2, ..., en)
+    Or(e1, e2, ..., en)
+    Implies(e1, e2)
+
+Option-testing operators:
+    Sat(Option_A)
+    Unsat(Option_A)
+
+Allowed reasoning step types:
+- Direct question facts:
+    If the question says "If B is fourth", a valid step is:
     S1: B == 4.
 
-- Derived positions:
+- Derived forced positions:
+    If rules and facts force A to be second, a valid step is:
     S2: A == 2.
 
-- Exclusions:
-    S3: Not(C == 1).
+- Derived impossibilities:
+    If A cannot be first, a valid step is:
+    S3: Not(A == 1).
 
-- Relative order:
+- Relative-order deductions:
+    If A must occur before B, a valid step is:
     S4: A < B.
 
-- Immediate order:
+- Immediate-order deductions:
+    If C must be immediately after A, a valid step is:
     S5: C == A + 1.
 
-- Disjunctive placement:
-    S6: Or(D == 2, D == 3, D == 4).
+- Disjunctive placement deductions:
+    If A can only be first or third, a valid step is:
+    S6: Or(A == 1, A == 3).
 
-- Distinctness:
-    S7: Distinct(A, B, C, D).
+- Combined deductions:
+    If multiple position exclusions are derived together, a valid step is:
+    S7: And(A != 1, A != 4).
 
-- Option feasibility:
+- Option feasibility checks:
+    If an option can be extended to at least one full valid ordering, use:
     S8: Sat(Option_C).
 
-- Option contradiction:
-    S9: Unsat(Option_A).
-
-The "reasoning" field MUST follow this exact pair structure:
-    "reasoning": [
-    "Natural-language explanation.",
-    "S1: formal_step.",
-    "Natural-language explanation.",
-    "S2: formal_step.",
-    "Natural-language explanation.",
-    "S3: formal_step."
-    ]
-
-FORMAL STEP HARD REQUIREMENT:
-Every S-step MUST contain at least one allowed formal operator or ordering relation:
-==, !=, <, >, <=, >=, + 1 ==, - 1 ==, Not(...), And(...), Or(...), Implies(...), Distinct(...), Exactly(...), AtLeast(...), AtMost(...), Sat(...), Unsat(...).
-
-Invalid S-steps:
-- S1: A is before B.
-- S2: Option A satisfies all rules.
-- S3: A second, B fourth.
-- S4: A -> B.
-
-Valid S-steps:
-- S1: A < B.
-- S2: A == 2.
-- S3: Not(C == 1).
-- S4: And(A != 1, A != 4).
-- S5: Sat(Option_C).
-- S6: Unsat(Not(Option_A)).
-
-Rules:
-* Natural-language entries must NOT start with any label.
-* Natural-language entries must be plain explanatory sentences.
-* S entries must start with S1:, S2:, S3:, ...
-* The list must strictly alternate:
-  natural-language sentence, S-step, natural-language sentence, S-step, ...
-* Every S entry must be solver-checkable.
-* Every S entry must end with a period.
-* Do not write paragraph summaries.
-* Do not use unsupported notation such as arrows, quotes around formal expressions, table rows, abs(...), |...|, pos(...), or house(...).
-* The model-specific <think> block is ignored by the grader.
-* Only the JSON "reasoning" list inside <answer>...</answer> is graded for reasoning quality.
-* Therefore, any formal deduction written in <think> must be repeated inside the JSON "reasoning" field.
-* Each S-step must be exactly one sentence.
-* Do not put explanations inside S-steps.
-* Put explanations only in the natural-language sentence immediately before the S-step.
+- Option impossibility checks:
+    If an option cannot be extended to any full valid ordering, use:
+    S9: Unsat(Option_D).
 
 Logical validity requirements:
-- Each step must follow from rules + facts + prior steps, except Sat(...) or Unsat(...) option tests.
-- No contradictions.
-- No tautologies.
-- No hallucinated assumptions.
+- Every formal step MUST be entailed by rules + facts + earlier accepted formal steps, unless it is an option feasibility step.
+- For option feasibility steps:
+    Sat(Option_X) means rules + facts + Option_X is satisfiable.
+    Unsat(Option_X) means rules + facts + Option_X is unsatisfiable.
+- Do NOT output unsupported guesses.
+- Do NOT output contradictory steps.
+- Do NOT output tautologies such as Or(A == 1, A != 1).
+- Do NOT merely restate every passage rule unless the restatement is needed to connect a deduction.
+- Do NOT use house-based language unless the ordering problem is actually about houses.
+- Do NOT use Assign(entity, value) in ordering reasoning unless the problem explicitly uses assignment-like values; prefer integer position expressions.
+
+Examples of valid interleaved ordering reasoning:
+    The question condition places B in the fourth position.
+    S1: B == 4.
+
+    Since C is immediately after A, C's position must be exactly one greater than A's position.
+    S2: C == A + 1.
+
+    Because B is already fourth and all positions are distinct, C cannot also be fourth.
+    S3: C != 4.
+
+    Since C must be immediately after A and C cannot be fourth, A cannot be third.
+    S4: Not(A == 3).
+
+    Since D is not first, D must occupy one of positions 2, 3, or 4.
+    S5: Or(D == 2, D == 3, D == 4).
+
+    Option A can be extended to a complete valid ordering.
+    S6: Sat(Option_A).
+
+    Option B forces C into the fourth position, which conflicts with B already being fourth.
+    S7: Unsat(Option_B).
+
 
 ================================================================================
 SOLUTION REQUIREMENTS
 ================================================================================
-
-"solution": {
-  "selected_option": "X"
-}
+- "solution" MUST be a JSON object with exactly this key:
+    "selected_option"
+- "selected_option" MUST use the exact option label from the input.
+- Do NOT include a final table unless the question asks for a complete ordering.
+- Do NOT include extra explanation inside "solution".
 
 ================================================================================
 OUTPUT SCHEMA
 ================================================================================
+The output MUST follow this exact structure:
 
 <answer>{
   "problem_type": "ordering",
@@ -324,6 +293,35 @@ OUTPUT SCHEMA
     "selected_option": ""
   }
 }</answer>
+
+The graded content must be inside exactly one <answer>...</answer> block.
+Anything outside the answer block is ignored by the grader.
+Inside the answer block, output only a single valid JSON object.
+
+The "reasoning" field MUST follow this exact pair structure:
+    "reasoning": [
+    "Natural-language explanation.",
+    "S1: formal_step.",
+    "Natural-language explanation.",
+    "S2: formal_step.",
+    "Natural-language explanation.",
+    "S3: formal_step."
+    ]
+
+Rules:
+* Natural-language entries must NOT start with any label.
+* Natural-language entries must be plain explanatory sentences.
+* S entries must start with S1:, S2:, S3:, ...
+* The list must strictly alternate:
+  natural-language sentence, S-step, natural-language sentence, S-step, ...
+* Every S entry must be a solver-checkable constraint.
+* Every S entry must end with a period.
+* Do not write paragraph summaries.
+* Do not write table rows as S-steps.
+* Do not use unsupported notation such as house(...), pos(...), abs(...), |...|, arrows, quotes, predicates, or table-row summaries.
+* The model-specific <think> block is ignored by the grader.
+* Only the JSON "reasoning" list inside <answer>...</answer> is graded for reasoning quality.
+* Therefore, any formal deduction written in <think> must be repeated inside the JSON "reasoning" field.
 """
 
 ORDERING_FEWSHOT_USER_PROMPT = """
@@ -426,16 +424,12 @@ options = {options}
 
 metadata = {metadata}
 
-Solve the AR-LSAT ordering problem above.
+Solve the AR-LSAT ordering problem above and provide problem_type, world_model, rules, facts, question_semantics, options, reasoning, and solution.
 
-Return exactly one <answer>...</answer> block.
-The response MUST start with:
+Your final answer block MUST begin with the exact characters:
 <answer>{{
 
-The response MUST end with:
-}}</answer>
-
-Inside <answer>, return one valid JSON object with exactly these EIGHT top-level keys in this exact order:
+Your JSON MUST contain the fields in this exact order:
 1. "problem_type"
 2. "world_model"
 3. "rules"
@@ -445,54 +439,28 @@ Inside <answer>, return one valid JSON object with exactly these EIGHT top-level
 7. "reasoning"
 8. "solution"
 
-Key requirements:
-- "problem_type" MUST be exactly "ordering", not the question_type.
-- "question_type" MUST appear only inside "question_semantics".
-- "rules" MUST contain only passage constraints.
-- "facts" MUST contain only temporary conditions from the question stem, or [] if none.
-- "options" MUST formalize every answer option.
-- "solution" MUST be the final key and contain only "selected_option".
+Important reasoning-field rule:
+The "reasoning" field must NOT be a paragraph summary.
+It must be an alternating list:
+natural-language sentence, syntactic/formal step, natural-language sentence, syntactic/formal step, ...
 
-Formalization requirements:
-- Do NOT copy English passage rules into "rules".
-- Do NOT copy English question text into "facts".
-- Do NOT copy English option text into "options".
-- "rules", "facts", "options", and formal S-steps MUST use formal operators.
-- Allowed operators are:
-  ==, !=, <, >, <=, >=, + 1 ==, - 1 ==, And(...), Or(...), Not(...), Implies(...), Xor(...), Distinct(...), Exactly(...), AtLeast(...), AtMost(...), Sat(...), Unsat(...).
+Every formal step must start with S1:, S2:, S3:, etc.
+The model-specific <think> block is ignored by the grader.
+Only the "reasoning" field inside <answer> is evaluated for reasoning quality.
+Therefore, repeat the formal deduction steps inside the "reasoning" field.
 
-Valid options shape:
-"options": {{
-  "A": "A == 2",
-  "B": "Not(B == 3)",
-  "C": "And(C < D, E != 1)",
-  "D": "Or(F == 1, F == 4)",
-  "E": "Implies(G < H, H == 5)"
-}}
+After the final reasoning string, immediately write the "solution" field.
+The "solution" field must be the final top-level key and must not be omitted.
 
-Reasoning requirements:
-- "reasoning" MUST be a list of strings.
-- It MUST alternate:
-  natural-language sentence,
-  formal S-step,
-  natural-language sentence,
-  formal S-step,
-  ...
-- Formal steps MUST start with S1:, S2:, S3:, etc.
-- Every formal S-step MUST contain at least one allowed formal operator or ordering relation.
-- Do NOT write paragraph summaries, markdown bullets, bold text, or numbered explanations.
+After the complete solution field, close the JSON object and end with:
+}}</answer>
 
-Valid reasoning shape:
-"reasoning": [
-  "The question condition fixes B in the fourth position.",
-  "S1: B == 4.",
-  "Since C is immediately after A, C's position is one greater than A's position.",
-  "S2: C == A + 1.",
-  "Option A is satisfiable under the rules and facts.",
-  "S3: Sat(Option_A)."
-]
+Return only one complete <answer>...</answer> block with no additional text.
 
-Return only the <answer>...</answer> block with no <think>, markdown, explanation, LaTeX, or extra text.
+Reminder:
+The grader ignores <think> and any text outside <answer>.
+The only graded reasoning is the JSON "reasoning" list.
+If the "reasoning" list is a summary without S1:, S2:, S3: steps, the reasoning score is zero.
 """
 
 
