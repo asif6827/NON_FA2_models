@@ -771,7 +771,7 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
                 + 0.20 * sat_ok
             )
             process_bonus = (
-                0.40 * novel_step_score
+                0.0 * novel_step_score
                 + 0.30 * out["consistency_score"]
                 - 0.15 * contradiction_ratio
             )
