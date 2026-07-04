@@ -734,48 +734,9 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         novel_step_score = min(n_novel / normalizer, 1.0)
         contradiction_ratio = min(n_contra / normalizer, 1.0)
 
-        if schema_reward == 0.0:
-            # Same overall branch as before, but with lower caps and two new
-            # dense signals. This avoids high rewards for JSON-like but wrong
-            # outputs while still providing shaping.
-            reward = (
-                0.05 * parsing_reward
-                + 0.10 * schema_partial_reward
-                + 0.05 * out["selected_option_present"]
-                + 0.10 * accuracy
-                + 0.10 * out["ordering_format_reward"]
-                + 0.10 * out["formal_fields_reward"]
-                + 0.05 * out["selected_option_test_ok"]
-            )
-            if accuracy == 0.0:
-                reward = min(reward, 0.08)
-            if out["selected_option_present"] == 0.0:
-                reward = min(reward, 0.05)
-            reward = min(reward, 0.18)
-        elif sat_ok == 0.0:
-            # Core formula preserved, with format now ordering-specific.
-            reward = (
-                0.05 * parsing_reward
-                + 0.05 * schema_reward
-                + 0.15 * out["format_reward"]
-                + 0.35 * accuracy
-                - 0.20 * contradiction_ratio
-            )
-            reward = min(reward, 0.35)
-        else:
-            base_quality = (
-                0.35 * accuracy
-                + 0.15 * parsing_reward
-                + 0.15 * schema_reward
-                + 0.15 * out["format_reward"]
-                + 0.20 * sat_ok
-            )
-            process_bonus = (
-                0.0 * novel_step_score
-                + 0.30 * out["consistency_score"]
-                - 0.15 * contradiction_ratio
-            )
-            reward = base_quality + accuracy * 5 * process_bonus
+        base_quality = (0.6 * accuracy)
+
+        reward = base_quality
 
         out["novel_step_score"] = novel_step_score
         out["contradiction_ratio"] = contradiction_ratio
