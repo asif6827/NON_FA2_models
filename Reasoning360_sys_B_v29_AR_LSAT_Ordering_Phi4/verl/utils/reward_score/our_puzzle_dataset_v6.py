@@ -777,20 +777,48 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
             )
             reward = base_quality + accuracy * 5 * process_bonus
 
-        # Hard cap for bad output wrapper.
+
+        # Truly bad outputs only.
+        if payload is None:
+            reward = min(reward, 0.02)
+
+        if out["selected_option_present"] == 0.0:
+            reward = min(reward, 0.05)
+
+        if out["schema_required_keys_present"] < 0.50:
+            reward = min(reward, 0.08)
+
+
+        # Soft wrapper penalties, not hard caps.
         if out["starts_with_answer_open"] == 0.0:
-            reward = min(reward, 0.15)
+            reward -= 0.03
 
         if out["contains_markdown_fence"] == 1.0:
-            reward = min(reward, 0.15)
+            reward -= 0.03
 
-        # Hard cap when selected option is not Z3-parseable.
-        if out["z3_selected_option_parse_ok"] == 0.0:
-            reward = min(reward, 0.12)
+        if out["missing_answer_close"] == 1.0:
+            reward -= 0.02
 
-        # Hard cap when option formalization has parse errors.
-        if out["z3_option_parse_error_count"] > 0:
-            reward = min(reward, 0.18)
+        options = payload.get("options") if isinstance(payload, dict) else {}
+        n_options = len(options) if isinstance(options, dict) and options else 5
+
+        option_error_ratio = min(
+            float(out["z3_option_parse_error_count"]) / max(float(n_options), 1.0),
+            1.0
+        )
+
+        # Penalize option parse errors proportionally.
+        reward -= 0.12 * option_error_ratio
+
+        # Reward selected-option parse success.
+        reward += 0.08 * out["z3_selected_option_parse_ok"]
+
+        # Reward all-options parse success.
+        option_parse_reward = 1.0 - option_error_ratio
+        reward += 0.08 * option_parse_reward
+
+
+
 
         out["novel_step_score"] = novel_step_score
         out["contradiction_ratio"] = contradiction_ratio
