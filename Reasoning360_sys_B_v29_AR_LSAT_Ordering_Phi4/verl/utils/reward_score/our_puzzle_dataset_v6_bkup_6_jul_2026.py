@@ -777,21 +777,6 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
             )
             reward = base_quality + accuracy * 5 * process_bonus
 
-        # Hard cap for bad output wrapper.
-        if out["starts_with_answer_open"] == 0.0:
-            reward = min(reward, 0.15)
-
-        if out["contains_markdown_fence"] == 1.0:
-            reward = min(reward, 0.15)
-
-        # Hard cap when selected option is not Z3-parseable.
-        if out["z3_selected_option_parse_ok"] == 0.0:
-            reward = min(reward, 0.12)
-
-        # Hard cap when option formalization has parse errors.
-        if out["z3_option_parse_error_count"] > 0:
-            reward = min(reward, 0.18)
-
         out["novel_step_score"] = novel_step_score
         out["contradiction_ratio"] = contradiction_ratio
         out["Normalizer"] = normalizer
