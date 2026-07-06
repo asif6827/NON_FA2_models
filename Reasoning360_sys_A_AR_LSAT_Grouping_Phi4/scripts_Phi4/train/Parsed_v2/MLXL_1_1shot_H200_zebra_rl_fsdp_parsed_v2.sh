@@ -142,7 +142,7 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 #BASE_MODEL=Qwen/Qwen2.5-1.5B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-7B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-1.5B-Instruct
-BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-4B-Thinking-2507
+BASE_MODEL=/export/home/asifali/HF_cache/Phi-4-mini-reasoning
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-1.7B
 MODEL_NAME=$(basename "$BASE_MODEL" | tr -s ' ' '_' | tr -d -c '[:alnum:]_')
 MODEL_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]')
@@ -165,10 +165,10 @@ TEST_DATA_DIR=${SHARED_DATA_PATH}/test
 
 
 ### Logic (train)
-zebra_train_path=${TRAIN_DATA_DIR}/logic_our_ar_lsat_grouping_new_reward_300.parquet
+zebra_train_path=${TRAIN_DATA_DIR}/logic_our_ar_lsat_grouping_new_reward_phi4_300.parquet
 
 ### Logic (test)
-zebralogic_test_path=${TEST_DATA_DIR}/logic_our_ar_lsat_grouping_new_reward_test_49.parquet
+zebralogic_test_path=${TEST_DATA_DIR}/logic_our_ar_lsat_grouping_new_reward_test_phi4_49.parquet
 
 
 train_files="['${zebra_train_path}']"  # Use math as example, add to more tasks as needed
