@@ -37,11 +37,11 @@ python ./data_preprocess/logic/v6a/AR_LSAT_parsed_v6a_MLXL_assignment_phi4.py --
 
 
 
-#python ./data_preprocess/logic/v6a/AR_LSAT_parsed_v6a_A_MLXL_ordering.py --data_path '/export/home/asifali/HF_cache/AR_LSAT' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/AR_LSAT_ordering_A_v6a_MLXL'
+python ./data_preprocess/logic/v6a/AR_LSAT_parsed_v6a_A_MLXL_ordering.py --data_path '/export/home/asifali/HF_cache/AR_LSAT' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/AR_LSAT_ordering_A_v6a_MLXL'
 
-#python ./data_preprocess/logic/v6a/AR_LSAT_parsed_v6a_A_MLXL_grouping.py --data_path '/export/home/asifali/HF_cache/AR_LSAT' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/AR_LSAT_grouping_A_v6a_MLXL'
+python ./data_preprocess/logic/v6a/AR_LSAT_parsed_v6a_A_MLXL_grouping.py --data_path '/export/home/asifali/HF_cache/AR_LSAT' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/AR_LSAT_grouping_A_v6a_MLXL'
 
-#python ./data_preprocess/logic/v6a/AR_LSAT_parsed_v6a_A_MLXL_assignment.py --data_path '/export/home/asifali/HF_cache/AR_LSAT' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/AR_LSAT_assignment_A_v6a_MLXL'
+python ./data_preprocess/logic/v6a/AR_LSAT_parsed_v6a_A_MLXL_assignment.py --data_path '/export/home/asifali/HF_cache/AR_LSAT' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/AR_LSAT_assignment_A_v6a_MLXL'
 
 
 
