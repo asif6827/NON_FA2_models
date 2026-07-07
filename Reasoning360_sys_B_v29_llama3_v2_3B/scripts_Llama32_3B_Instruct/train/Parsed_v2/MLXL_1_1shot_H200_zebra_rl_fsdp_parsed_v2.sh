@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J MLXL-B-v29-H200-Llama3-8B #job name
+#SBATCH -J MLXL-B-v29-H200-Llama3-3B #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
