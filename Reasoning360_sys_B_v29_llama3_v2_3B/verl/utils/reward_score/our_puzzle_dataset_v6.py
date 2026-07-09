@@ -1057,7 +1057,7 @@ def compute_score(
                 reward = max(0.0, min(1.0, float(reward)))
         
         else:
-            reward = -0.2
+            reward = 0.0
 
         #reward = 0.6 * float(puzzle_acc_score)
         #normalizer = 0.0
@@ -1076,7 +1076,7 @@ def compute_score(
 
 
     except Exception:
-        reward = -0.2
+        reward = 0.0
         # Hard fail-safe: never crash reward computation pipeline.
         logger.exception("Crash in Final Reward Scoring")
 
