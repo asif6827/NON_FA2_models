@@ -985,7 +985,7 @@ def compute_score(
         normalizer = 1.0  # will be overwritten if inputs are valid
         n_novel_steps = float(final_result.get("BASE_n_steps_novel_inc_clues", 0.0))
 
-        has_required_inputs = ((attribute_values is not None) and (n_houses is not None) and (n_novel_steps > 0))
+        has_required_inputs = ((attribute_values is not None) and (n_houses is not None))
 
         if has_required_inputs:
             n_houses_i = max(int(n_houses), 0)
@@ -994,68 +994,70 @@ def compute_score(
             # Keep strictly positive to avoid division by zero.
             normalizer = max(1.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
 
+            reward = 0.0
+
+            p = float(puzzle_acc_score)
+            c = float(cell_acc_score)
+            sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))
+
             n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
             novel_step_score = float(min(n_novel_steps / normalizer, 1.0))
             contradiction_ratio = float(min(n_contradictions / normalizer, 1.0))
-            sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))  # expected 1.0 or 0.0
 
-            if format_ok:
-                format_reward = 1.0
+            format_reward = 1.0 if format_ok else 0.0
+
+            # Optional: compare final table to solver-derived table
+            z3_table_puzzle_acc = 0.0
+            z3_table_cell_acc = 0.0
+
+            try:
+                z3_solution = z3_out.get("z3_solution")
+                if isinstance(z3_solution, dict) and predicted_arrangement:
+                    z3_table_puzzle_acc, z3_table_cell_acc = puzzle_and_cell_accuracy(
+                        normalize_table(predicted_arrangement),
+                        normalize_table(z3_solution),
+                    )
+            except Exception:
+                z3_table_puzzle_acc = 0.0
+                z3_table_cell_acc = 0.0
+
+            if p >= 1.0:
+                reward = 1.0
             else:
-                format_reward = 0.0
-            #print("Format reward = {}".format(format_reward))
+                cell_shape = c ** 2
+                z3_shape = float(z3_table_cell_acc) ** 2
 
-            if int(epoch) <= 15:
-                if sat_ok == 0.0:
-                    reward = 0.60 * float(puzzle_acc_score) + 0.40 * float(cell_acc_score)
+                reward = (
+                        0.35 * cell_shape
+                        + 0.30 * z3_shape
+                        + 0.10 * float(consistency_score)
+                        + 0.03 * format_reward
+                        + 0.02 * novel_step_score
+                )
+
+                # Penalize contradictions globally
+                reward -= 0.25 * contradiction_ratio
+
+                # Late-stage wrong answers should not become too attractive
+                if int(epoch) > switch_epoch:
+                    reward = min(reward, 0.45)
                 else:
-                    base_quality = (
-                            0.60 * float(puzzle_acc_score)
-                            + 0.40 * float(cell_acc_score)
-                            + 0.20 * format_reward
-                    )
+                    reward = min(reward, 0.60)
 
-                    process_bonus = (
-                            0.60 * novel_step_score
-                            + 0.40 * consistency_score
-                    )
+            # Hard caps
+            if not format_ok:
+                reward = min(reward, 0.10)
 
-                    # gate process reward by solution quality
-                    reward = base_quality + float(puzzle_acc_score) * process_bonus
+            if sat_ok == 0.0:
+                reward = min(reward, 0.20)
 
-            else:
-                if sat_ok == 0.0:
-                    reward = 0.60 * float(puzzle_acc_score)
-                else:
-                    base_quality = (
-                            0.60 * float(puzzle_acc_score)
-                            + 0.20 * format_reward
-                    )
+            if n_contradictions > 0 and p == 0.0:
+                reward = min(reward, 0.35)
 
-                    process_bonus = (
-                            0.40 * novel_step_score
-                            + 1.5 * consistency_score
-                            - 0.15 * contradiction_ratio
-                    )
-
-                    # gate process reward by solution quality
-                    reward = base_quality + float(puzzle_acc_score) * process_bonus
-
-            #if sat_ok == 0.0:
-            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
-            #else:
-            #    #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
-            #    #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
-            #    #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
-            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)  + 0.2 * float(cell_acc_score) + 0.4 * (n_novel_steps / normalizer) + 0.2 * format_reward + 0.4 * consistency_score
-            #    #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
-        
+            reward = max(0.0, min(1.0, float(reward)))
         
         else:
-            reward = 0.0
-
-
-
+            reward = -0.2
 
         #reward = 0.6 * float(puzzle_acc_score)
         #normalizer = 0.0
@@ -1074,7 +1076,7 @@ def compute_score(
 
 
     except Exception:
-        reward = 0.0
+        reward = -0.2
         # Hard fail-safe: never crash reward computation pipeline.
         logger.exception("Crash in Final Reward Scoring")
 
