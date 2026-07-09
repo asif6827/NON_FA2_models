@@ -20,8 +20,8 @@ from typing import Dict, Any, List, Tuple, Optional
 import re
 
 
-from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import solve_and_validate_payload
-from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import normalize_header, normalize_months_in_rows
+from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_vh import solve_and_validate_payload
+from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_vh import normalize_header, normalize_months_in_rows
 from verl.utils.reward_score.check_interleved_format import check_interleaved_reasoning
 from verl.utils.reward_score.z3_reasoning_vs_solution_verifier_v2 import verify_solution_two_step
 
@@ -1044,17 +1044,17 @@ def compute_score(
                 else:
                     reward = min(reward, 0.60)
 
-            # Hard caps
-            if not format_ok:
-                reward = min(reward, 0.10)
+                # Hard caps
+                if not format_ok:
+                    reward = min(reward, 0.10)
 
-            if sat_ok == 0.0:
-                reward = min(reward, 0.20)
+                if sat_ok == 0.0:
+                    reward = min(reward, 0.20)
 
-            if n_contradictions > 0 and p == 0.0:
-                reward = min(reward, 0.35)
+                if n_contradictions > 0 and p == 0.0:
+                    reward = min(reward, 0.35)
 
-            reward = max(0.0, min(1.0, float(reward)))
+                reward = max(0.0, min(1.0, float(reward)))
         
         else:
             reward = -0.2
