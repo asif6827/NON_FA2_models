@@ -1060,7 +1060,7 @@ def compute_score(
 
 
     except Exception:
-        reward = 0.0
+        reward = -0.5
         # Hard fail-safe: never crash reward computation pipeline.
         logger.exception("Crash in Final Reward Scoring")
 
