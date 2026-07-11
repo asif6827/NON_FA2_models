@@ -983,68 +983,8 @@ def compute_score(
 
         reward = 0.0
         normalizer = 1.0  # will be overwritten if inputs are valid
-        n_novel_steps = float(final_result.get("BASE_n_steps_novel_inc_clues", 0.0))
-
-        has_required_inputs = ((attribute_values is not None) and (n_houses is not None) and (n_novel_steps > 0))
-
-        if has_required_inputs:
-            n_houses_i = max(int(n_houses), 0)
-            n_attrs_i = max(len(attribute_values), 0)
-
-            # Keep strictly positive to avoid division by zero.
-            normalizer = max(2.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
-
-            n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
-            novel_step_score = float(min(n_novel_steps / normalizer, 1.0))
-            contradiction_ratio = float(min(n_contradictions / normalizer, 1.0))
-            sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))  # expected 1.0 or 0.0
-
-            if format_ok:
-                format_reward = 1.0
-            else:
-                format_reward = 0.0
-            #print("Format reward = {}".format(format_reward))
-
-            if sat_ok == 0.0:
-                reward = (
-                        0.15 * parsing_reward
-                        + 0.10 * format_reward
-                        + 0.60 * float(puzzle_acc_score)
-                )
-            else:
-                base_quality = (
-                        0.60 * float(puzzle_acc_score)
-                        + 0.20 * parsing_reward
-                        + 0.20 * format_reward
-                )
-
-                process_bonus = (
-                        0.40 * novel_step_score
-                        + 0.30 * consistency_score
-                        - 0.15 * contradiction_ratio
-                )
-
-                # gate process reward by solution quality
-                reward = base_quality + float(puzzle_acc_score) * process_bonus
-
-            #if sat_ok == 0.0:
-            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
-            #else:
-            #    #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
-            #    #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
-            #    #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
-            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)  + 0.2 * float(cell_acc_score) + 0.4 * (n_novel_steps / normalizer) + 0.2 * format_reward + 0.4 * consistency_score
-            #    #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
-        
-        
-        else:
-            reward = -0.5
-
-
-
-
-        #reward = 0.6 * float(puzzle_acc_score)
-        #normalizer = 0.0
+        reward = 0.6 * float(puzzle_acc_score)
+        normalizer = 0.0
 
         # -----------------------
         # Log / persist to final_result
@@ -1060,7 +1000,7 @@ def compute_score(
 
 
     except Exception:
-        reward = -0.5
+        reward = 0.0
         # Hard fail-safe: never crash reward computation pipeline.
         logger.exception("Crash in Final Reward Scoring")
 
