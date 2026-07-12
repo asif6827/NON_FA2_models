@@ -998,40 +998,10 @@ def compute_score(
             # print("Format reward = {}".format(format_reward))
 
             if int(epoch) <= 15:
-                if sat_ok == 0.0:
-                    reward = 0.60 * float(puzzle_acc_score) + 0.40 * float(cell_acc_score)
-                else:
-                    base_quality = (
-                            0.60 * float(puzzle_acc_score)
-                            + 0.40 * float(cell_acc_score)
-                            + 0.20 * format_reward
-                    )
-
-                    process_bonus = (
-                            0.60 * novel_step_score
-                            + 0.40 * consistency_score
-                    )
-
-                    # gate process reward by solution quality
-                    reward = base_quality + float(puzzle_acc_score) * process_bonus
+                reward = 0.60 * float(puzzle_acc_score) + 0.40 * float(cell_acc_score)
 
             else:
-                if sat_ok == 0.0:
-                    reward = 0.60 * float(puzzle_acc_score)
-                else:
-                    base_quality = (
-                            0.60 * float(puzzle_acc_score)
-                            + 0.20 * format_reward
-                    )
-
-                    process_bonus = (
-                            0.40 * novel_step_score
-                            + 1.5 * consistency_score
-                            - 0.15 * contradiction_ratio
-                    )
-
-                    # gate process reward by solution quality
-                    reward = base_quality + float(puzzle_acc_score) * process_bonus
+                reward = 0.60 * float(puzzle_acc_score)
 
             # if sat_ok == 0.0:
             #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)

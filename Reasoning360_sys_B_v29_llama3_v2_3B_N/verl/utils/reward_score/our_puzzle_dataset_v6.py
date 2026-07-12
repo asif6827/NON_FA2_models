@@ -1008,7 +1008,7 @@ def compute_score(
                     )
 
                     process_bonus = (
-                            0.60 * novel_step_score
+                            0.0 * novel_step_score
                             + 0.40 * consistency_score
                     )
 
@@ -1025,7 +1025,7 @@ def compute_score(
                     )
 
                     process_bonus = (
-                            0.40 * novel_step_score
+                            0.0 * novel_step_score
                             + 1.5 * consistency_score
                             - 0.15 * contradiction_ratio
                     )
