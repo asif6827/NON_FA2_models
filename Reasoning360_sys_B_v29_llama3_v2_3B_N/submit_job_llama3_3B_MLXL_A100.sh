@@ -16,7 +16,7 @@ TEST_LIST=(3)
 ACC_W_LIST=(0.9)
 Z3_W_LIST=(0.2)
 SWITCH_EPOCH_LIST=(80)
-SYSTEM_NAME_LIST=("Reasoning360_sys_B_v29_llama3_v2_3B")
+SYSTEM_NAME_LIST=("Reasoning360_sys_B_v29_llama3_v2_3B_N")
 EVAL_PATH_LIST=("mlxl_train_mlxl_test_1_parsed_v6a_${ACRONYM}")
 DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v6a_${ACRONYM}/mlxl_train_mlxl_test")
 
