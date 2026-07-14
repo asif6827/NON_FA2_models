@@ -48,7 +48,7 @@ echo "All jobs submitted A100."
 
 
 
-#if false; then
+if false; then
     mkdir -p ./all_logs
 
 
