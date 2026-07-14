@@ -2,7 +2,6 @@
 
 #SBATCH -J MLXL-B-v29-A100-LLama3-3B-ARLSAT-Grouping #job name
 #SBATCH -p gpu-A100 # queue used
-#SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
