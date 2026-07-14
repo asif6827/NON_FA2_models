@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J MLXL-B-v29-H200-Qwen3-4B-ARLSAT-Assignment #job name
+#SBATCH -J MLXL-B-v29-H200-LLama3-3B-ARLSAT-Assignment #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
@@ -89,7 +89,7 @@ NUM_GPUS=4 # Set the number of GPUs to use on this node
 gpu_memory_utilization=0.8
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
-WANDB_PROJECT="Sys_B_v1_Qwen3_4B_MLXL_1_1shot_H200" # Your wandb project name
+WANDB_PROJECT="Sys_B_v29_llama3_3B_MLXL_1_1shot_H200" # Your wandb project name
 
 # --- External Services ---
 export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as-judge hosted URL for 'STEM' domain evaluation
@@ -142,7 +142,7 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 #BASE_MODEL=Qwen/Qwen2.5-1.5B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-7B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-1.5B-Instruct
-BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-4B-Thinking-2507
+BASE_MODEL=/export/home/asifali/HF_cache/Llama-3.2-3B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-1.7B
 MODEL_NAME=$(basename "$BASE_MODEL" | tr -s ' ' '_' | tr -d -c '[:alnum:]_')
 MODEL_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]')
@@ -342,7 +342,7 @@ python -m recipe.dapo.main_dapo \
     trainer.n_gpus_per_node=${NUM_GPUS} \
     trainer.nnodes=1 \
     trainer.test_freq=${TEST_FREQUENCY} \
-    trainer.save_freq=1 \
+    trainer.save_freq=100 \
     trainer.max_actor_ckpt_to_keep=1 \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.total_epochs=${EPOCH} \
