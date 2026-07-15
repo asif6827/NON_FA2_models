@@ -46,7 +46,7 @@ def _safe_epoch(name: str, default: str) -> int:
         return int(default)
 
 
-def _default_result(*, epoch: Optional[int] = None, total_epochs: Optional[int] = None, penalty: float = -0.5) -> Dict[str, float]:
+def _default_result(*, epoch: Optional[int] = None, total_epochs: Optional[int] = None, penalty: float = 0.0) -> Dict[str, float]:
     if epoch is None:
         epoch = _safe_epoch("CURRENT_EPOCH", "0")
     if total_epochs is None:
@@ -82,7 +82,7 @@ def _clamp_reward(x: Any) -> float:
     try:
         v = float(x)
     except Exception:
-        return -0.5
+        return 0.0
     return max(-1.0, min(1.0, v))
 
 
@@ -220,7 +220,7 @@ def compute_score(
 ) -> Dict[str, float]:
     epoch = _safe_epoch("CURRENT_EPOCH", "0")
     total_epochs = _safe_epoch("TOTAL_EPOCH", "1")
-    final_result: Dict[str, Any] = _default_result(epoch=epoch, total_epochs=total_epochs, penalty=-0.5)
+    final_result: Dict[str, Any] = _default_result(epoch=epoch, total_epochs=total_epochs, penalty=0.0)
 
     try:
         payload, parse_status = parse_ar_lsat_answer(solution_str)
@@ -308,7 +308,7 @@ def compute_score(
             final_result["contradiction_ratio"] = float(contradiction_ratio)
             final_result["missed_data"] = 0.0
         else:
-            reward = -0.5
+            reward = 0.0
             final_result["missed_data"] = 1.0
             final_result["novel_step_score"] = 0.0
             final_result["contradiction_ratio"] = 0.0

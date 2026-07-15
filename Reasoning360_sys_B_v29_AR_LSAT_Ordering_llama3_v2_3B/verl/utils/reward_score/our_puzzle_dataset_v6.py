@@ -45,7 +45,7 @@ def _safe_epoch(name: str, default: int) -> float:
     except Exception: return float(default)
 
 
-def _default_result(reward: float = -0.5, missed_data: float = 1.0) -> Dict[str, float]:
+def _default_result(reward: float = 0.0, missed_data: float = 1.0) -> Dict[str, float]:
     out = {k: 0.0 for k in RESULT_KEYS}
     out["acc"] = out["score"] = out["reward_logged"] = float(reward)
     out["missed_data"] = float(missed_data)
@@ -227,13 +227,13 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
                 reward = base_quality + accuracy * process_bonus
             out["novel_step_score"] = novel_step_score; out["contradiction_ratio"] = contradiction_ratio
         else:
-            reward = -0.5; out["missed_data"] = 1.0
+            reward = 0.0; out["missed_data"] = 1.0
         out["Normalizer"] = normalizer
         out["acc"] = out["score"] = out["reward_logged"] = _clamp_reward(reward)
         return _numeric_only(out)
     except Exception:
         logger.exception("compute_score failed; returning complete penalty reward dict")
-        out = _default_result(reward=-0.5, missed_data=1.0); out["reward_exception"] = 1.0; return out
+        out = _default_result(reward=0.0, missed_data=1.0); out["reward_exception"] = 1.0; return out
 
 
 def _wrap(payload: Dict[str, Any]) -> str:
