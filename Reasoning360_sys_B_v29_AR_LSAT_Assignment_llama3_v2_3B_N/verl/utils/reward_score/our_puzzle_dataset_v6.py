@@ -239,7 +239,7 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
                 reward = 0.15 * parsing_reward + 0.10 * out["format_reward"] + 0.60 * accuracy - 0.20 * contradiction_ratio
             else:
                 base_quality = 0.60 * accuracy + 0.20 * parsing_reward + 0.20 * out["format_reward"]
-                process_bonus = 0.40 * novel_step_score + 0.30 * out["consistency_score"] - 0.15 * contradiction_ratio
+                process_bonus = 0.0 * novel_step_score + 0.30 * out["consistency_score"] - 0.15 * contradiction_ratio
                 reward = base_quality + accuracy * process_bonus
             out["novel_step_score"] = novel_step_score; out["contradiction_ratio"] = contradiction_ratio
         else:
