@@ -21,7 +21,7 @@ DATA_PATH_LIST=("AR_LSAT_assignment_A_v6a_${ACRONYM}/mlxl_train_mlxl_test")
 
 
 
-SLURM_SCRIPT_H200="./scripts_Qwen3_4B/train/Parsed_v2/${ACRONYM}_1_1shot_H200_zebra_rl_fsdp_parsed_v2.sh"
+SLURM_SCRIPT_H200="./scripts_Qwen3_8B/train/Parsed_v2/${ACRONYM}_1_1shot_H200_zebra_rl_fsdp_parsed_v2.sh"
 for i in "${!TRAIN_TEMP_LIST[@]}"; do
     TRAIN_TEMP=${TRAIN_TEMP_LIST[$i]}
     TEST_TEMP=${TEST_TEMP_LIST[$i]}

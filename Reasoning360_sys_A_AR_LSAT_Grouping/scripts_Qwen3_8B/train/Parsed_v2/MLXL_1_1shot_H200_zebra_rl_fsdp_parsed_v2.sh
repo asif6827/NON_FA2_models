@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J MLXL-A-H200-Qwen3-4B-ARLSAT-Grouping #job name
+#SBATCH -J MLXL-A-H200-Qwen3-8B-ARLSAT-Grouping #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
@@ -142,7 +142,7 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 #BASE_MODEL=Qwen/Qwen2.5-1.5B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-7B-Instruct
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen2.5-1.5B-Instruct
-BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-4B-Thinking-2507
+BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-8B
 #BASE_MODEL=/export/home/asifali/HF_cache/Qwen3-1.7B
 MODEL_NAME=$(basename "$BASE_MODEL" | tr -s ' ' '_' | tr -d -c '[:alnum:]_')
 MODEL_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]')
@@ -342,7 +342,7 @@ python -m recipe.dapo.main_dapo \
     trainer.n_gpus_per_node=${NUM_GPUS} \
     trainer.nnodes=1 \
     trainer.test_freq=${TEST_FREQUENCY} \
-    trainer.save_freq=1 \
+    trainer.save_freq=100 \
     trainer.max_actor_ckpt_to_keep=1 \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.total_epochs=${EPOCH} \
