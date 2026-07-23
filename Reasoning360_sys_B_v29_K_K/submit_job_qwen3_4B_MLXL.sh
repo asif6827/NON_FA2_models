@@ -4,6 +4,8 @@
 
 
 #if false; then
+mkdir -p ./all_logs
+
 ACRONYM="MLXL"
 echo "Submitting Training job H200 + GT"
 TRAIN_TEMP_LIST=(0.8)
@@ -15,8 +17,8 @@ ACC_W_LIST=(0.8)
 Z3_W_LIST=(0.2)
 SWITCH_EPOCH_LIST=(80)
 SYSTEM_NAME_LIST=("Reasoning360_sys_B_v29")
-EVAL_PATH_LIST=("mlxl_train_mlxl_test_1_parsed_v6a_${ACRONYM}")
-DATA_PATH_LIST=("ZebraPuzzle_to_guru_parsed_v6a_${ACRONYM}/mlxl_train_mlxl_test")
+EVAL_PATH_LIST=("mlxl_train_mlxl_k_K_parsed_v6a_${ACRONYM}")
+DATA_PATH_LIST=("K_K_v6a_${ACRONYM}/mlxl_train_mlxl_test")
 
 
 

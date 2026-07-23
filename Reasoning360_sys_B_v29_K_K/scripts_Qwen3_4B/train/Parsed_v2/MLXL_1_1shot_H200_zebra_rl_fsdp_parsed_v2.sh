@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J MLXL-B-v29-H200-Qwen3-4B #job name
+#SBATCH -J MLXL-B-v29-H200-Qwen3-4B_K_K #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
@@ -165,10 +165,10 @@ TEST_DATA_DIR=${SHARED_DATA_PATH}/test
 
 
 ### Logic (train)
-zebra_train_path=${TRAIN_DATA_DIR}/logic_our_zebra_puzzle_new_reward_300.parquet
+zebra_train_path=${TRAIN_DATA_DIR}/logic_our_k_k_new_reward_300.parquet
 
 ### Logic (test)
-zebralogic_test_path=${TEST_DATA_DIR}/logic_our_zebra_puzzle_new_reward_test_700.parquet
+zebralogic_test_path=${TEST_DATA_DIR}/logic_our_k_k_new_reward_test_700.parquet
 
 
 train_files="['${zebra_train_path}']"  # Use math as example, add to more tasks as needed
