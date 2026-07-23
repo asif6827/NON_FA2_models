@@ -7,7 +7,7 @@ target = Path("/export/home/asifali/HF_cache/knights-and-knaves")  # your folder
 
 path = snapshot_download(
     repo_id=repo_id,
-    repo_type="model",
+    repo_type="dataset",
     local_dir=target,
     local_dir_use_symlinks=False,   # real files (not symlinks), avoids mount issues
     resume_download=True,           # good for flaky networks
