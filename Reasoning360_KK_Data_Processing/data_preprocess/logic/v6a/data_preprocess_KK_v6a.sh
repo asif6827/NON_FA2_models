@@ -23,7 +23,9 @@ source activate zebrapuzzles
 
 # Downloading the Knights and Knave data set...!
 
-python ./data_preprocess/logic/v6a/KK_data_download.py
+#python ./data_preprocess/logic/v6a/KK_data_download.py
+
+python ./data_preprocess/logic/v6a/KK_data_split.py
 
 
 #python ./data_preprocess/logic/v6a/AR_LSAT_parsed_v6a_A_MLXL_grouping.py --data_path '/export/home/asifali/HF_cache/AR_LSAT' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/AR_LSAT_grouping_A_v6a_MLXL'
