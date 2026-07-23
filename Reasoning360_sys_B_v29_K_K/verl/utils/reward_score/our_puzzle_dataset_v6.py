@@ -839,7 +839,6 @@ def compute_score(
 
         final_result["acc"] = 0.0
         final_result["PUZZLE_ACCURACY"] = 0.0
-        final_result["CELL_ACCURACY"] = 0.0
         final_result["score"] = 0.0
         final_result["epoch"] = epoch
         final_result["total_epochs"] = total_epochs
@@ -863,7 +862,6 @@ def compute_score(
 
         final_result["acc"] = 0.0
         final_result["PUZZLE_ACCURACY"] = 0.0
-        final_result["CELL_ACCURACY"] = 0.0
         final_result["score"] = 0.0
         final_result["epoch"] = epoch
         final_result["total_epochs"] = total_epochs
@@ -1207,7 +1205,6 @@ def compute_score(
         final_result["Normalizer"] = float(normalizer)
         final_result["acc"] = float(reward)
         final_result["PUZZLE_ACCURACY"] = float(puzzle_acc_score)
-        final_result["CELL_ACCURACY"] = float(cell_acc_score)
         final_result["PERSON_ACCURACY"] = float(cell_acc_score) if task_type == "knights_and_knaves" else 0.0
         final_result["TASK_TYPE"] = task_type
         final_result["score"] = float(reward)
@@ -1224,7 +1221,6 @@ def compute_score(
         final_result["Normalizer"] = 0.0
         final_result["acc"] = reward
         final_result["PUZZLE_ACCURACY"] = 0.0
-        final_result["CELL_ACCURACY"] = 0.0
         final_result["score"] = reward
         final_result["epoch"] = epoch
         final_result["total_epochs"] = total_epochs

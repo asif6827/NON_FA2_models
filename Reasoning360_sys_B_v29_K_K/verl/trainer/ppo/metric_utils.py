@@ -124,7 +124,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
 
     acc = torch.from_numpy(batch.non_tensor_batch["acc"])
     PUZZLE_ACCURACY = torch.from_numpy(batch.non_tensor_batch["PUZZLE_ACCURACY"])
-    CELL_ACCURACY = torch.from_numpy(batch.non_tensor_batch["CELL_ACCURACY"])
+    PERSON_ACCURACY = torch.from_numpy(batch.non_tensor_batch["PERSON_ACCURACY"])
     score = torch.from_numpy(batch.non_tensor_batch["score"])
     epoch = torch.from_numpy(batch.non_tensor_batch["epoch"])
     total_epochs = torch.from_numpy(batch.non_tensor_batch["total_epochs"])
@@ -182,7 +182,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
         "TRAIN/ACC-Metrics/Normalizer/mean": torch.mean(Normalizer.float()).detach().item(),
         "TRAIN/ACC-Metrics/acc/mean": torch.mean(acc.float()).detach().item(),
         "TRAIN/ACC-Metrics/PUZZLE_ACCURACY/mean": torch.mean(PUZZLE_ACCURACY.float()).detach().item(),
-        "TRAIN/ACC-Metrics/CELL_ACCURACY/mean": torch.mean(CELL_ACCURACY.float()).detach().item(),
+        "TRAIN/ACC-Metrics/PERSON_ACCURACY/mean": torch.mean(PERSON_ACCURACY.float()).detach().item(),
         "TRAIN/ACC-Metrics/score/mean": torch.mean(score.float()).detach().item(),
         "TRAIN/ACC-Metrics/epoch/mean": torch.mean(epoch.float()).detach().item(),
         "TRAIN/ACC-Metrics/total_epochs/mean": torch.mean(total_epochs.float()).detach().item(),
