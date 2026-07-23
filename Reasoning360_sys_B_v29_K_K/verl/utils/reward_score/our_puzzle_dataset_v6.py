@@ -71,9 +71,9 @@ def parse_answer_tag(solution_str: str) -> Optional[str]:
 
 def log_case(case_type: str, solution_str: str, ground_truth: Any, logger):
     """Log special cases like non-boxed answers."""
-    logger.info(f"{case_type} case:")
-    logger.info(f"Solution_str: {solution_str}")
-    logger.info(f"Ground_truth: {ground_truth}")
+    logger.debug(f"{case_type} case:")
+    logger.debug(f"Solution_str: {solution_str}")
+    logger.debug(f"Ground_truth: {ground_truth}")
 
 
 # -------------------- normalization helpers --------------------
@@ -1031,7 +1031,7 @@ def compute_score(
                 timeout_s=5.0,
                 conflict_tolerant_clues=False,
             )
-            logger.info(
+            logger.debug(
                 "Z3 validation completed: task_type=%s, parse_status=%s, keys=%s",
                 task_type,
                 z3_out.get("parse_status"),
