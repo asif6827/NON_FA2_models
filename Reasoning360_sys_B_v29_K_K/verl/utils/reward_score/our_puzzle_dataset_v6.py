@@ -26,6 +26,12 @@ from verl.utils.reward_score.check_interleved_format import check_interleaved_re
 from verl.utils.reward_score.z3_reasoning_vs_solution_verifier_v2 import verify_solution_two_step
 
 
+#from z3_reasoning_validator_v13_gt_solve_v9 import solve_and_validate_payload
+#from z3_reasoning_validator_v13_gt_solve_v9 import normalize_header, normalize_months_in_rows
+#from check_interleved_format import check_interleaved_reasoning
+#from z3_reasoning_vs_solution_verifier_v2 import verify_solution_two_step
+
+
 os.environ.setdefault("CLUE_TIMEOUT_S", "3.0")
 os.environ.setdefault("Z3_TIMEOUT_S", "1.5")
 os.environ.setdefault("Z3_CLUE_GATE", "0.7")
@@ -47,8 +53,10 @@ logger = logging.getLogger(__name__)
 #pid_to_puzzle_dic_file = '/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json'
 pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/home/asif/data3/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
 
-with open(pid_to_puzzle_dic_file, "r", encoding="utf-8") as f:
-    pid_to_puzzle_dic = json.load(f)   # this is a dict (if JSON root is an object)
+pid_to_puzzle_dic = {}
+if os.path.exists(pid_to_puzzle_dic_file):
+    with open(pid_to_puzzle_dic_file, "r", encoding="utf-8") as f:
+        pid_to_puzzle_dic = json.load(f)
 
 
 
@@ -601,22 +609,61 @@ def find_last_answer_block(text: str) -> Optional[str]:
 
 
 def extract_reasoning_and_solution(solution_str: str):
-    """
-    Extract both reasoning and solution.
-    Returns (reasoning, solution, status)
-    """
+    """Extract the common output fields and detect the puzzle family."""
     answer_content = find_last_answer_block(solution_str)
     if answer_content:
         parsed = _try_parse_first_json_obj(answer_content)
-        if parsed is not None:
-            return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses", None), "success_answer_tag"
-        return None, None, None, None, None, "answer_tag_json_error"
+        status = "success_answer_tag" if parsed is not None else "answer_tag_json_error"
+    else:
+        parsed = _try_parse_first_json_obj(solution_str)
+        status = "success_direct_json" if parsed is not None else "parsing_failed"
+    if parsed is None:
+        return None, None, None, None, None, None, status
+    if "people" in parsed or "n_people" in parsed:
+        task_type = "knights_and_knaves"
+        domain_values = parsed.get("people")
+        domain_size = parsed.get("n_people")
+    else:
+        task_type = "zebra"
+        domain_values = parsed.get("attribute_values")
+        domain_size = parsed.get("n_houses")
+    return parsed.get("syntactic_clues"), parsed.get("reasoning"), parsed.get("solution"), domain_values, domain_size, task_type, status
 
-    parsed = _try_parse_first_json_obj(solution_str)
-    if parsed is not None:
-        return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses", None), "success_direct_json"
 
-    return None, None, None, None, None, "parsing_failed"
+def knights_accuracy(predicted: Dict[str, Any], ground_truth: Dict[str, Any]) -> Tuple[float, float]:
+    """Return (puzzle accuracy, person accuracy), aligned by person name."""
+    def mapping(table):
+        if not isinstance(table, dict): return None
+        header=[str(x).strip().lower() for x in table.get('header',[])]
+        try: pi,ii=header.index('person'),header.index('identity')
+        except ValueError: return None
+        out={}
+        for row in table.get('rows',[]):
+            if not isinstance(row,list) or max(pi,ii)>=len(row): return None
+            person=str(row[pi]).strip().lower(); identity=str(row[ii]).strip().lower()
+            if identity not in {'knight','knave'} or person in out: return None
+            out[person]=identity
+        return out
+    p,g=mapping(predicted),mapping(ground_truth)
+    if not p or not g: return 0.0,0.0
+    person_acc=sum(p.get(k)==v for k,v in g.items())/len(g)
+    return float(p==g), float(person_acc)
+
+
+def check_knights_interleaved_reasoning(reasoning: Any) -> bool:
+    if not isinstance(reasoning,list) or len(reasoning)==0 or len(reasoning)%2!=0: return False
+    expected=1
+    for i,item in enumerate(reasoning):
+        if not isinstance(item,str) or not item.strip().endswith('.'): return False
+        if i%2==0:
+            if re.match(r'^\s*S\d+\s*:',item,re.I): return False
+        else:
+            m=re.match(r'^\s*S(\d+)\s*:\s*(.+?)\.\s*$',item,re.I)
+            if not m or int(m.group(1))!=expected: return False
+            expr=m.group(2).strip()
+            if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*',expr): return False
+            expected+=1
+    return True
 
 def normalize_ground_truth(ground_truth: dict) -> dict:
     """
@@ -758,8 +805,14 @@ def compute_score(
 
 
 
+        task_type = "zebra"
+        if isinstance(extra_info, dict):
+            task_type = extra_info.get("task_type", task_type)
+        if isinstance(meta, dict):
+            task_type = meta.get("task_type", task_type)
         ground_truth = normalize_ground_truth(ground_truth)
-        ground_truth = normalize_header(ground_truth)
+        if task_type != "knights_and_knaves":
+            ground_truth = normalize_header(ground_truth)
         #ground_truth = normalize_months_in_rows(ground_truth)
         norm_pred = None
         cell_acc_score = 0.0
@@ -816,14 +869,36 @@ def compute_score(
         final_result["total_epochs"] = total_epochs
         final_result["reward_logged"] = 0.0
 
+    # Initialize all parsing/domain variables unconditionally so downstream
+    # reward branches cannot reference names that were never assigned.
+    syntactic_clues = None
+    parsed_reasoning = None
+    predicted_arrangement = None
+    domain_values = None
+    domain_size = None
+    parsed_task_type = None
+    parse_status = "parsing_failed"
+    attribute_values = None
+    n_houses = None
+    people = None
+    n_people = None
+
     parsing_reward = 0.0
     try:
-        syntactic_clues, parsed_reasoning, predicted_arrangement, attribute_values, n_houses, parse_status = extract_reasoning_and_solution(solution_str=solution_str)
+        syntactic_clues, parsed_reasoning, predicted_arrangement, domain_values, domain_size, parsed_task_type, parse_status = extract_reasoning_and_solution(solution_str=solution_str)
+        if parsed_task_type is not None:
+            task_type = parsed_task_type
+        if task_type == 'knights_and_knaves':
+            people, n_people = domain_values, domain_size
+            attribute_values, n_houses = None, None
+        else:
+            attribute_values, n_houses = domain_values, domain_size
+            people, n_people = None, None
         if parse_status != "success_answer_tag":
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 log_case("non_boxed_answer", solution_str, ground_truth, logger)
 
-        if parse_status == "success_direct_json" or parse_status == "success_answer_json":
+        if parse_status in {"success_answer_tag", "success_direct_json"}:
             parsing_reward = 1.0
         # meta selection
         meta_used = meta
@@ -832,7 +907,9 @@ def compute_score(
             meta_used = extra_info.get("meta") or extra_info
     except Exception as parse_error:
         logger.error(f"Error in solution parsing: {parse_error}")
-        n_houses = 1
+        n_houses = None
+        n_people = None
+        people = None
         parsing_reward = 0.0
         num_blocks = 0
         attribute_values = None
@@ -850,9 +927,11 @@ def compute_score(
             norm_gt = normalize_table(gt_conv)  # normalize_grid(gt_conv)
 
             if norm_pred and norm_gt:
-                norm_pred = normalize_header(norm_pred)
-                #norm_pred = normalize_months_in_rows(norm_pred)
-                cell_acc_score, puzzle_acc_score = _compute_acc_from_normalized(norm_pred, norm_gt)
+                if task_type == "knights_and_knaves":
+                    puzzle_acc_score, cell_acc_score = knights_accuracy(norm_pred, norm_gt)
+                else:
+                    norm_pred = normalize_header(norm_pred)
+                    cell_acc_score, puzzle_acc_score = _compute_acc_from_normalized(norm_pred, norm_gt)
                 # puzzle_acc_score, cell_acc_score = puzzle_and_cell_accuracy(norm_pred, norm_gt)
             else:
                 cell_acc_score = 1.0 if pred_conv == gt_conv else 0.0
@@ -871,7 +950,7 @@ def compute_score(
     # -----------------------
 
     MISSING_BASE_DEFAULTS = {
-        "BASE_sat_full_GT": 0.0,
+        "base_sat_full_GT": 0.0,
         "n_steps_total": 0,
         "n_steps_parsed_ok": 0,
         "n_steps_valid": 0,
@@ -907,39 +986,94 @@ def compute_score(
         """Return True if the Z3 solver failed its SAT check."""
         return z3_out.get("parse_status") == "SAT_CHECK_FAIL"
 
-    required_inputs_present = all([
-        n_houses,
-        attribute_values,
-        syntactic_clues,
-        parsed_reasoning,
-    ])
+    # Build the task-specific payload. Define these unconditionally so that
+    # parsing failures or future branch changes cannot cause NameError.
+    required_inputs_present = False
+    payload = {}
+
+    if task_type == "knights_and_knaves":
+        required_inputs_present = (
+            n_people is not None
+            and people is not None
+            and syntactic_clues is not None
+            and parsed_reasoning is not None
+            and ground_truth is not None
+        )
+
+        if required_inputs_present:
+            payload = {
+                "n_people": n_people,
+                "people": people,
+                "syntactic_clues": syntactic_clues,
+                "reasoning": parsed_reasoning,
+                "ground_truth": ground_truth,
+            }
+    else:
+        required_inputs_present = (
+            n_houses is not None
+            and attribute_values is not None
+            and syntactic_clues is not None
+            and parsed_reasoning is not None
+            and ground_truth is not None
+        )
+
+        if required_inputs_present:
+            payload = {
+                "n_houses": n_houses,
+                "attribute_values": attribute_values,
+                "syntactic_clues": syntactic_clues,
+                "reasoning": parsed_reasoning,
+                "ground_truth": ground_truth,
+            }
 
     if required_inputs_present:
-        payload = {
-            "n_houses": n_houses,
-            "attribute_values": attribute_values,
-            "syntactic_clues": syntactic_clues,
-            "reasoning": parsed_reasoning,
-            "ground_truth": ground_truth,
-        }
-
         try:
-            z3_out = solve_and_validate_payload(payload, timeout_s=5.0, conflict_tolerant_clues=False,)
-            logger.debug("Z3 parse_status=%s", z3_out.get("parse_status"))
-        except Exception:
-            z3_out = dict(MISSING_BASE_DEFAULTS)
-            #logger.error("Crash while calculating Z3 score")
+            z3_out = solve_and_validate_payload(
+                payload,
+                timeout_s=5.0,
+                conflict_tolerant_clues=False,
+            )
+            logger.info(
+                "Z3 validation completed: task_type=%s, parse_status=%s, keys=%s",
+                task_type,
+                z3_out.get("parse_status"),
+                sorted(z3_out.keys()),
+            )
+        except Exception as exc:
+            logger.exception(
+                "Z3 validation crashed: task_type=%s, payload_keys=%s",
+                task_type,
+                sorted(payload.keys()),
+            )
+            z3_out = {
+                **MISSING_BASE_DEFAULTS,
+                "parse_status": "SAT_CHECK_FAIL",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
 
         if _is_sat_check_failure(z3_out):
             final_result["BASE_sat_full_GT"] = 0.0
-            _apply_base_results(final_result, MISSING_BASE_DEFAULTS, missed_data=1.0)
+            _apply_base_results(
+                final_result,
+                MISSING_BASE_DEFAULTS,
+                missed_data=1.0,
+            )
         else:
-            final_result["BASE_sat_full_GT"] = _normalize_binary(z3_out.get("base_sat_full_GT", 0.0))
-            _apply_base_results(final_result, z3_out, missed_data=0.0)
-
+            final_result["BASE_sat_full_GT"] = _normalize_binary(
+                z3_out.get("base_sat_full_GT", 0.0)
+            )
+            _apply_base_results(
+                final_result,
+                z3_out,
+                missed_data=0.0,
+            )
     else:
         final_result["BASE_sat_full_GT"] = 0.0
-        _apply_base_results(final_result, MISSING_BASE_DEFAULTS, missed_data=1.0)
+        _apply_base_results(
+            final_result,
+            MISSING_BASE_DEFAULTS,
+            missed_data=1.0,
+        )
 
     # -----------------------
     # Format Reward
@@ -948,7 +1082,10 @@ def compute_score(
     #if num_blocks==1 and parsed_reasoning:
     if parsed_reasoning:
         try:
-            format_ok = check_interleaved_reasoning(parsed_reasoning, n_houses=int(n_houses))
+            if task_type == "knights_and_knaves":
+                format_ok = check_knights_interleaved_reasoning(parsed_reasoning)
+            else:
+                format_ok = check_interleaved_reasoning(parsed_reasoning, n_houses=int(n_houses))
             #print(parsed_reasoning)
             #print(format_ok)
         except Exception:
@@ -967,7 +1104,10 @@ def compute_score(
     if syntactic_clues and predicted_arrangement and z3_out:
         try:
             list_novel_steps_inc_clues = z3_out.get("list_novel_steps_inc_clues", [])
-            reasoning_vs_sol_validate = verify_solution_two_step(syntactic_clues, list_novel_steps_inc_clues, predicted_arrangement)
+            reasoning_vs_sol_validate = verify_solution_two_step(
+                syntactic_clues, list_novel_steps_inc_clues, predicted_arrangement,
+                people=people if task_type == "knights_and_knaves" else None,
+            )
             consistency_score = reasoning_vs_sol_validate['reward']
         except Exception:
             consistency_score = 0
@@ -985,14 +1125,28 @@ def compute_score(
         normalizer = 1.0  # will be overwritten if inputs are valid
         n_novel_steps = float(final_result.get("BASE_n_steps_novel_inc_clues", 0.0))
 
-        has_required_inputs = ((attribute_values is not None) and (n_houses is not None) and (n_novel_steps > 0))
+        if task_type == "knights_and_knaves":
+            has_required_inputs = (
+                people is not None
+                and n_people is not None
+                and syntactic_clues is not None
+                and parsed_reasoning is not None
+            )
+        else:
+            has_required_inputs = (
+                attribute_values is not None
+                and n_houses is not None
+                and syntactic_clues is not None
+                and parsed_reasoning is not None
+            )
 
         if has_required_inputs:
-            n_houses_i = max(int(n_houses), 0)
-            n_attrs_i = max(len(attribute_values), 0)
-
-            # Keep strictly positive to avoid division by zero.
-            normalizer = max(2.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
+            if task_type == "knights_and_knaves":
+                normalizer = max(float(n_people), 1.0)
+            else:
+                n_houses_i = max(int(n_houses), 0)
+                n_attrs_i = max(len(attribute_values), 0)
+                normalizer = max(2.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
 
             n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
             novel_step_score = float(min(n_novel_steps / normalizer, 1.0))
@@ -1054,6 +1208,8 @@ def compute_score(
         final_result["acc"] = float(reward)
         final_result["PUZZLE_ACCURACY"] = float(puzzle_acc_score)
         final_result["CELL_ACCURACY"] = float(cell_acc_score)
+        final_result["PERSON_ACCURACY"] = float(cell_acc_score) if task_type == "knights_and_knaves" else 0.0
+        final_result["TASK_TYPE"] = task_type
         final_result["score"] = float(reward)
         final_result["epoch"] = epoch
         final_result["total_epochs"] = total_epochs
@@ -1080,7 +1236,7 @@ def compute_score(
         try:
             example_ = {}
             example_["pid"] = puzzle_id
-            example_["puzzle_text"] = pid_to_puzzle_dic[puzzle_id]
+            example_["puzzle_text"] = pid_to_puzzle_dic.get(str(puzzle_id)) or (extra_info.get("puzzle") if isinstance(extra_info, dict) else None)
             example_["z3_out"] = z3_out
             example_["payload"] = payload
             example_["ground_truth"] = ground_truth
@@ -1106,7 +1262,7 @@ def compute_score(
         try:
             example_ = {}
             example_["pid"] = puzzle_id
-            example_["puzzle_text"] = pid_to_puzzle_dic[puzzle_id]
+            example_["puzzle_text"] = pid_to_puzzle_dic.get(str(puzzle_id)) or (extra_info.get("puzzle") if isinstance(extra_info, dict) else None)
             example_ ["z3_out"] = z3_out
             example_["reasoning_vs_sol_validate"] = reasoning_vs_sol_validate
             example_["payload"] = payload
@@ -1136,51 +1292,112 @@ def pretty(x):
     print(json.dumps(x, indent=2, ensure_ascii=False))
 
 
-
 if __name__ == "__main__":
 
-    sol_str = """```json
-    {
-        "n_houses": 3,
-        "attribute_values": {
-            "Name": ["Peter", "Eric", "Arnold"],
-            "Color": ["red", "white", "yellow"],
-            "Children": ["Fred", "Meredith", "Bella"]
-        },
-        "syntactic_clues": [
-            "C1: Arnold == red.",
-            "C2: red == 2.",
-            "C3: Bella == 1.",
-            "C4: Fred < Eric.",
-            "C5: white == Meredith."
-        ],
-        "reasoning": [
-            "I am NL",
-            "S1: Or(eric ==1, Eric ==2, Eric == 3).",
-            "I am NL.",
-            "S2: Not(Eric == 1).",
-            "I am NL",
-            "S3: Arnold == 2."
-        ],
-      "solution": {
-        "header": ["House", "Name", "Color", "Children"],
-        "rows": [
-          ["1", "Peter", "yellow", "Bella"],
-          ["2", "Arnold", "red", "Fred"],
-          ["3", "Eric", "white", "Meredith"]
-        ]
-      }
-    }
-    ```"""
+    correct_solution_str = """
+<answer>{
+  "n_people": 3,
+  "people": ["Alice", "Bob", "Charlie"],
+  "syntactic_clues": [
+    "C1: Alice = Bob.",
+    "C2: Bob = (Alice != Charlie).",
+    "C3: Charlie = (Bob = False)."
+  ],
+  "reasoning": [
+    "Bob must be a Knight because assuming Bob is a Knave makes his statement true.",
+    "S1: Bob = True.",
+    "Alice has the same identity as Bob.",
+    "S2: Alice = True.",
+    "Charlie has the opposite identity from Bob.",
+    "S3: Charlie = False."
+  ],
+  "solution": {
+    "header": ["Person", "Identity"],
+    "rows": [
+      ["Alice", "Knight"],
+      ["Bob", "Knight"],
+      ["Charlie", "Knave"]
+    ]
+  }
+}</answer>
+"""
 
-    ground_truth =  {
-        "header": ["House", "Name", "Color", "Children"],
+    incorrect_solution_str = """
+<answer>{
+  "n_people": 3,
+  "people": ["Alice", "Bob", "Charlie"],
+  "syntactic_clues": [
+    "C1: Alice = Bob.",
+    "C2: Bob = (Alice != Charlie).",
+    "C3: Charlie = (Bob = False)."
+  ],
+  "reasoning": [
+    "Bob is assumed to be a Knave.",
+    "S1: Bob = False.",
+    "Alice has the same identity as Bob.",
+    "S2: Alice = False.",
+    "Charlie has the opposite identity from Bob.",
+    "S3: Charlie = True."
+  ],
+  "solution": {
+    "header": ["Person", "Identity"],
+    "rows": [
+      ["Alice", "Knave"],
+      ["Bob", "Knave"],
+      ["Charlie", "Knight"]
+    ]
+  }
+}</answer>
+"""
+
+    ground_truth = {
+        "header": ["Person", "Identity"],
         "rows": [
-            ["1", "Peter", "yellow", "Bella"],
-            ["2", "Arnold", "red", "Fred"],
-            ["3", "Eric", "white", "Meredith"],
-        ]
+            ["Alice", "Knight"],
+            ["Bob", "Knight"],
+            ["Charlie", "Knave"],
+        ],
     }
 
-    res = compute_score(sol_str, ground_truth)
-    print(f"Result = {json.dumps (res, indent=2, ensure_ascii=False)}")
+    extra_info = {
+        "id": "knights_example_001",
+        "split": "test",
+        "task_type": "knights_and_knaves",
+        "people": ["Alice", "Bob", "Charlie"],
+        "n_people": 3,
+        "puzzle": (
+            "Alice says, 'Bob is a Knight.' "
+            "Bob says, 'Alice and Charlie are of different types.' "
+            "Charlie says, 'Bob is a Knave.'"
+        ),
+    }
+
+    correct_result = compute_score(
+        solution_str=correct_solution_str,
+        ground_truth=ground_truth,
+        extra_info=extra_info,
+    )
+
+    incorrect_result = compute_score(
+        solution_str=incorrect_solution_str,
+        ground_truth=ground_truth,
+        extra_info=extra_info,
+    )
+
+    print("\nCORRECT CASE")
+    print(
+        json.dumps(
+            correct_result,
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+    print("\nINCORRECT CASE")
+    print(
+        json.dumps(
+            incorrect_result,
+            indent=2,
+            ensure_ascii=False,
+        )
+    )

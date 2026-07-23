@@ -391,7 +391,7 @@ def _solver_check_sat(constraints: List[str], solution: Dict[str, Any], *, enfor
 # Public API: two-step verifier (requested)
 # ------------------------------------------------------------
 
-def verify_solution_two_step(
+def verify_zebra_solution_two_step(
     syntactic_clues: Any,
     reasoning: Any,
     solution: Dict[str, Any],
@@ -502,3 +502,109 @@ if __name__ == "__main__":
 
     res = verify_solution_two_step(syntactic_clues, reasoning, solution)
     print(json.dumps(res, indent=2))
+
+
+# ============================================================================
+# Knights-and-Knaves consistency verifier
+# ============================================================================
+import ast as _ast
+
+_KK_SINGLE_EQ_RE = re.compile(r"(?<![!<>=])=(?!=)")
+
+
+def _kk_norm_name(name: str) -> str:
+    t = re.sub(r"[^A-Za-z0-9_]+", "_", str(name).strip())
+    t = re.sub(r"_+", "_", t).strip("_")
+    if not t:
+        raise ValueError(f"Invalid person name: {name!r}")
+    return t
+
+
+def _kk_solution_people(solution: Dict[str, Any]) -> Tuple[List[str], Dict[str, bool], List[str]]:
+    errors: List[str] = []
+    header = [str(x).strip().lower() for x in solution.get('header', [])]
+    try:
+        pi, ii = header.index('person'), header.index('identity')
+    except ValueError:
+        return [], {}, ["Solution header must contain 'Person' and 'Identity'."]
+    people, mapping = [], {}
+    for i, row in enumerate(solution.get('rows', [])):
+        if not isinstance(row, list) or max(pi, ii) >= len(row):
+            errors.append(f'Malformed solution row {i}.'); continue
+        person = str(row[pi]).strip(); identity = str(row[ii]).strip().lower()
+        if identity not in {'knight', 'knave'}:
+            errors.append(f'Invalid identity for {person}: {identity!r}'); continue
+        key = person.lower()
+        if key in mapping:
+            errors.append(f'Duplicate person in solution: {person}'); continue
+        people.append(person); mapping[key] = identity == 'knight'
+    return people, mapping, errors
+
+
+def _kk_build_vars(people: List[str]) -> Dict[str, Any]:
+    return {_kk_norm_name(p).lower(): z3.Bool(_kk_norm_name(p)) for p in people}
+
+
+def _kk_parse_expr(expr: str, var_map: Dict[str, Any]):
+    converted = _KK_SINGLE_EQ_RE.sub('==', str(expr).strip().rstrip('.'))
+    node = _ast.parse(converted, mode='eval').body
+    funcs = {'And': z3.And, 'Or': z3.Or, 'Not': z3.Not, 'Xor': z3.Xor, 'Implies': z3.Implies}
+    def visit(n):
+        if isinstance(n, _ast.Name):
+            if n.id == 'True': return z3.BoolVal(True)
+            if n.id == 'False': return z3.BoolVal(False)
+            key=n.id.lower()
+            if key not in var_map: raise KeyError(f'Unknown person: {n.id!r}')
+            return var_map[key]
+        if isinstance(n, _ast.Constant) and isinstance(n.value,bool): return z3.BoolVal(n.value)
+        if isinstance(n, _ast.Compare):
+            if len(n.ops)!=1 or len(n.comparators)!=1: raise ValueError('Chained comparisons not allowed')
+            l,r=visit(n.left),visit(n.comparators[0]); op=n.ops[0]
+            if isinstance(op,_ast.Eq): return l==r
+            if isinstance(op,_ast.NotEq): return l!=r
+            raise ValueError('Only = and != allowed')
+        if isinstance(n,_ast.Call):
+            if not isinstance(n.func,_ast.Name) or n.func.id not in funcs: raise ValueError('Unsupported Boolean function')
+            args=[visit(a) for a in n.args]
+            if n.func.id=='Not' and len(args)!=1: raise ValueError('Not expects one argument')
+            if n.func.id in {'Xor','Implies'} and len(args)!=2: raise ValueError(f'{n.func.id} expects two arguments')
+            return funcs[n.func.id](*args)
+        raise ValueError(f'Unsupported syntax: {_ast.dump(n)}')
+    return visit(node)
+
+
+def _kk_solver_check(constraints: List[str], solution: Dict[str, Any], people: Optional[List[str]] = None) -> Tuple[bool, List[str]]:
+    inferred, mapping, errors = _kk_solution_people(solution)
+    if people is None: people = inferred
+    if errors: return False, errors
+    expected={str(p).strip().lower() for p in people}
+    if set(mapping)!=expected: return False, ['Solution people do not match expected people.']
+    var_map=_kk_build_vars(people); slv=z3.Solver()
+    for i,c in enumerate(constraints):
+        try: slv.add(_kk_parse_expr(c,var_map))
+        except Exception as e: errors.append(f'Constraint[{i}] failed: {c!r} ({type(e).__name__}: {e})')
+    for p in people:
+        slv.add(var_map[_kk_norm_name(p).lower()] == z3.BoolVal(mapping[str(p).strip().lower()]))
+    if errors: return False, errors
+    return slv.check()==z3.sat, []
+
+
+def verify_knights_solution_two_step(syntactic_clues: Any, reasoning: Any, solution: Dict[str, Any], *, people: Optional[List[str]] = None) -> Dict[str, Any]:
+    clue_pairs, clue_errs = _iter_constraints_from_syntactic_clues(syntactic_clues)
+    clue_constraints=[c for _,c in clue_pairs]
+    steps, step_errs = extract_syntactic_steps_with_evidence(reasoning)
+    step_constraints=[d['constraint'] for d in steps]
+    sat1, err1 = _kk_solver_check(clue_constraints, solution, people)
+    sat2, err2 = _kk_solver_check(step_constraints, solution, people)
+    e1=list(clue_errs)+list(err1); e2=list(step_errs)+list(err2)
+    r1=1.0 if sat1 and not e1 else 0.0; r2=1.0 if sat2 and not e2 else 0.0
+    return {'ok': r1==1.0 and r2==1.0, 'r1':r1, 'r2':r2, 'reward':(r1+r2)/2.0,
+            'step1':{'n_clues':len(clue_constraints),'errors':e1}, 'step2':{'n_steps':len(step_constraints),'errors':e2}}
+
+
+def verify_solution_two_step(syntactic_clues: Any, reasoning: Any, solution: Dict[str, Any], *, enforce_alldiff: bool = True, people: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Auto-dispatch based on the solution header."""
+    header=[str(x).strip().lower() for x in (solution or {}).get('header',[])] if isinstance(solution,dict) else []
+    if 'person' in header and 'identity' in header:
+        return verify_knights_solution_two_step(syntactic_clues, reasoning, solution, people=people)
+    return verify_zebra_solution_two_step(syntactic_clues, reasoning, solution, enforce_alldiff=enforce_alldiff)

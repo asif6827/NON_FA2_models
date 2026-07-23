@@ -1173,7 +1173,7 @@ def validate_reasoning_steps_syntactic_only(
 
 # ----------------------------- Top-level solve/validate -----------------------------
 
-def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.0, conflict_tolerant_clues: bool = False) -> Dict[str, Any]:
+def solve_and_validate_zebra_payload(payload: Dict[str, Any], *, timeout_s: float = 2.0, conflict_tolerant_clues: bool = False) -> Dict[str, Any]:
     """
     Computes both FULL and RAW builds:
       FULL: add all parseable clues (no conflict-tolerant skipping unless parse error / oov / underconstrained).
@@ -2061,3 +2061,315 @@ if __name__ == "__main__":
     )
 
     #print(json.dumps(outC, indent=2))
+
+
+# ============================================================================
+# Knights-and-Knaves Boolean validator
+# ============================================================================
+import ast as _ast
+
+_KK_SINGLE_EQ_RE = re.compile(r"(?<![!<>=])=(?!=)")
+_KK_CID_RE = re.compile(r"^\s*(C\d+)\s*:\s*(.+?)\s*\.?\s*$", re.IGNORECASE)
+_KK_SID_RE = re.compile(r"^\s*S(\d+)\s*:\s*(.+?)\s*\.?\s*$", re.IGNORECASE)
+
+
+def _kk_norm_name(name: str) -> str:
+    t = re.sub(r"[^A-Za-z0-9_]+", "_", str(name).strip())
+    t = re.sub(r"_+", "_", t).strip("_")
+    if not t:
+        raise ValueError(f"Invalid person name: {name!r}")
+    return t
+
+
+def _kk_build_var_map(people: List[str]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for person in people:
+        token = _kk_norm_name(person)
+        key = token.lower()
+        if key in out:
+            raise ValueError(f"Duplicate normalized person name: {token!r}")
+        out[key] = z3.Bool(token)
+    return out
+
+
+def _kk_parse_expr(expr: str, var_map: Dict[str, Any]):
+    raw = str(expr).strip().rstrip('.')
+    converted = _KK_SINGLE_EQ_RE.sub('==', raw)
+    node = _ast.parse(converted, mode='eval').body
+    funcs = {
+        'And': z3.And,
+        'Or': z3.Or,
+        'Not': z3.Not,
+        'Xor': z3.Xor,
+        'Implies': z3.Implies,
+    }
+
+    def visit(n):
+        if isinstance(n, _ast.Name):
+            if n.id == 'True':
+                return z3.BoolVal(True)
+            if n.id == 'False':
+                return z3.BoolVal(False)
+            key = n.id.lower()
+            if key not in var_map:
+                raise KeyError(f"Unknown person token: {n.id!r}")
+            return var_map[key]
+        if isinstance(n, _ast.Constant) and isinstance(n.value, bool):
+            return z3.BoolVal(n.value)
+        if isinstance(n, _ast.Compare):
+            if len(n.ops) != 1 or len(n.comparators) != 1:
+                raise ValueError('Chained comparisons are not allowed')
+            left, right = visit(n.left), visit(n.comparators[0])
+            op = n.ops[0]
+            if isinstance(op, _ast.Eq):
+                return left == right
+            if isinstance(op, _ast.NotEq):
+                return left != right
+            raise ValueError('Only = and != comparisons are allowed')
+        if isinstance(n, _ast.Call):
+            if not isinstance(n.func, _ast.Name) or n.func.id not in funcs:
+                raise ValueError('Unsupported Boolean function')
+            if n.keywords:
+                raise ValueError('Keyword arguments are not allowed')
+            args = [visit(a) for a in n.args]
+            fn = n.func.id
+            if fn == 'Not' and len(args) != 1:
+                raise ValueError('Not expects exactly one argument')
+            if fn in {'Xor', 'Implies'} and len(args) != 2:
+                raise ValueError(f'{fn} expects exactly two arguments')
+            if fn in {'And', 'Or'} and len(args) < 2:
+                raise ValueError(f'{fn} expects at least two arguments')
+            return funcs[fn](*args)
+        raise ValueError(f'Unsupported syntax: {_ast.dump(n)}')
+
+    return visit(node)
+
+
+def _kk_extract_clue(line: str) -> Tuple[str, str]:
+    m = _KK_CID_RE.match(str(line).strip())
+    if not m:
+        return 'C?', str(line).strip().rstrip('.')
+    return m.group(1).upper(), m.group(2).strip().rstrip('.')
+
+
+def _kk_extract_step(line: str) -> Optional[Tuple[int, str]]:
+    m = _KK_SID_RE.match(str(line).strip())
+    if not m:
+        return None
+    return int(m.group(1)), m.group(2).strip().rstrip('.')
+
+
+def _kk_solution_map(solution: Optional[Dict[str, Any]]) -> Optional[Dict[str, bool]]:
+    if not isinstance(solution, dict):
+        return None
+    header = [str(x).strip().lower() for x in solution.get('header', [])]
+    try:
+        pi, ii = header.index('person'), header.index('identity')
+    except ValueError:
+        return None
+    result: Dict[str, bool] = {}
+    for row in solution.get('rows', []):
+        if not isinstance(row, list) or max(pi, ii) >= len(row):
+            return None
+        person = str(row[pi]).strip().lower()
+        identity = str(row[ii]).strip().lower()
+        if identity == 'knight':
+            val = True
+        elif identity == 'knave':
+            val = False
+        else:
+            return None
+        if person in result:
+            return None
+        result[person] = val
+    return result
+
+
+def _kk_model_to_solution(model, people: List[str], var_map: Dict[str, Any]) -> Dict[str, Any]:
+    rows = []
+    for person in people:
+        v = var_map[_kk_norm_name(person).lower()]
+        is_knight = z3.is_true(model.eval(v, model_completion=True))
+        rows.append([person, 'Knight' if is_knight else 'Knave'])
+    return {'header': ['Person', 'Identity'], 'rows': rows}
+
+
+def _kk_status(assertions: List[Any], phi, timeout_ms: int) -> str:
+    base = z3.Solver(); base.set('timeout', timeout_ms); base.add(assertions)
+    rb = base.check()
+    if rb == z3.unsat:
+        return 'PREMISES_UNSAT'
+    if rb == z3.unknown:
+        return 'UNKNOWN'
+    s_pos = z3.Solver(); s_pos.set('timeout', timeout_ms); s_pos.add(assertions); s_pos.add(phi)
+    rp = s_pos.check()
+    if rp == z3.unsat:
+        return 'CONTRADICTION'
+    if rp == z3.unknown:
+        return 'UNKNOWN'
+    s_neg = z3.Solver(); s_neg.set('timeout', timeout_ms); s_neg.add(assertions); s_neg.add(z3.Not(phi))
+    rn = s_neg.check()
+    if rn == z3.unsat:
+        return 'ENTAILED'
+    if rn == z3.unknown:
+        return 'UNKNOWN'
+    return 'NOT_ENTAILED'
+
+
+def _kk_equiv(phi, other, timeout_ms: int) -> bool:
+    s = z3.Solver(); s.set('timeout', timeout_ms); s.add(z3.Xor(phi, other))
+    return s.check() == z3.unsat
+
+
+def _kk_is_tautology(phi, timeout_ms: int) -> bool:
+    s = z3.Solver(); s.set('timeout', timeout_ms); s.add(z3.Not(phi))
+    return s.check() == z3.unsat
+
+
+def _kk_gt_constraints(ground_truth: Dict[str, Any], people: List[str], var_map: Dict[str, Any]) -> List[Any]:
+    mapping = _kk_solution_map(ground_truth)
+    if mapping is None:
+        raise ValueError('Ground truth must have header [Person, Identity] and valid rows')
+    expected = {str(p).strip().lower() for p in people}
+    if set(mapping) != expected:
+        raise ValueError('Ground-truth people do not match payload people')
+    return [var_map[_kk_norm_name(p).lower()] == z3.BoolVal(mapping[str(p).strip().lower()]) for p in people]
+
+
+def _kk_analyze_steps(reasoning, clue_phis, var_map, timeout_ms: int) -> Dict[str, Any]:
+    formal = []
+    for raw in reasoning or []:
+        parsed = _kk_extract_step(raw)
+        if parsed is not None:
+            formal.append((raw, parsed[0], parsed[1]))
+
+    gamma_clues = list(clue_phis)
+    gamma_steps: List[Any] = []
+    seen = set()
+    valid_steps, non_valid, novel, parse_errors = [], [], [], []
+    skipped_inc, skipped_exc = [], []
+    all_exprs = []
+    n_parsed = 0
+
+    for raw, k, expr in formal:
+        all_exprs.append(expr)
+        try:
+            phi = _kk_parse_expr(expr, var_map)
+            if isinstance(phi, z3.BoolRef) and phi.decl().kind() == z3.Z3_OP_UNINTERPRETED and phi.num_args() == 0:
+                raise ValueError('Bare person variables are not allowed as complete reasoning steps')
+        except Exception as e:
+            entry = {'k': k, 'raw': raw, 'expr': expr, 'status': 'PARSE_ERROR', 'error': f'{type(e).__name__}: {e}'}
+            parse_errors.append(entry); non_valid.append({**entry, 'validity_status': 'PARSE_ERROR', 'reason': entry['error']})
+            skipped_inc.append(entry); skipped_exc.append(entry)
+            continue
+        n_parsed += 1
+        sexpr = phi.sexpr()
+        validity = _kk_status(gamma_clues, phi, timeout_ms)
+        if validity == 'ENTAILED':
+            valid_steps.append({'k': k, 'raw': raw, 'expr': expr, 'validity_status': validity, 'sexpr': sexpr})
+        else:
+            non_valid.append({'k': k, 'raw': raw, 'expr': expr, 'validity_status': validity, 'sexpr': sexpr, 'reason': validity})
+
+        if sexpr in seen:
+            entry = {'k': k, 'raw': raw, 'expr': expr, 'status': 'DUPLICATE_STEP', 'error': None}
+            skipped_inc.append(entry); skipped_exc.append(entry)
+            continue
+        seen.add(sexpr)
+
+        if _kk_is_tautology(phi, timeout_ms):
+            entry = {'k': k, 'raw': raw, 'expr': expr, 'status': 'TAUTOLOGY', 'error': None}
+            skipped_inc.append(entry); skipped_exc.append(entry)
+            continue
+        if any(_kk_equiv(phi, c, timeout_ms) for c in clue_phis):
+            entry = {'k': k, 'raw': raw, 'expr': expr, 'status': 'RESTATES_CLUE_SEMANTIC', 'error': None}
+            skipped_inc.append(entry); skipped_exc.append(entry)
+            continue
+
+        step_status = _kk_status(gamma_steps, phi, timeout_ms)
+        if step_status == 'CONTRADICTION':
+            entry = {'k': k, 'raw': raw, 'expr': expr, 'status': 'CONTRADICTION', 'error': None}
+            skipped_inc.append(entry); skipped_exc.append(entry)
+            continue
+
+        is_novel = step_status != 'ENTAILED'
+        if is_novel and validity == 'ENTAILED':
+            novel.append({'k': k, 'raw': raw, 'expr': expr, 'validity_status': validity, 'steps_status': step_status, 'sexpr': sexpr})
+        else:
+            skipped_inc.append({'k': k, 'raw': raw, 'expr': expr, 'status': 'IMPLIED_BY_PREV_STEPS' if not is_novel else 'NOT_IMPLIED_BY_CLUES', 'error': None})
+        if not is_novel:
+            skipped_exc.append({'k': k, 'raw': raw, 'expr': expr, 'status': 'IMPLIED_BY_PREV_STEPS', 'error': None})
+
+        # As specified: previous steps exclude contradictions, but need not be valid.
+        gamma_steps.append(phi)
+
+    return {
+        'n_steps_total': len(formal),
+        'n_steps_parsed_ok': n_parsed,
+        'n_steps_valid': len(valid_steps),
+        'n_steps_novel_inc_clues': len(novel),
+        'n_steps_novel_exc_clues': 0,
+        'n_non_valid_contradiction': sum(1 for x in non_valid if x.get('validity_status') == 'CONTRADICTION'),
+        'list_all_steps': all_exprs,
+        'list_steps_valid': [x['expr'] for x in valid_steps],
+        'list_steps_non_valid': non_valid,
+        'list_novel_steps_inc_clues': [x['expr'] for x in novel],
+        'list_novel_steps_exc_clues': [],
+        'list_skipped_steps_inc_clues': skipped_inc,
+        'list_skipped_steps_exc_clues': skipped_exc,
+        'list_clue_parse_errors': [],
+        'list_step_parse_errors': parse_errors,
+    }
+
+
+def solve_and_validate_knights_payload(payload: Dict[str, Any], *, timeout_s: float = 2.0, conflict_tolerant_clues: bool = False) -> Dict[str, Any]:
+    report: Dict[str, Any] = {}
+    timeout_ms = int(float(timeout_s) * 1000)
+    try:
+        people = list(payload['people'])
+        n_people = int(payload.get('n_people', len(people)))
+        if n_people != len(people):
+            raise ValueError('n_people does not equal len(people)')
+        var_map = _kk_build_var_map(people)
+        clue_phis, clue_errors = [], []
+        solver = z3.Solver(); solver.set('timeout', timeout_ms)
+        for raw in payload.get('syntactic_clues') or []:
+            try:
+                _, expr = _kk_extract_clue(raw)
+                phi = _kk_parse_expr(expr, var_map)
+                clue_phis.append(phi); solver.add(phi)
+            except Exception as e:
+                clue_errors.append(f'{raw} -> {type(e).__name__}: {e}')
+        if clue_errors:
+            report.update({'z3_solution': {}, 'gt_solution_details': {'clue_parse_errors': clue_errors}, 'base_sat_full_GT': False, 'parse_status': 'SAT_CHECK_FAIL'})
+            return report
+        base_res = solver.check()
+        if base_res != z3.sat:
+            report.update({'z3_solution': {}, 'gt_solution_details': {'solver_status': str(base_res)}, 'base_sat_full_GT': False, 'parse_status': 'SAT_CHECK_SUCCESS'})
+            return report
+        model = solver.model()
+        report['z3_solution'] = _kk_model_to_solution(model, people, var_map)
+        gt_solver = z3.Solver(); gt_solver.set('timeout', timeout_ms); gt_solver.add(solver.assertions())
+        gt_constraints = _kk_gt_constraints(payload.get('ground_truth'), people, var_map)
+        gt_solver.add(gt_constraints)
+        gt_ok = gt_solver.check() == z3.sat
+        block = z3.Or(*[v != model.eval(v, model_completion=True) for v in var_map.values()])
+        unique_solver = z3.Solver(); unique_solver.set('timeout', timeout_ms); unique_solver.add(solver.assertions()); unique_solver.add(block)
+        unique = unique_solver.check() == z3.unsat
+        report['gt_solution_details'] = {'gt_satisfies_clues': gt_ok, 'unique_solution': unique, 'clue_parse_errors': []}
+        report['base_sat_full_GT'] = bool(gt_ok)
+        report['unique_solution'] = bool(unique)
+        report['parse_status'] = 'SAT_CHECK_SUCCESS'
+        if gt_ok:
+            report.update(_kk_analyze_steps(payload.get('reasoning') or [], clue_phis, var_map, timeout_ms))
+            report['parse_status'] = 'NOVELTY_CHECK_SUCCESS'
+        return report
+    except Exception as e:
+        logger.error(f'Knights validator failure: {e}')
+        return {'z3_solution': {}, 'gt_solution_details': {'error': f'{type(e).__name__}: {e}'}, 'base_sat_full_GT': False, 'parse_status': 'SAT_CHECK_FAIL'}
+
+
+def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.0, conflict_tolerant_clues: bool = False) -> Dict[str, Any]:
+    """Auto-dispatch between ZebraLogic and Knights-and-Knaves payloads."""
+    if 'people' in payload or 'n_people' in payload:
+        return solve_and_validate_knights_payload(payload, timeout_s=timeout_s, conflict_tolerant_clues=conflict_tolerant_clues)
+    return solve_and_validate_zebra_payload(payload, timeout_s=timeout_s, conflict_tolerant_clues=conflict_tolerant_clues)
