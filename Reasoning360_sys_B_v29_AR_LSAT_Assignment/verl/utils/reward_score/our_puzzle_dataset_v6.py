@@ -269,7 +269,11 @@ def _make_must_be_true_answer() -> str:
 
 
 if __name__ == "__main__":
-    tests = [("correct_could_be_true", _make_answer("Option_A"), "A"), ("wrong_selected_option", _make_answer("B"), "A"), ("bad_format_correct_answer", _make_answer("A", bad_format=True), "A"), ("must_be_true", _make_must_be_true_answer(), "A"), ("malformed_json", "<answer>{bad json</answer>", "A"), ("none_output", None, "A")]
+    tests = [("correct_could_be_true", _make_answer("Option_A"), "A"),
+             ("wrong_selected_option", _make_answer("B"), "A"),
+             ("bad_format_correct_answer", _make_answer("A", bad_format=True), "A"),
+             ("must_be_true", _make_must_be_true_answer(), "A"),
+             ("malformed_json", "<answer>{bad json</answer>", "A"), ("none_output", None, "A")]
     for name, pred, gt in tests:
         print(f"\n=== {name} ===")
         result = compute_score(pred, gt)
