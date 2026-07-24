@@ -11,7 +11,7 @@ echo "Submitting Training job H200 + GT"
 TRAIN_TEMP_LIST=(0.8)
 TEST_TEMP_LIST=(0.0)
 SCORING_LIST=("gt")
-EPOCH_LIST=(500)
+EPOCH_LIST=(80)
 TEST_LIST=(3)
 ACC_W_LIST=(0.8)
 Z3_W_LIST=(0.2)
@@ -22,7 +22,7 @@ DATA_PATH_LIST=("K_K_v6a_${ACRONYM}/mlxl_train_mlxl_test")
 
 
 
-SLURM_SCRIPT_H200="./scripts_Qwen3_17/train/Parsed_v2/${ACRONYM}_1_1shot_H200_zebra_rl_fsdp_parsed_v2.sh"
+SLURM_SCRIPT_H200="./scripts_Qwen3_8B/train/Parsed_v2/${ACRONYM}_1_1shot_H200_zebra_rl_fsdp_parsed_v2.sh"
 for i in "${!TRAIN_TEMP_LIST[@]}"; do
     TRAIN_TEMP=${TRAIN_TEMP_LIST[$i]}
     TEST_TEMP=${TEST_TEMP_LIST[$i]}
