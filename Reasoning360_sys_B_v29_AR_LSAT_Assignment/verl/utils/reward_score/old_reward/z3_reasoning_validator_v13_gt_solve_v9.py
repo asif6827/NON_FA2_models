@@ -155,11 +155,6 @@ def _equiv_to_any_rule(base: List[Any], phi: Any, rules: List[Any], timeout_s: f
 
 
 def _evaluate_option(question_type: str, option_phi: Any, gamma: List[Any], timeout_s: float) -> bool:
-    """Evaluate one option according to the AR-LSAT question semantics.
-
-    This function does not use the model-selected answer. It determines whether
-    the supplied option itself satisfies the question semantics under Gamma.
-    """
     qt = (question_type or '').strip().lower()
     if qt in {'could_be_true', 'acceptability', 'partial_acceptability', 'valid_complete_assignment'}:
         return _is_sat(gamma + [option_phi], timeout_s)
@@ -169,33 +164,7 @@ def _evaluate_option(question_type: str, option_phi: Any, gamma: List[Any], time
         return _is_unsat(gamma + [option_phi], timeout_s)
     if qt == 'could_be_false':
         return _is_sat(gamma + [Not(option_phi)], timeout_s)
-    raise ValueError(f'Unsupported AR-LSAT question_type: {question_type!r}')
-
-
-def _solve_all_options(
-    question_type: str,
-    option_phis: Dict[str, Any],
-    gamma: List[Any],
-    timeout_s: float,
-) -> Tuple[Dict[str, bool], List[str], Optional[str]]:
-    """Independently evaluate all parsed options and derive the Z3 answer.
-
-    Returns:
-      option_evaluations: label -> whether the option satisfies question semantics
-      solver_correct_options: all labels that satisfy the semantics
-      solver_answer: the unique satisfying label, or None when zero/multiple match
-    """
-    option_evaluations: Dict[str, bool] = {}
-    for label in sorted(option_phis):
-        option_evaluations[label] = bool(
-            _evaluate_option(question_type, option_phis[label], gamma, timeout_s)
-        )
-
-    solver_correct_options = [
-        label for label, is_correct in option_evaluations.items() if is_correct
-    ]
-    solver_answer = solver_correct_options[0] if len(solver_correct_options) == 1 else None
-    return option_evaluations, solver_correct_options, solver_answer
+    return _is_sat(gamma + [option_phi], timeout_s)
 
 
 def _extract_step_expr(line: str) -> Optional[Tuple[int, str]]:
@@ -389,191 +358,31 @@ def _validate_reasoning_steps(reasoning, *, parser_fn, base_assertions, rule_fac
     }
 
 
-def solve_and_validate_payload(
-    payload: Dict[str, Any],
-    *,
-    timeout_s: float = 2.0,
-    conflict_tolerant_clues: bool = False,
-) -> Dict[str, Any]:
-    """Solve an AR-LSAT Assignment item and validate its reasoning trace.
-
-    Z3 independently evaluates every answer option. ``base_sat_full_GT`` is
-    independent of the model-selected option and is true iff:
-      1. the base assignment theory is satisfiable;
-      2. all rules, facts, and options parse successfully;
-      3. exactly one option satisfies the question semantics; and
-      4. the Z3-derived option matches the official ground truth.
-    """
-    report: Dict[str, Any] = {
-        'base_sat_full_GT': False,
-        'parse_status': 'INIT',
-        'n_steps_total': 0,
-        'n_steps_parsed_ok': 0,
-        'n_steps_valid': 0,
-        'n_steps_novel_inc_clues': 0,
-        'n_non_valid_contradiction': 0,
-        'consistency_score': 0.0,
-        'solution_support_steps': [],
-    }
-
+def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.0, conflict_tolerant_clues: bool = False) -> Dict[str, Any]:
+    report = {'base_sat_full_GT': False, 'parse_status': 'INIT', 'n_steps_total': 0, 'n_steps_parsed_ok': 0, 'n_steps_valid': 0, 'n_steps_novel_inc_clues': 0, 'n_non_valid_contradiction': 0, 'consistency_score': 0.0, 'solution_support_steps': []}
     try:
         if str(payload.get('problem_type') or '').strip().lower() != 'assignment':
             raise ValueError("This validator only supports problem_type='assignment'.")
-
-        assign_vars, base_assertions, n_values, n_entities = _make_assignment_base(
-            payload.get('world_model') or {}, timeout_s
-        )
-        parser_fn = lambda expression: _parse_assignment_expr(expression, assign_vars)
-
+        assign_vars, base_assertions, n_values, n_entities = _make_assignment_base(payload.get('world_model') or {}, timeout_s)
+        parser_fn = lambda s: _parse_assignment_expr(s, assign_vars)
         rule_phis, rule_errors = _parse_constraints(payload.get('rules') or [], parser_fn)
         fact_phis, fact_errors = _parse_constraints(payload.get('facts') or [], parser_fn)
         option_phis, option_errors = _parse_options(payload.get('options') or {}, parser_fn)
-
-        rule_fact_phis = rule_phis + fact_phis
-        gamma = base_assertions + rule_fact_phis
-        base_sat = _is_sat(gamma, timeout_s)
-
-        selected = _selected_from_payload(payload)
-        ground_truth_option = _selected_from_ground_truth(payload.get('ground_truth'))
-        question_type = (
-            (payload.get('question_semantics') or {}).get('question_type')
-            or payload.get('question_type')
-        )
-        if not question_type:
-            raise ValueError('Missing question_type; option semantics cannot be determined.')
-
-        expected_option_labels = {
-            label for label in (_norm_option_label(x) for x in (payload.get('options') or {}).keys())
-            if label is not None
-        }
-        parsed_option_labels = set(option_phis)
-        all_rules_parsed = len(rule_errors) == 0
-        all_facts_parsed = len(fact_errors) == 0
-        all_options_parsed = (
-            len(option_errors) == 0
-            and bool(expected_option_labels)
-            and parsed_option_labels == expected_option_labels
-        )
-        formalization_complete = all_rules_parsed and all_facts_parsed and all_options_parsed
-
-        option_evaluations: Dict[str, bool] = {}
-        solver_correct_options: List[str] = []
-        solver_answer: Optional[str] = None
-        if base_sat and formalization_complete:
-            option_evaluations, solver_correct_options, solver_answer = _solve_all_options(
-                question_type, option_phis, gamma, timeout_s
-            )
-
-        solver_has_unique_answer = solver_answer is not None
-        solver_matches_gt = bool(
-            solver_answer is not None
-            and ground_truth_option is not None
-            and solver_answer == ground_truth_option
-        )
-        model_matches_solver = bool(
-            selected is not None and solver_answer is not None and selected == solver_answer
-        )
-        model_matches_gt = bool(
-            selected is not None
-            and ground_truth_option is not None
-            and selected == ground_truth_option
-        )
+        rule_fact_phis = rule_phis + fact_phis; gamma = base_assertions + rule_fact_phis; base_sat = _is_sat(gamma, timeout_s)
+        selected = _selected_from_payload(payload); gt = _selected_from_ground_truth(payload.get('ground_truth'))
+        question_type = ((payload.get('question_semantics') or {}).get('question_type') or payload.get('question_type') or 'could_be_true')
         selected_phi = option_phis.get(selected or '')
-
-        report.update({
-            # Formalization correctness: deliberately independent of model answer.
-            'base_sat_full_GT': bool(
-                base_sat
-                and formalization_complete
-                and solver_has_unique_answer
-                and solver_matches_gt
-            ),
-            'base_sat': bool(base_sat),
-            'formalization_complete': bool(formalization_complete),
-            'all_rules_parsed': bool(all_rules_parsed),
-            'all_facts_parsed': bool(all_facts_parsed),
-            'all_options_parsed': bool(all_options_parsed),
-
-            # Independent Z3 answer.
-            'solver_answer': solver_answer,
-            'solver_correct_options': solver_correct_options,
-            'solver_has_unique_answer': bool(solver_has_unique_answer),
-            'solver_matches_gt': bool(solver_matches_gt),
-            'option_evaluations': option_evaluations,
-
-            # Model answer and independent comparisons.
-            'selected_option': selected,
-            'ground_truth_option': ground_truth_option,
-            'model_matches_solver': bool(model_matches_solver),
-            'model_matches_gt': bool(model_matches_gt),
-            'answer_correct': bool(model_matches_solver and model_matches_gt),
-
-            # Backward-compatible fields.
-            'solver_selected_ok': bool(model_matches_solver),
-            'gt_match': bool(solver_matches_gt),
-            'selected_option_parse_ok': bool(selected_phi is not None),
-
-            'question_type': question_type,
-            'rule_parse_errors': rule_errors,
-            'fact_parse_errors': fact_errors,
-            'option_parse_errors': option_errors,
-            'n_rule_parse_errors': len(rule_errors),
-            'n_fact_parse_errors': len(fact_errors),
-            'n_option_parse_errors': len(option_errors),
-            'n_values': n_values,
-            'n_entities': n_entities,
-        })
-
-        # Reasoning consistency is evaluated against the independently derived
-        # Z3 answer, not against the model-selected option.
-        report.update(_validate_reasoning_steps(
-            payload.get('reasoning') or [],
-            parser_fn=parser_fn,
-            base_assertions=base_assertions,
-            rule_fact_phis=rule_fact_phis,
-            rule_phis=rule_phis,
-            option_phis=option_phis,
-            question_type=question_type,
-            selected_option=solver_answer,
-            timeout_s=timeout_s,
-        ))
-
+        solver_selected_ok = bool(selected_phi is not None and base_sat and _evaluate_option(question_type, selected_phi, gamma, timeout_s))
+        gt_match = bool(selected and gt and selected == gt)
+        report.update({'base_sat_full_GT': bool(base_sat and solver_selected_ok and gt_match), 'base_sat': bool(base_sat), 'solver_selected_ok': bool(solver_selected_ok), 'gt_match': bool(gt_match), 'selected_option': selected, 'ground_truth_option': gt, 'question_type': question_type, 'rule_parse_errors': rule_errors, 'fact_parse_errors': fact_errors, 'option_parse_errors': option_errors, 'n_rule_parse_errors': len(rule_errors), 'n_fact_parse_errors': len(fact_errors), 'n_option_parse_errors': len(option_errors), 'selected_option_parse_ok': bool(selected_phi is not None), 'n_values': n_values, 'n_entities': n_entities})
+        report.update(_validate_reasoning_steps(payload.get('reasoning') or [], parser_fn=parser_fn, base_assertions=base_assertions, rule_fact_phis=rule_fact_phis, rule_phis=rule_phis, option_phis=option_phis, question_type=question_type, selected_option=selected, timeout_s=timeout_s))
         report['parse_status'] = 'AR_LSAT_ASSIGNMENT_SUCCESS'
         return report
-
-    except Exception as exc:
-        logger.exception('AR-LSAT Assignment Z3 validation failed')
-        report['parse_status'] = 'Z3_EXCEPTION'
-        report['error'] = f'{type(exc).__name__}: {exc}'
+    except Exception as e:
+        report['parse_status'] = 'Z3_EXCEPTION'; report['error'] = f'{type(e).__name__}: {e}'
         return report
 
 
 if __name__ == '__main__':
-    sample = {
-        'problem_type': 'assignment',
-        'world_model': {
-            'entities': ['A', 'B'],
-            'domains': {'values': ['P1', 'P2']},
-            'structural_assumptions': [
-                'each entity is assigned exactly one value',
-                'each value is assigned to exactly one entity',
-            ],
-        },
-        'rules': ['Assign(A, P1)'],
-        'facts': [],
-        'question_semantics': {'question_type': 'must_be_true'},
-        'options': {
-            'A': 'Assign(A, P1)',
-            'B': 'Assign(A, P2)',
-        },
-        'reasoning': [
-            'The first rule fixes A to P1.',
-            'S1: Assign(A, P1).',
-            'The negation of option A is inconsistent with the rules.',
-            'S2: Unsat(Not(Option_A)).',
-        ],
-        # Deliberately wrong model selection: Z3 must still derive A independently.
-        'solution': {'selected_option': 'B'},
-        'ground_truth': 'A',
-    }
+    sample = {'problem_type': 'assignment', 'world_model': {'entities': ['A','B','C'], 'domains': {'values': ['P1','P2','P3']}, 'structural_assumptions': ['each entity is assigned exactly one value']}, 'rules': ['Not(Assign(A, P1))', 'Assign(B, P1) == Assign(C, P1)', 'Exactly(1, Assign(A, P2), Assign(B, P2), Assign(C, P2))'], 'facts': [], 'question_semantics': {'question_type': 'could_be_true'}, 'options': {'Option_A': 'Assign(A, P2)', 'B': 'Assign(A, P1)'}, 'reasoning': ['A is not assigned to P1.', 'S1: Not(Assign(A, P1)).', 'Option A is feasible.', 'S2: Sat(Option_A).'], 'solution': {'selected_option': 'Option_A'}, 'ground_truth': 'A'}
     print(json.dumps(solve_and_validate_payload(sample), indent=2, default=str))

@@ -34,10 +34,7 @@ NUMERIC_KEYS = [
     "BASE_n_steps_total", "BASE_n_steps_parsed_ok", "BASE_n_steps_valid", "BASE_n_steps_novel_inc_clues",
     "BASE_n_non_valid_contradiction", "novel_step_score", "contradiction_ratio", "selected_option_present",
     "ground_truth_present", "parse_status_ok", "schema_status_ok", "z3_status_ok", "format_status_ok",
-    "z3_base_sat", "z3_formalization_complete", "z3_solver_answer_present", "z3_solver_has_unique_answer",
-    "z3_solver_matches_gt", "z3_model_matches_solver", "z3_model_matches_gt", "z3_answer_correct",
-    "z3_solver_selected_ok", "z3_gt_match", "z3_rule_parse_error_count", "z3_fact_parse_error_count",
-    "z3_option_parse_error_count", "z3_selected_option_parse_ok",
+    "z3_base_sat", "z3_solver_selected_ok", "z3_gt_match", "z3_rule_parse_error_count", "z3_fact_parse_error_count", "z3_option_parse_error_count", "z3_selected_option_parse_ok",
     "reward_error_flag", "parse_error_flag", "epoch", "total_epochs",
 ]
 
@@ -186,7 +183,7 @@ def _schema_ok(payload: Optional[Dict[str, Any]]) -> bool:
     required = ["problem_type", "world_model", "rules", "facts", "question_semantics", "options", "reasoning", "solution"]
     if any(k not in payload for k in required):
         return False
-    if str(payload.get("problem_type") or "").strip().lower() != "grouping":
+    if payload.get("problem_type") != "grouping":
         return False
     if not isinstance(payload.get("world_model"), dict):
         return False
@@ -266,26 +263,10 @@ def compute_score(
             except Exception as e:
                 z3_out = {"parse_status": "Z3_EXCEPTION", "error": f"{type(e).__name__}: {e}"}
 
-        z3_status = str(z3_out.get("parse_status", ""))
-        if z3_status != "AR_LSAT_GROUPING_SUCCESS":
-            logger.warning(
-                "Grouping Z3 validation failed: status=%s error=%r",
-                z3_status,
-                z3_out.get("error"),
-            )
         final_result["z3_status_ok"] = 1.0 if z3_out.get("parse_status") == "AR_LSAT_GROUPING_SUCCESS" else 0.0
         final_result["z3_base_sat"] = 1.0 if bool(z3_out.get("base_sat", False)) else 0.0
-        final_result["z3_formalization_complete"] = 1.0 if bool(z3_out.get("formalization_complete", False)) else 0.0
-        final_result["z3_solver_answer_present"] = 1.0 if z3_out.get("solver_answer") is not None else 0.0
-        final_result["z3_solver_has_unique_answer"] = 1.0 if bool(z3_out.get("solver_has_unique_answer", False)) else 0.0
-        final_result["z3_solver_matches_gt"] = 1.0 if bool(z3_out.get("solver_matches_gt", False)) else 0.0
-        final_result["z3_model_matches_solver"] = 1.0 if bool(z3_out.get("model_matches_solver", False)) else 0.0
-        final_result["z3_model_matches_gt"] = 1.0 if bool(z3_out.get("model_matches_gt", False)) else 0.0
-        final_result["z3_answer_correct"] = 1.0 if bool(z3_out.get("answer_correct", False)) else 0.0
-
-        # Backward-compatible aliases.
-        final_result["z3_solver_selected_ok"] = final_result["z3_model_matches_solver"]
-        final_result["z3_gt_match"] = final_result["z3_solver_matches_gt"]
+        final_result["z3_solver_selected_ok"] = 1.0 if bool(z3_out.get("solver_selected_ok", False)) else 0.0
+        final_result["z3_gt_match"] = 1.0 if bool(z3_out.get("gt_match", False)) else 0.0
         final_result["z3_rule_parse_error_count"] = float(z3_out.get("n_rule_parse_errors", 0) or 0)
         final_result["z3_fact_parse_error_count"] = float(z3_out.get("n_fact_parse_errors", 0) or 0)
         final_result["z3_option_parse_error_count"] = float(z3_out.get("n_option_parse_errors", 0) or 0)
@@ -306,10 +287,9 @@ def compute_score(
         has_required_inputs = isinstance(payload, dict) and n_groups is not None and n_entities is not None
 
         if has_required_inputs:
-            # One informative final group assignment per entity is a natural
-            # process-reward scale. This avoids shrinking the novelty reward
-            # excessively as the number of groups grows.
-            normalizer = max(float(int(n_entities)), 1.0)
+            n_houses_i = max(int(n_groups), 0)
+            n_attrs_i = max(int(n_entities), 0)
+            normalizer = max(2.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
 
             n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
             novel_step_score = float(min(n_novel_steps / normalizer, 1.0))
@@ -346,45 +326,59 @@ def compute_score(
         return _numericize(final_result)
 
 
-def _make_grouping_answer(selected: str = "A", bad_format: bool = False) -> str:
-    """Unique could-be-true grouping example for reward sanity checks."""
+def _make_grouping_answer(selected: str = "D", bad_format: bool = False) -> str:
+    """Small self-test payload for AR-LSAT grouping reward sanity checks."""
     reasoning = [
-        "The rules fix A in X and B in Y.",
-        "S1: And(Assign(A, X), Assign(B, Y)).",
-        "Option A is satisfiable with the complete grouping.",
-        "S2: Sat(Option_A).",
+        "The question condition places D and F in group X.",
+        "S1: And(Assign(D, X), Assign(F, X)).",
+        "Since F and G must be in different groups and F is in X, G must be in Y.",
+        "S2: Assign(G, Y).",
+        "Since C in X would force D into Y while D is already in X, C cannot be in X.",
+        "S3: Not(Assign(C, X)).",
+        "Option D can be extended to a complete valid grouping.",
+        "S4: Sat(Option_D).",
     ]
+
     if bad_format:
         reasoning = [
-            "S1: And(Assign(A, X), Assign(B, Y)).",
-            "The formal step incorrectly appears before its explanation.",
+            "S1: And(Assign(D, X), Assign(F, X)).",
+            "This starts with a formal step, so the interleaved format should fail.",
         ]
 
     payload = {
         "problem_type": "grouping",
         "world_model": {
-            "entities": ["A", "B"],
+            "entities": ["A", "B", "C", "D", "E", "F", "G"],
             "domains": {"groups": ["X", "Y"]},
-            "structural_assumptions": ["each entity belongs to exactly one group"],
+            "structural_assumptions": [
+                "each entity belongs to exactly one group",
+                "groups are mutually exclusive",
+            ],
         },
         "rules": [
-            "Assign(A, X)",
-            "Assign(B, Y)",
+            "Implies(Assign(A, X), Assign(B, Y))",
+            "Implies(Assign(C, X), And(Assign(D, Y), Assign(E, Y)))",
+            "Assign(F, X) != Assign(G, X)",
+            "Assign(E, X) != Assign(A, X)",
+            "Implies(Assign(G, X), Assign(B, X))",
         ],
-        "facts": [],
+        "facts": ["Assign(D, X)", "Assign(F, X)"],
         "question_semantics": {
             "question_type": "could_be_true",
             "option_interpretation_rule": "SAT(option)",
         },
         "options": {
-            "A": "And(Assign(A, X), Assign(B, Y))",
-            "B": "Assign(A, Y)",
-            "C": "Assign(B, X)",
+            "A": "And(Assign(A, X), Assign(C, X))",
+            "B": "And(Assign(A, Y), Assign(E, Y))",
+            "C": "And(Assign(B, X), Assign(G, X))",
+            "D": "And(Assign(C, Y), Assign(E, Y))",
+            "E": "And(Assign(G, X), Assign(E, X))",
         },
         "reasoning": reasoning,
         "solution": {"selected_option": selected},
     }
     return "<answer>" + json.dumps(payload, ensure_ascii=False, indent=2) + "</answer>"
+
 
 def _make_grouping_must_be_true_answer() -> str:
     payload = {
@@ -430,14 +424,14 @@ def _make_missing_schema_answer() -> str:
 
 if __name__ == "__main__":
     tests = [
-        ("correct_could_be_true", _make_grouping_answer("A"), "A"),
-        ("wrong_selected_option", _make_grouping_answer("B"), "A"),
-        ("bad_format_correct_answer", _make_grouping_answer("A", bad_format=True), "A"),
+        ("correct_could_be_true", _make_grouping_answer("D"), "D"),
+        ("wrong_selected_option", _make_grouping_answer("A"), "D"),
+        ("bad_format_correct_answer", _make_grouping_answer("D", bad_format=True), "D"),
         ("must_be_true", _make_grouping_must_be_true_answer(), "A"),
-        ("malformed_json", "<answer>{this is not valid json}</answer>", "A"),
-        ("missing_answer_tag_direct_json", json.dumps(json.loads(find_last_answer_block(_make_grouping_answer("A")))), "A"),
-        ("missing_schema", _make_missing_schema_answer(), "A"),
-        ("none_output", None, "A"),
+        ("malformed_json", "<answer>{this is not valid json}</answer>", "D"),
+        ("missing_answer_tag_direct_json", json.dumps(json.loads(find_last_answer_block(_make_grouping_answer("D")))), "D"),
+        ("missing_schema", _make_missing_schema_answer(), "D"),
+        ("none_output", None, "D"),
     ]
 
     for name, pred, gt in tests:

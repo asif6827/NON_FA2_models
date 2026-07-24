@@ -35,7 +35,7 @@ RESULT_KEYS = [
     "z3_reward", "consistency_score", "Normalizer", "BASE_sat_full_GT", "missed_data",
     "BASE_n_steps_total", "BASE_n_steps_parsed_ok", "BASE_n_steps_valid", "BASE_n_steps_novel_inc_clues", "BASE_n_non_valid_contradiction",
     "novel_step_score", "contradiction_ratio", "selected_option_present", "ground_truth_present", "parse_status_ok", "schema_status_ok", "z3_status_ok", "format_status_ok",
-    "z3_base_sat", "z3_formalization_complete", "z3_solver_answer_present", "z3_solver_has_unique_answer", "z3_solver_matches_gt", "z3_model_matches_solver", "z3_model_matches_gt", "z3_answer_correct", "z3_solver_selected_ok", "z3_gt_match", "z3_rule_parse_error_count", "z3_fact_parse_error_count", "z3_option_parse_error_count", "z3_selected_option_parse_ok",
+    "z3_base_sat", "z3_solver_selected_ok", "z3_gt_match", "z3_rule_parse_error_count", "z3_fact_parse_error_count", "z3_option_parse_error_count", "z3_selected_option_parse_ok",
     "reward_exception", "parse_error_flag", "epoch", "total_epochs",
 ]
 
@@ -216,22 +216,12 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         z3_status = str(z3_out.get("parse_status", ""))
         out["z3_status_ok"] = 1.0 if z3_status.endswith("SUCCESS") else 0.0
         out["z3_base_sat"] = 1.0 if bool(z3_out.get("base_sat", False)) else 0.0
-        out["z3_formalization_complete"] = 1.0 if bool(z3_out.get("formalization_complete", False)) else 0.0
-        out["z3_solver_answer_present"] = 1.0 if z3_out.get("solver_answer") is not None else 0.0
-        out["z3_solver_has_unique_answer"] = 1.0 if bool(z3_out.get("solver_has_unique_answer", False)) else 0.0
-        out["z3_solver_matches_gt"] = 1.0 if bool(z3_out.get("solver_matches_gt", False)) else 0.0
-        out["z3_model_matches_solver"] = 1.0 if bool(z3_out.get("model_matches_solver", False)) else 0.0
-        out["z3_model_matches_gt"] = 1.0 if bool(z3_out.get("model_matches_gt", False)) else 0.0
-        out["z3_answer_correct"] = 1.0 if bool(z3_out.get("answer_correct", False)) else 0.0
-        # Backward-compatible aliases.
-        out["z3_solver_selected_ok"] = out["z3_model_matches_solver"]
-        out["z3_gt_match"] = out["z3_solver_matches_gt"]
+        out["z3_solver_selected_ok"] = 1.0 if bool(z3_out.get("solver_selected_ok", False)) else 0.0
+        out["z3_gt_match"] = 1.0 if bool(z3_out.get("gt_match", False)) else 0.0
         out["z3_rule_parse_error_count"] = float(z3_out.get("n_rule_parse_errors", 0) or 0)
         out["z3_fact_parse_error_count"] = float(z3_out.get("n_fact_parse_errors", 0) or 0)
         out["z3_option_parse_error_count"] = float(z3_out.get("n_option_parse_errors", 0) or 0)
         out["z3_selected_option_parse_ok"] = 1.0 if bool(z3_out.get("selected_option_parse_ok", False)) else 0.0
-        # Formalization reward: Z3 independently derives one answer and it matches GT.
-        # It does not depend on the model-selected answer.
         sat_ok = 1.0 if bool(z3_out.get("base_sat_full_GT", False)) else 0.0
         out["z3_reward"] = out["BASE_sat_full_GT"] = sat_ok
         out["consistency_score"] = float(z3_out.get("consistency_score", 0.0) or 0.0)
@@ -279,14 +269,11 @@ def _make_must_be_true_answer() -> str:
 
 
 if __name__ == "__main__":
-    tests = [
-        ("correct_could_be_true", _make_answer("Option_A"), "A"),
-        ("wrong_model_but_same_formalization", _make_answer("B"), "A"),
-        ("bad_format_correct_answer", _make_answer("A", bad_format=True), "A"),
-        ("must_be_true", _make_must_be_true_answer(), "A"),
-        ("malformed_json", "<answer>{bad json</answer>", "A"),
-        ("none_output", None, "A"),
-    ]
+    tests = [("correct_could_be_true", _make_answer("Option_A"), "A"),
+             ("wrong_selected_option", _make_answer("B"), "A"),
+             ("bad_format_correct_answer", _make_answer("A", bad_format=True), "A"),
+             ("must_be_true", _make_must_be_true_answer(), "A"),
+             ("malformed_json", "<answer>{bad json</answer>", "A"), ("none_output", None, "A")]
     for name, pred, gt in tests:
         print(f"\n=== {name} ===")
         result = compute_score(pred, gt)

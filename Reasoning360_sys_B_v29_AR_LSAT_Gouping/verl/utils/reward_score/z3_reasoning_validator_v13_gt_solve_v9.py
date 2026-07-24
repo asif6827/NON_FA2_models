@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import z3
-    from z3 import And, If, Implies, Int, Not, Or, PbEq, PbGe, PbLe, Solver, Xor, sat, unsat
+    from z3 import And, BoolVal, If, Implies, Int, Not, Or, PbEq, PbGe, PbLe, Solver, Sum, Xor, sat, unsat
 except Exception:  # pragma: no cover
     z3 = None
 
@@ -90,15 +90,87 @@ def _extract_entities_groups(world_model: Dict[str, Any]) -> Tuple[List[str], Li
     groups = [_norm_token(g) for g in raw_groups]
     return entities, groups
 
+def _extract_group_cardinality_constraints(world_model: Dict[str, Any], var_map: Dict[str, Any], group_map: Dict[str, int]) -> List[Any]:
+    """Build optional group-size constraints from structured metadata.
+
+    Supported forms inside world_model:
+      "group_sizes": {"X": 3, "Y": 3}
+      "group_capacities": {"X": {"min": 2, "max": 4}, ...}
+      "group_constraints": [
+          {"group": "X", "exactly": 3},
+          {"group": "Y", "at_least": 2, "at_most": 4}
+      ]
+
+    Natural-language structural assumptions are deliberately not guessed here.
+    Capacity information should be provided structurally for reliable solving.
+    """
+    constraints: List[Any] = []
+
+    def count_in(group_token: str):
+        g = _norm_token(group_token)
+        if g not in group_map:
+            raise KeyError(f'Unknown group in capacity metadata: {group_token!r}')
+        gid = group_map[g]
+        return Sum([If(v == gid, 1, 0) for v in var_map.values()])
+
+    sizes = world_model.get('group_sizes') or {}
+    if isinstance(sizes, dict):
+        for group, size in sizes.items():
+            constraints.append(count_in(group) == int(size))
+
+    capacities = world_model.get('group_capacities') or {}
+    if isinstance(capacities, dict):
+        for group, spec in capacities.items():
+            c = count_in(group)
+            if isinstance(spec, (int, float)):
+                constraints.append(c == int(spec))
+            elif isinstance(spec, dict):
+                if spec.get('exactly') is not None:
+                    constraints.append(c == int(spec['exactly']))
+                if spec.get('min') is not None:
+                    constraints.append(c >= int(spec['min']))
+                if spec.get('max') is not None:
+                    constraints.append(c <= int(spec['max']))
+
+    group_constraints = world_model.get('group_constraints') or []
+    if isinstance(group_constraints, list):
+        for item in group_constraints:
+            if not isinstance(item, dict) or item.get('group') is None:
+                continue
+            c = count_in(item['group'])
+            if item.get('exactly') is not None:
+                constraints.append(c == int(item['exactly']))
+            if item.get('at_least') is not None:
+                constraints.append(c >= int(item['at_least']))
+            if item.get('at_most') is not None:
+                constraints.append(c <= int(item['at_most']))
+    return constraints
+
+
 def _make_base(world_model: Dict[str, Any], timeout_s: float):
-    if z3 is None: raise RuntimeError('z3-solver is not installed')
+    if z3 is None:
+        raise RuntimeError('z3-solver is not installed')
     entities, groups = _extract_entities_groups(world_model)
-    if not entities: raise ValueError('world_model.entities is empty')
-    if not groups: raise ValueError('world_model.domains.groups is empty')
-    group_map = {g: i+1 for i, g in enumerate(groups)}
+    if not entities:
+        raise ValueError('world_model.entities is empty')
+    if not groups:
+        raise ValueError('world_model.domains.groups is empty')
+    if len(set(entities)) != len(entities):
+        raise ValueError('Duplicate normalized entity names in world_model.entities')
+    if len(set(groups)) != len(groups):
+        raise ValueError('Duplicate normalized group names in world_model.domains.groups')
+
+    group_map = {g: i + 1 for i, g in enumerate(groups)}
     var_map = {e: Int(e) for e in entities}
+
+    # Every entity belongs to exactly one group because each variable has one
+    # integer value constrained to the finite group domain.
     base_assertions = [And(v >= 1, v <= len(groups)) for v in var_map.values()]
-    s = Solver(); s.set('timeout', int(timeout_s*1000)); s.add(base_assertions)
+    base_assertions.extend(_extract_group_cardinality_constraints(world_model, var_map, group_map))
+
+    s = Solver()
+    s.set('timeout', int(timeout_s * 1000))
+    s.add(base_assertions)
     return s, var_map, group_map, base_assertions, len(groups), len(entities)
 
 def _parse_assign(expr: str, var_map: Dict[str, Any], group_map: Dict[str, int]):
@@ -109,9 +181,21 @@ def _parse_assign(expr: str, var_map: Dict[str, Any], group_map: Dict[str, int])
     if grp not in group_map: raise KeyError(f'Unknown group token: {grp!r}')
     return var_map[ent] == group_map[grp]
 
+def _entity_var(entity_raw: str, var_map: Dict[str, Any]):
+    ent = _norm_token(entity_raw)
+    if ent not in var_map:
+        raise KeyError(f'Unknown entity token: {ent!r}')
+    return var_map[ent]
+
+
 def _parse_expr(expr: str, var_map: Dict[str, Any], group_map: Dict[str, int]):
     e = str(expr).strip().rstrip('.').strip()
-    if _ASSIGN_RE.match(e): return _parse_assign(e, var_map, group_map)
+    if e.lower() == 'true':
+        return BoolVal(True)
+    if e.lower() == 'false':
+        return BoolVal(False)
+    if _ASSIGN_RE.match(e):
+        return _parse_assign(e, var_map, group_map)
     for op in ('==','!='):
         parts = _split_binary_top_level(e, op)
         if parts is not None:
@@ -120,8 +204,22 @@ def _parse_expr(expr: str, var_map: Dict[str, Any], group_map: Dict[str, int]):
     m = _FUNC_RE.match(e)
     if not m: raise ValueError(f'Unrecognized grouping expression: {expr!r}')
     fn, args = m.group(1).lower(), _split_top_level_args(m.group(2))
-    if fn == 'and': return And(*[_parse_expr(a, var_map, group_map) for a in args])
-    if fn == 'or': return Or(*[_parse_expr(a, var_map, group_map) for a in args])
+    if fn in {'samegroup', 'same_group', 'together'}:
+        if len(args) != 2:
+            raise ValueError(f'{fn} expects exactly two entities')
+        return _entity_var(args[0], var_map) == _entity_var(args[1], var_map)
+    if fn in {'differentgroup', 'different_group', 'apart'}:
+        if len(args) != 2:
+            raise ValueError(f'{fn} expects exactly two entities')
+        return _entity_var(args[0], var_map) != _entity_var(args[1], var_map)
+    if fn == 'and':
+        if len(args) < 2:
+            raise ValueError('And expects at least two arguments')
+        return And(*[_parse_expr(a, var_map, group_map) for a in args])
+    if fn == 'or':
+        if len(args) < 2:
+            raise ValueError('Or expects at least two arguments')
+        return Or(*[_parse_expr(a, var_map, group_map) for a in args])
     if fn == 'not':
         if len(args) != 1: raise ValueError('Not expects one argument')
         return Not(_parse_expr(args[0], var_map, group_map))
@@ -180,11 +278,27 @@ def _equiv_to_any_rule(base, phi, rules, timeout_s):
 
 def _evaluate_option(question_type, option_phi, gamma, timeout_s):
     qt = (question_type or '').strip().lower()
-    if qt in {'could_be_true','acceptability','partial_acceptability','valid_complete_assignment'}: return _is_sat(gamma + [option_phi], timeout_s)
-    if qt in {'must_be_true','must_follow'}: return _is_unsat(gamma + [Not(option_phi)], timeout_s)
-    if qt in {'cannot_be_true','must_be_false'}: return _is_unsat(gamma + [option_phi], timeout_s)
-    if qt == 'could_be_false': return _is_sat(gamma + [Not(option_phi)], timeout_s)
-    return _is_sat(gamma + [option_phi], timeout_s)
+    if qt in {'could_be_true','acceptability','partial_acceptability','valid_complete_assignment'}:
+        return _is_sat(gamma + [option_phi], timeout_s)
+    if qt in {'must_be_true','must_follow'}:
+        return _is_unsat(gamma + [Not(option_phi)], timeout_s)
+    if qt in {'cannot_be_true','must_be_false'}:
+        return _is_unsat(gamma + [option_phi], timeout_s)
+    if qt == 'could_be_false':
+        return _is_sat(gamma + [Not(option_phi)], timeout_s)
+    raise ValueError(f'Unsupported AR-LSAT grouping question_type: {question_type!r}')
+
+
+def _solve_all_options(question_type, option_phis, gamma, timeout_s):
+    option_evaluations = {
+        label: bool(_evaluate_option(question_type, phi, gamma, timeout_s))
+        for label, phi in sorted(option_phis.items())
+    }
+    solver_correct_options = [
+        label for label, is_correct in option_evaluations.items() if is_correct
+    ]
+    solver_answer = solver_correct_options[0] if len(solver_correct_options) == 1 else None
+    return option_evaluations, solver_correct_options, solver_answer
 
 def _option_status_expr(expr: str):
     m = re.fullmatch(r"\s*(Sat|Unsat)\(\s*(Not\()?\s*Option_([A-Z])\s*\)?\s*\)\s*", (expr or '').strip().rstrip('.'), flags=re.IGNORECASE)
@@ -194,8 +308,8 @@ def _option_status_is_true(status, is_negated, opt_phi, gamma, timeout_s):
     phi = Not(opt_phi) if is_negated else opt_phi
     return _is_sat(gamma + [phi], timeout_s) if status == 'sat' else _is_unsat(gamma + [phi], timeout_s)
 
-def _supports_selected_solution(question_type, status, is_negated, label, selected):
-    if not selected or label != selected: return False
+def _supports_solver_solution(question_type, status, is_negated, label, solver_answer):
+    if not solver_answer or label != solver_answer: return False
     qt = (question_type or '').strip().lower()
     if qt in {'could_be_true','acceptability','partial_acceptability','valid_complete_assignment'}: return status == 'sat' and not is_negated
     if qt in {'must_be_true','must_follow'}: return status == 'unsat' and is_negated
@@ -203,7 +317,7 @@ def _supports_selected_solution(question_type, status, is_negated, label, select
     if qt == 'could_be_false': return status == 'sat' and is_negated
     return status == 'sat' and not is_negated
 
-def _validate_reasoning_steps(reasoning, *, var_map, group_map, base_assertions, rule_fact_phis, rule_phis, option_phis, question_type, selected_option, timeout_s):
+def _validate_reasoning_steps(reasoning, *, var_map, group_map, base_assertions, rule_fact_phis, rule_phis, option_phis, question_type, solver_answer, timeout_s):
     gamma_valid = base_assertions + rule_fact_phis; gamma_steps = list(base_assertions); seen = set()
     n_total = n_parsed = 0; valid_steps=[]; novel_steps=[]; non_valid=[]; parse_errors=[]; support=[]
     for line in reasoning or []:
@@ -216,8 +330,8 @@ def _validate_reasoning_steps(reasoning, *, var_map, group_map, base_assertions,
             if opt_phi is None:
                 non_valid.append({'k': k, 'raw': line, 'expr': expr, 'validity_status': 'UNKNOWN_OPTION'}); continue
             option_valid = _option_status_is_true(status, is_negated, opt_phi, gamma_valid, timeout_s)
-            supports = bool(option_valid and _supports_selected_solution(question_type, status, is_negated, label, selected_option))
-            entry = {'k': k, 'raw': line, 'expr': expr, 'option_label': label, 'status_operator': status, 'is_negated': is_negated, 'supports_selected_solution': supports}
+            supports = bool(option_valid and _supports_solver_solution(question_type, status, is_negated, label, solver_answer))
+            entry = {'k': k, 'raw': line, 'expr': expr, 'option_label': label, 'status_operator': status, 'is_negated': is_negated, 'supports_solver_solution': supports}
             if option_valid:
                 entry['validity_status'] = 'OPTION_STATUS_VALID'; valid_steps.append(entry)
                 if supports: support.append(entry)
@@ -244,24 +358,171 @@ def _validate_reasoning_steps(reasoning, *, var_map, group_map, base_assertions,
     return {'n_steps_total': n_total, 'n_steps_parsed_ok': n_parsed, 'n_steps_valid': len(valid_steps), 'n_steps_novel_inc_clues': len(novel_steps), 'n_non_valid_contradiction': len([x for x in non_valid if x.get('validity_status') == 'CONTRADICTION']), 'list_steps_valid': [x.get('expr') for x in valid_steps], 'list_steps_non_valid': non_valid, 'list_novel_steps_inc_clues': [x.get('expr') for x in novel_steps], 'list_step_parse_errors': parse_errors, 'consistency_score': 1.0 if support else 0.0, 'solution_support_steps': support}
 
 def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.0, conflict_tolerant_clues: bool = False) -> Dict[str, Any]:
-    report = {'base_sat_full_GT': False, 'parse_status': 'INIT', 'n_steps_total':0, 'n_steps_parsed_ok':0, 'n_steps_valid':0, 'n_steps_novel_inc_clues':0, 'n_non_valid_contradiction':0, 'consistency_score':0.0, 'solution_support_steps':[]}
+    report = {
+        'base_sat_full_GT': False,
+        'parse_status': 'INIT',
+        'n_steps_total': 0,
+        'n_steps_parsed_ok': 0,
+        'n_steps_valid': 0,
+        'n_steps_novel_inc_clues': 0,
+        'n_non_valid_contradiction': 0,
+        'consistency_score': 0.0,
+        'solution_support_steps': [],
+    }
     try:
-        if payload.get('problem_type') != 'grouping': raise ValueError("This validator only supports problem_type='grouping'.")
-        _, var_map, group_map, base_assertions, n_groups, n_entities = _make_base(payload.get('world_model') or {}, timeout_s)
+        if str(payload.get('problem_type') or '').strip().lower() != 'grouping':
+            raise ValueError("This validator only supports problem_type='grouping'.")
+
+        _, var_map, group_map, base_assertions, n_groups, n_entities = _make_base(
+            payload.get('world_model') or {}, timeout_s
+        )
         rule_phis, rule_errors = _parse_constraints(payload.get('rules') or [], var_map, group_map)
         fact_phis, fact_errors = _parse_constraints(payload.get('facts') or [], var_map, group_map)
         option_phis, option_errors = _parse_options(payload.get('options') or {}, var_map, group_map)
-        rule_fact_phis = rule_phis + fact_phis; gamma = base_assertions + rule_fact_phis; base_sat = _is_sat(gamma, timeout_s)
-        selected = _selected_from_payload(payload); gt = _selected_from_ground_truth(payload.get('ground_truth'))
-        question_type = ((payload.get('question_semantics') or {}).get('question_type') or payload.get('question_type') or 'could_be_true')
-        selected_phi = option_phis.get(selected or ''); solver_selected_ok = bool(selected_phi is not None and base_sat and _evaluate_option(question_type, selected_phi, gamma, timeout_s))
-        report.update({'base_sat_full_GT': bool(base_sat and solver_selected_ok and selected and gt and selected == gt), 'base_sat': bool(base_sat), 'solver_selected_ok': bool(solver_selected_ok), 'gt_match': bool(selected and gt and selected == gt), 'selected_option': selected, 'ground_truth_option': gt, 'question_type': question_type, 'rule_parse_errors': rule_errors, 'fact_parse_errors': fact_errors, 'option_parse_errors': option_errors, 'n_rule_parse_errors': len(rule_errors), 'n_fact_parse_errors': len(fact_errors), 'n_option_parse_errors': len(option_errors), 'selected_option_parse_ok': bool(selected_phi is not None), 'n_groups': n_groups, 'n_entities': n_entities})
-        report.update(_validate_reasoning_steps(payload.get('reasoning') or [], var_map=var_map, group_map=group_map, base_assertions=base_assertions, rule_fact_phis=rule_fact_phis, rule_phis=rule_phis, option_phis=option_phis, question_type=question_type, selected_option=selected, timeout_s=timeout_s))
+
+        rule_fact_phis = rule_phis + fact_phis
+        gamma = base_assertions + rule_fact_phis
+        base_sat = _is_sat(gamma, timeout_s)
+
+        selected = _selected_from_payload(payload)
+        ground_truth_option = _selected_from_ground_truth(payload.get('ground_truth'))
+        question_type = (
+            (payload.get('question_semantics') or {}).get('question_type')
+            or payload.get('question_type')
+        )
+        if not question_type:
+            raise ValueError('Missing question_type; grouping option semantics cannot be determined.')
+
+        expected_option_labels = {
+            lab for lab in (_norm_option_label(x) for x in (payload.get('options') or {}).keys())
+            if lab is not None
+        }
+        parsed_option_labels = set(option_phis)
+        all_rules_parsed = len(rule_errors) == 0
+        all_facts_parsed = len(fact_errors) == 0
+        all_options_parsed = (
+            len(option_errors) == 0
+            and bool(expected_option_labels)
+            and parsed_option_labels == expected_option_labels
+        )
+        formalization_complete = all_rules_parsed and all_facts_parsed and all_options_parsed
+
+        option_evaluations = {}
+        solver_correct_options = []
+        solver_answer = None
+        if base_sat and formalization_complete:
+            option_evaluations, solver_correct_options, solver_answer = _solve_all_options(
+                question_type, option_phis, gamma, timeout_s
+            )
+
+        solver_has_unique_answer = solver_answer is not None
+        solver_matches_gt = bool(
+            solver_answer is not None
+            and ground_truth_option is not None
+            and solver_answer == ground_truth_option
+        )
+        model_matches_solver = bool(
+            selected is not None and solver_answer is not None and selected == solver_answer
+        )
+        model_matches_gt = bool(
+            selected is not None
+            and ground_truth_option is not None
+            and selected == ground_truth_option
+        )
+        selected_phi = option_phis.get(selected or '')
+
+        report.update({
+            # Formalization quality, independent of the model-selected answer.
+            'base_sat_full_GT': bool(
+                base_sat
+                and formalization_complete
+                and solver_has_unique_answer
+                and solver_matches_gt
+            ),
+            'base_sat': bool(base_sat),
+            'formalization_complete': bool(formalization_complete),
+            'all_rules_parsed': bool(all_rules_parsed),
+            'all_facts_parsed': bool(all_facts_parsed),
+            'all_options_parsed': bool(all_options_parsed),
+
+            # Independent Z3 solution.
+            'solver_answer': solver_answer,
+            'solver_correct_options': solver_correct_options,
+            'solver_has_unique_answer': bool(solver_has_unique_answer),
+            'solver_matches_gt': bool(solver_matches_gt),
+            'option_evaluations': option_evaluations,
+
+            # Model answer comparisons.
+            'selected_option': selected,
+            'ground_truth_option': ground_truth_option,
+            'model_matches_solver': bool(model_matches_solver),
+            'model_matches_gt': bool(model_matches_gt),
+            'answer_correct': bool(model_matches_solver and model_matches_gt),
+
+            # Backward-compatible aliases.
+            'solver_selected_ok': bool(model_matches_solver),
+            'gt_match': bool(solver_matches_gt),
+            'selected_option_parse_ok': bool(selected_phi is not None),
+
+            'question_type': question_type,
+            'rule_parse_errors': rule_errors,
+            'fact_parse_errors': fact_errors,
+            'option_parse_errors': option_errors,
+            'n_rule_parse_errors': len(rule_errors),
+            'n_fact_parse_errors': len(fact_errors),
+            'n_option_parse_errors': len(option_errors),
+            'n_groups': n_groups,
+            'n_entities': n_entities,
+        })
+
+        # Reasoning support is measured against the independently derived Z3 answer.
+        report.update(_validate_reasoning_steps(
+            payload.get('reasoning') or [],
+            var_map=var_map,
+            group_map=group_map,
+            base_assertions=base_assertions,
+            rule_fact_phis=rule_fact_phis,
+            rule_phis=rule_phis,
+            option_phis=option_phis,
+            question_type=question_type,
+            solver_answer=solver_answer,
+            timeout_s=timeout_s,
+        ))
         report['parse_status'] = 'AR_LSAT_GROUPING_SUCCESS'
         return report
     except Exception as e:
-        report['parse_status'] = 'Z3_EXCEPTION'; report['error'] = f'{type(e).__name__}: {e}'; return report
+        logger.exception('AR-LSAT grouping validator failed')
+        report['parse_status'] = 'Z3_EXCEPTION'
+        report['error'] = f'{type(e).__name__}: {e}'
+        return report
 
 if __name__ == '__main__':
-    sample = {'problem_type':'grouping','world_model':{'entities':['A','B','C','D','E','F','G'],'domains':{'groups':['X','Y']}},'rules':['Implies(Assign(A, X), Assign(B, Y))','Implies(Assign(C, X), And(Assign(D, Y), Assign(E, Y)))','Assign(F, X) != Assign(G, X)','Assign(E, X) != Assign(A, X)','Implies(Assign(G, X), Assign(B, X))'],'facts':['Assign(D, X)','Assign(F, X)'],'question_semantics':{'question_type':'could_be_true'},'options':{'D':'And(Assign(C, Y), Assign(E, Y))'},'reasoning':['D and F are fixed in X.','S1: And(Assign(D, X), Assign(F, X)).','F and G are different, so G is in Y.','S2: Assign(G, Y).','Option D is feasible.','S3: Sat(Option_D).'],'solution':{'selected_option':'D'},'ground_truth':'D'}
-    print(json.dumps(solve_and_validate_payload(sample), indent=2))
+    # Unique could-be-true test: A is the only satisfiable option.
+    sample = {
+        'problem_type': 'grouping',
+        'world_model': {
+            'entities': ['A', 'B'],
+            'domains': {'groups': ['X', 'Y']},
+            'structural_assumptions': ['each entity belongs to exactly one group'],
+        },
+        'rules': [
+            'Assign(A, X)',
+            'Assign(B, Y)',
+        ],
+        'facts': [],
+        'question_semantics': {'question_type': 'could_be_true'},
+        'options': {
+            'A': 'And(Assign(A, X), Assign(B, Y))',
+            'B': 'Assign(A, Y)',
+            'C': 'Assign(B, X)',
+        },
+        'reasoning': [
+            'The rules fix A in X and B in Y.',
+            'S1: And(Assign(A, X), Assign(B, Y)).',
+            'Option A is satisfiable with the complete grouping.',
+            'S2: Sat(Option_A).',
+        ],
+        'solution': {'selected_option': 'A'},
+        'ground_truth': 'A',
+    }
+    print(json.dumps(solve_and_validate_payload(sample), indent=2, default=str))
