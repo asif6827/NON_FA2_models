@@ -28,7 +28,9 @@ source activate zebrapuzzles
 #python ./data_preprocess/logic/v6a/KK_data_split.py
 
 
-python ./data_preprocess/logic/v6a/K_K_parsed_v6a_A_MLXL.py --data_path '/export/home/asifali/HF_cache/knights_and_knaves_300_train' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/K_K_v6a_MLXL'
+python ./data_preprocess/logic/v6a/K_K_parsed_v6a_A_MLXL.py --data_path '/export/home/asifali/HF_cache/knights_and_knaves_300_train' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/K_K_A_MLXL'
+
+#python ./data_preprocess/logic/v6a/K_K_parsed_v6a_B_MLXL.py --data_path '/export/home/asifali/HF_cache/knights_and_knaves_300_train' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/K_K_v6a_MLXL'
 
 #python ./data_preprocess/logic/v6a/AR_LSAT_parsed_v6a_A_MLXL_assignment.py --data_path '/export/home/asifali/HF_cache/AR_LSAT' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/AR_LSAT_assignment_A_v6a_MLXL'
 
