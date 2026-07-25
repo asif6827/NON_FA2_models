@@ -18,7 +18,7 @@ Z3_W_LIST=(0.2)
 SWITCH_EPOCH_LIST=(80)
 SYSTEM_NAME_LIST=("Reasoning360_sys_A_K_K")
 EVAL_PATH_LIST=("mlxl_train_mlxl_k_K_parsed_v6a_${ACRONYM}")
-DATA_PATH_LIST=("K_K_v6a_${ACRONYM}/mlxl_train_mlxl_test")
+DATA_PATH_LIST=("K_K_A_${ACRONYM}/mlxl_train_mlxl_test")
 
 
 

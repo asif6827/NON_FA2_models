@@ -2,10 +2,18 @@
 """
 our_puzzles_dataset.py
 
-Reward scoring for Zebra/Logic puzzles with triple scoring:
-- ACC (grid match / cell-level)
-- Z3 validity score
-- Clue self-check score (LLM-as-verifier via Ray)
+Reward scoring for Zebra and Knights-and-Knaves puzzles.
+
+Zebra keeps the existing solver-guided reward path.
+Knights-and-Knaves follows the new two-field prompt contract:
+- reasoning: natural-language one-sentence deductions
+- solution: [Person, Identity] table
+
+Knights-and-Knaves reward components:
+- strict JSON/<answer> parsing
+- output-format compliance
+- Person Accuracy
+- Puzzle Accuracy
 """
 
 import re
@@ -609,25 +617,83 @@ def find_last_answer_block(text: str) -> Optional[str]:
 
 
 def extract_reasoning_and_solution(solution_str: str):
-    """Extract the common output fields and detect the puzzle family."""
-    answer_content = find_last_answer_block(solution_str)
-    if answer_content:
+    """
+    Parse the model response while retaining compatibility with the legacy
+    five-field outputs.
+
+    New Knights-and-Knaves responses contain exactly:
+        reasoning, solution
+
+    Consequently, task type must normally come from extra_info/meta.  The
+    parsed payload is returned so that the caller can enforce the exact schema.
+    """
+    answer_pattern = re.compile(
+        r"<answer\b[^>]*>(.*?)</answer\s*>",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    matches = list(answer_pattern.finditer(solution_str or ""))
+
+    answer_block_count = len(matches)
+    outside_text = ""
+
+    if matches:
+        match = matches[-1]
+        answer_content = match.group(1).strip()
+        outside_text = (
+            (solution_str[:match.start()] + solution_str[match.end():]).strip()
+        )
         parsed = _try_parse_first_json_obj(answer_content)
-        status = "success_answer_tag" if parsed is not None else "answer_tag_json_error"
+        status = (
+            "success_answer_tag"
+            if parsed is not None
+            else "answer_tag_json_error"
+        )
     else:
         parsed = _try_parse_first_json_obj(solution_str)
-        status = "success_direct_json" if parsed is not None else "parsing_failed"
+        status = (
+            "success_direct_json"
+            if parsed is not None
+            else "parsing_failed"
+        )
+
+    format_meta = {
+        "answer_block_count": answer_block_count,
+        "outside_text": outside_text,
+    }
+
     if parsed is None:
-        return None, None, None, None, None, None, status
+        return (
+            None, None, None, None, None, None,
+            status, None, format_meta,
+        )
+
+    # Legacy task detection is retained only as a fallback.  A new two-field
+    # Knights response cannot be distinguished from a two-field Zebra response
+    # using the generated JSON alone.
+    parsed_task_type = None
+    domain_values = None
+    domain_size = None
+
     if "people" in parsed or "n_people" in parsed:
-        task_type = "knights_and_knaves"
+        parsed_task_type = "knights_and_knaves"
         domain_values = parsed.get("people")
         domain_size = parsed.get("n_people")
-    else:
-        task_type = "zebra"
+    elif "attribute_values" in parsed or "n_houses" in parsed:
+        parsed_task_type = "zebra"
         domain_values = parsed.get("attribute_values")
         domain_size = parsed.get("n_houses")
-    return parsed.get("syntactic_clues"), parsed.get("reasoning"), parsed.get("solution"), domain_values, domain_size, task_type, status
+
+    return (
+        parsed.get("syntactic_clues"),
+        parsed.get("reasoning"),
+        parsed.get("solution"),
+        domain_values,
+        domain_size,
+        parsed_task_type,
+        status,
+        parsed,
+        format_meta,
+    )
 
 
 def knights_accuracy(predicted: Dict[str, Any], ground_truth: Dict[str, Any]) -> Tuple[float, float]:
@@ -650,20 +716,66 @@ def knights_accuracy(predicted: Dict[str, Any], ground_truth: Dict[str, Any]) ->
     return float(p==g), float(person_acc)
 
 
-def check_knights_interleaved_reasoning(reasoning: Any) -> bool:
-    if not isinstance(reasoning,list) or len(reasoning)==0 or len(reasoning)%2!=0: return False
-    expected=1
-    for i,item in enumerate(reasoning):
-        if not isinstance(item,str) or not item.strip().endswith('.'): return False
-        if i%2==0:
-            if re.match(r'^\s*S\d+\s*:',item,re.I): return False
-        else:
-            m=re.match(r'^\s*S(\d+)\s*:\s*(.+?)\.\s*$',item,re.I)
-            if not m or int(m.group(1))!=expected: return False
-            expr=m.group(2).strip()
-            if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*',expr): return False
-            expected+=1
-    return True
+def _is_one_sentence_ending_with_period(text: Any) -> bool:
+    """Best-effort enforcement of the new one-sentence reasoning rule."""
+    if not isinstance(text, str):
+        return False
+    item = text.strip()
+    if not item or "\n" in item or not item.endswith("."):
+        return False
+
+    # The new prompt asks for exactly one sentence ending in a period.
+    # Count terminal punctuation conservatively; semicolons/commas remain valid.
+    sentence_marks = re.findall(r"[.!?](?=\s|$)", item)
+    return len(sentence_marks) == 1 and sentence_marks[0] == "."
+
+
+def check_knights_two_field_format(
+    parsed_payload: Any,
+    reasoning: Any,
+    solution: Any,
+    expected_people: Optional[List[str]],
+) -> bool:
+    """Validate the exact output contract of the revised K&K prompt."""
+    if not isinstance(parsed_payload, dict):
+        return False
+    if set(parsed_payload.keys()) != {"reasoning", "solution"}:
+        return False
+
+    if not isinstance(reasoning, list) or not reasoning:
+        return False
+    if not all(_is_one_sentence_ending_with_period(x) for x in reasoning):
+        return False
+
+    if not isinstance(solution, dict):
+        return False
+    if set(solution.keys()) != {"header", "rows"}:
+        return False
+    if solution.get("header") != ["Person", "Identity"]:
+        return False
+
+    rows = solution.get("rows")
+    if not isinstance(rows, list):
+        return False
+
+    people = list(expected_people or [])
+    if len(rows) != len(people):
+        return False
+
+    seen = set()
+    for index, row in enumerate(rows):
+        if not isinstance(row, list) or len(row) != 2:
+            return False
+        person, identity = row
+        if not isinstance(person, str) or not isinstance(identity, str):
+            return False
+        if index >= len(people) or person != people[index]:
+            return False
+        if person in seen or identity not in {"Knight", "Knave"}:
+            return False
+        seen.add(person)
+
+    return seen == set(people)
 
 def normalize_ground_truth(ground_truth: dict) -> dict:
     """
@@ -807,9 +919,23 @@ def compute_score(
 
         task_type = "zebra"
         if isinstance(extra_info, dict):
-            task_type = extra_info.get("task_type", task_type)
+            explicit_task_type = extra_info.get("task_type")
+            if explicit_task_type:
+                task_type = explicit_task_type
+            elif (
+                "people" in extra_info
+                or "n_people" in extra_info
+                or "boolean_solution" in extra_info
+            ):
+                # The revised K&K preprocessor supplies people/n_people in
+                # extra_info but does not require the model to echo them.
+                task_type = "knights_and_knaves"
         if isinstance(meta, dict):
-            task_type = meta.get("task_type", task_type)
+            explicit_task_type = meta.get("task_type")
+            if explicit_task_type:
+                task_type = explicit_task_type
+            elif "people" in meta or "n_people" in meta:
+                task_type = "knights_and_knaves"
         ground_truth = normalize_ground_truth(ground_truth)
         if task_type != "knights_and_knaves":
             ground_truth = normalize_header(ground_truth)
@@ -875,6 +1001,11 @@ def compute_score(
     domain_values = None
     domain_size = None
     parsed_task_type = None
+    parsed_payload = None
+    output_format_meta = {
+        "answer_block_count": 0,
+        "outside_text": "",
+    }
     parse_status = "parsing_failed"
     attribute_values = None
     n_houses = None
@@ -883,20 +1014,55 @@ def compute_score(
 
     parsing_reward = 0.0
     try:
-        syntactic_clues, parsed_reasoning, predicted_arrangement, domain_values, domain_size, parsed_task_type, parse_status = extract_reasoning_and_solution(solution_str=solution_str)
+        (
+            syntactic_clues,
+            parsed_reasoning,
+            predicted_arrangement,
+            domain_values,
+            domain_size,
+            parsed_task_type,
+            parse_status,
+            parsed_payload,
+            output_format_meta,
+        ) = extract_reasoning_and_solution(solution_str=solution_str)
+
         if parsed_task_type is not None:
             task_type = parsed_task_type
-        if task_type == 'knights_and_knaves':
-            people, n_people = domain_values, domain_size
+
+        if task_type == "knights_and_knaves":
+            # Under the revised prompt, people/n_people are input metadata and
+            # must no longer be generated by the model.
+            people = None
+            n_people = None
+            if isinstance(extra_info, dict):
+                people = extra_info.get("people")
+                n_people = extra_info.get("n_people")
+            if isinstance(meta, dict):
+                people = meta.get("people", people)
+                n_people = meta.get("n_people", n_people)
+            if people is not None and n_people is None:
+                n_people = len(people)
             attribute_values, n_houses = None, None
         else:
             attribute_values, n_houses = domain_values, domain_size
             people, n_people = None, None
+
         if parse_status != "success_answer_tag":
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 log_case("non_boxed_answer", solution_str, ground_truth, logger)
 
-        if parse_status in {"success_answer_tag", "success_direct_json"}:
+        if task_type == "knights_and_knaves":
+            # Full credit only for exactly one answer block and no surrounding
+            # text.  Direct JSON or extra text remains parseable but receives
+            # half parsing credit as shaping feedback.
+            strict_wrapper = (
+                parse_status == "success_answer_tag"
+                and output_format_meta.get("answer_block_count") == 1
+                and not output_format_meta.get("outside_text")
+            )
+            if parsed_payload is not None:
+                parsing_reward = 1.0 if strict_wrapper else 0.5
+        elif parse_status in {"success_answer_tag", "success_direct_json"}:
             parsing_reward = 1.0
         # meta selection
         meta_used = meta
@@ -990,22 +1156,11 @@ def compute_score(
     payload = {}
 
     if task_type == "knights_and_knaves":
-        required_inputs_present = (
-            n_people is not None
-            and people is not None
-            and syntactic_clues is not None
-            and parsed_reasoning is not None
-            and ground_truth is not None
-        )
-
-        if required_inputs_present:
-            payload = {
-                "n_people": n_people,
-                "people": people,
-                "syntactic_clues": syntactic_clues,
-                "reasoning": parsed_reasoning,
-                "ground_truth": ground_truth,
-            }
+        # The revised prompt deliberately removes syntactic_clues and formal
+        # solver steps.  Z3 process validation is therefore not applicable to
+        # this task path; retain zero-valued legacy metrics for log compatibility.
+        required_inputs_present = False
+        payload = {}
     else:
         required_inputs_present = (
             n_houses is not None
@@ -1070,8 +1225,14 @@ def compute_score(
         _apply_base_results(
             final_result,
             MISSING_BASE_DEFAULTS,
-            missed_data=1.0,
+            # For revised K&K, solver inputs are intentionally absent rather
+            # than missing.  Zebra still treats absent solver inputs as missing.
+            missed_data=0.0 if task_type == "knights_and_knaves" else 1.0,
         )
+
+    final_result["PROCESS_VALIDATION_AVAILABLE"] = (
+        0.0 if task_type == "knights_and_knaves" else 1.0
+    )
 
     # -----------------------
     # Format Reward
@@ -1081,13 +1242,18 @@ def compute_score(
     if parsed_reasoning:
         try:
             if task_type == "knights_and_knaves":
-                format_ok = check_knights_interleaved_reasoning(parsed_reasoning)
+                format_ok = check_knights_two_field_format(
+                    parsed_payload=parsed_payload,
+                    reasoning=parsed_reasoning,
+                    solution=predicted_arrangement,
+                    expected_people=people,
+                )
             else:
-                format_ok = check_interleaved_reasoning(parsed_reasoning, n_houses=int(n_houses))
-            #print(parsed_reasoning)
-            #print(format_ok)
+                format_ok = check_interleaved_reasoning(
+                    parsed_reasoning,
+                    n_houses=int(n_houses),
+                )
         except Exception:
-            #logger.error("Error computing format penalty..!")
             format_ok = False
     else:
         format_ok = False
@@ -1099,7 +1265,12 @@ def compute_score(
     # ---------------------------
     consistency_score = 0
     reasoning_vs_sol_validate = {}
-    if syntactic_clues and predicted_arrangement and z3_out:
+    if (
+        task_type != "knights_and_knaves"
+        and syntactic_clues
+        and predicted_arrangement
+        and z3_out
+    ):
         try:
             list_novel_steps_inc_clues = z3_out.get("list_novel_steps_inc_clues", [])
             reasoning_vs_sol_validate = verify_solution_two_step(
@@ -1127,8 +1298,9 @@ def compute_score(
             has_required_inputs = (
                 people is not None
                 and n_people is not None
-                and syntactic_clues is not None
                 and parsed_reasoning is not None
+                and predicted_arrangement is not None
+                and parsed_payload is not None
             )
         else:
             has_required_inputs = (
@@ -1139,46 +1311,53 @@ def compute_score(
             )
 
         if has_required_inputs:
+            format_reward = 1.0 if format_ok else 0.0
+
             if task_type == "knights_and_knaves":
                 normalizer = max(float(n_people), 1.0)
+
+                # New two-field K&K reward.  Outcome quality remains dominant,
+                # while person-level accuracy supplies dense partial credit.
+                # The four components sum to 1.0 for a fully correct response.
+                reward = (
+                    0.60 * float(puzzle_acc_score)
+                    + 0.20 * float(cell_acc_score)
+                    + 0.10 * float(parsing_reward)
+                    + 0.10 * float(format_reward)
+                )
+                reward = clamp01(reward)
             else:
                 n_houses_i = max(int(n_houses), 0)
                 n_attrs_i = max(len(attribute_values), 0)
                 normalizer = max(2.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
 
-            n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
-            novel_step_score = float(min(n_novel_steps / normalizer, 1.0))
-            contradiction_ratio = float(min(n_contradictions / normalizer, 1.0))
-            sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))  # expected 1.0 or 0.0
+                n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
+                novel_step_score = float(min(n_novel_steps / normalizer, 1.0))
+                contradiction_ratio = float(min(n_contradictions / normalizer, 1.0))
+                sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))
 
-            if format_ok:
-                format_reward = 1.0
-            else:
-                format_reward = 0.0
-            #print("Format reward = {}".format(format_reward))
+                if sat_ok == 0.0:
+                    reward = (
+                            0.15 * parsing_reward
+                            + 0.10 * format_reward
+                            + 0.60 * float(puzzle_acc_score)
+                            - 0.20 * contradiction_ratio
+                    )
+                else:
+                    base_quality = (
+                            0.60 * float(puzzle_acc_score)
+                            + 0.20 * parsing_reward
+                            + 0.20 * format_reward
+                    )
 
-            if sat_ok == 0.0:
-                reward = (
-                        0.15 * parsing_reward
-                        + 0.10 * format_reward
-                        + 0.60 * float(puzzle_acc_score)
-                        - 0.20 * contradiction_ratio
-                )
-            else:
-                base_quality = (
-                        0.60 * float(puzzle_acc_score)
-                        + 0.20 * parsing_reward
-                        + 0.20 * format_reward
-                )
+                    process_bonus = (
+                            0.40 * novel_step_score
+                            + 0.30 * consistency_score
+                            - 0.15 * contradiction_ratio
+                    )
 
-                process_bonus = (
-                        0.40 * novel_step_score
-                        + 0.30 * consistency_score
-                        - 0.15 * contradiction_ratio
-                )
-
-                # gate process reward by solution quality
-                reward = base_quality + float(puzzle_acc_score) * process_bonus
+                    # gate process reward by solution quality
+                    reward = base_quality + float(puzzle_acc_score) * process_bonus
 
             #if sat_ok == 0.0:
             #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
@@ -1203,6 +1382,8 @@ def compute_score(
         # Log / persist to final_result
         # -----------------------
         final_result["Normalizer"] = float(normalizer)
+        final_result["PARSING_REWARD"] = float(parsing_reward)
+        final_result["FORMAT_REWARD"] = 1.0 if format_ok else 0.0
         final_result["acc"] = float(reward)
         final_result["PUZZLE_ACCURACY"] = float(puzzle_acc_score)
         final_result["PERSON_ACCURACY"] = float(cell_acc_score) if task_type == "knights_and_knaves" else 0.0
@@ -1290,22 +1471,12 @@ def pretty(x):
 
 if __name__ == "__main__":
 
-    correct_solution_str = """
+    correct_solution_str = r'''
 <answer>{
-  "n_people": 3,
-  "people": ["Alice", "Bob", "Charlie"],
-  "syntactic_clues": [
-    "C1: Alice = Bob.",
-    "C2: Bob = (Alice != Charlie).",
-    "C3: Charlie = (Bob = False)."
-  ],
   "reasoning": [
-    "Bob must be a Knight because assuming Bob is a Knave makes his statement true.",
-    "S1: Bob = True.",
-    "Alice has the same identity as Bob.",
-    "S2: Alice = True.",
-    "Charlie has the opposite identity from Bob.",
-    "S3: Charlie = False."
+    "Alice and Bob must have the same identity because Alice says that Bob is a Knight.",
+    "Bob must be a Knight because assuming that Bob is a Knave makes Bob's own statement true.",
+    "Charlie must therefore be a Knave because Charlie says that Bob is a Knave."
   ],
   "solution": {
     "header": ["Person", "Identity"],
@@ -1316,24 +1487,13 @@ if __name__ == "__main__":
     ]
   }
 }</answer>
-"""
+'''
 
-    incorrect_solution_str = """
+    incorrect_solution_str = r'''
 <answer>{
-  "n_people": 3,
-  "people": ["Alice", "Bob", "Charlie"],
-  "syntactic_clues": [
-    "C1: Alice = Bob.",
-    "C2: Bob = (Alice != Charlie).",
-    "C3: Charlie = (Bob = False)."
-  ],
   "reasoning": [
-    "Bob is assumed to be a Knave.",
-    "S1: Bob = False.",
-    "Alice has the same identity as Bob.",
-    "S2: Alice = False.",
-    "Charlie has the opposite identity from Bob.",
-    "S3: Charlie = True."
+    "Alice and Bob are assumed to be Knaves.",
+    "Charlie is therefore assumed to be a Knight."
   ],
   "solution": {
     "header": ["Person", "Identity"],
@@ -1344,7 +1504,22 @@ if __name__ == "__main__":
     ]
   }
 }</answer>
-"""
+'''
+
+    malformed_solution_str = r'''
+Extra text
+<answer>{
+  "reasoning": ["Alice is a Knight."],
+  "solution": {
+    "header": ["Person", "Identity"],
+    "rows": [
+      ["Bob", "Knight"],
+      ["Alice", "Knight"],
+      ["Charlie", "Knave"]
+    ]
+  }
+}</answer>
+'''
 
     ground_truth = {
         "header": ["Person", "Identity"],
@@ -1368,32 +1543,15 @@ if __name__ == "__main__":
         ),
     }
 
-    correct_result = compute_score(
-        solution_str=correct_solution_str,
-        ground_truth=ground_truth,
-        extra_info=extra_info,
-    )
-
-    incorrect_result = compute_score(
-        solution_str=incorrect_solution_str,
-        ground_truth=ground_truth,
-        extra_info=extra_info,
-    )
-
-    print("\nCORRECT CASE")
-    print(
-        json.dumps(
-            correct_result,
-            indent=2,
-            ensure_ascii=False,
+    for label, candidate in [
+        ("CORRECT CASE", correct_solution_str),
+        ("INCORRECT CASE", incorrect_solution_str),
+        ("MALFORMED CASE", malformed_solution_str),
+    ]:
+        result = compute_score(
+            solution_str=candidate,
+            ground_truth=ground_truth,
+            extra_info=extra_info,
         )
-    )
-
-    print("\nINCORRECT CASE")
-    print(
-        json.dumps(
-            incorrect_result,
-            indent=2,
-            ensure_ascii=False,
-        )
-    )
+        print(f"\n{label}")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
