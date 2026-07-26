@@ -276,6 +276,48 @@ def _equiv_to_any_rule(base, phi, rules, timeout_s):
         except Exception: pass
     return False
 
+SUPPORTED_STANDARD_QUESTION_TYPES = {
+    'could_be_true', 'acceptability', 'partial_acceptability',
+    'valid_complete_assignment', 'must_be_true', 'must_follow',
+    'cannot_be_true', 'must_be_false', 'could_be_false',
+}
+
+
+def _normalize_question_type(question_type: Any, question_semantics: Optional[Dict[str, Any]] = None) -> str:
+    """Normalize AR-LSAT question semantics without guessing silently.
+
+    Some preprocessing pipelines emit ``other`` even when
+    ``option_interpretation_rule`` already specifies SAT/UNSAT semantics.
+    """
+    qt = str(question_type or '').strip().lower().replace('-', '_').replace(' ', '_')
+    aliases = {
+        'couldbetrue': 'could_be_true',
+        'mustbetrue': 'must_be_true',
+        'cannotbetrue': 'cannot_be_true',
+        'mustbefalse': 'must_be_false',
+        'couldbefalse': 'could_be_false',
+        'rule_replacement': 'rule_substitution',
+        'substitute_rule': 'rule_substitution',
+    }
+    qt = aliases.get(qt, qt)
+
+    if qt in {'', 'other', 'unknown'}:
+        semantics = question_semantics or {}
+        rule = str(semantics.get('option_interpretation_rule') or '').lower()
+        compact = re.sub(r'\s+', '', rule)
+        if compact in {'sat(option)', 'sat(o)', 'satisfiable(option)'}:
+            return 'could_be_true'
+        if compact in {'unsat(not(option))', 'unsat(neg(option))'}:
+            return 'must_be_true'
+        if compact in {'unsat(option)', 'unsatisfiable(option)'}:
+            return 'cannot_be_true'
+        if compact in {'sat(not(option))', 'sat(neg(option))'}:
+            return 'could_be_false'
+        if any(token in compact for token in ('substitut', 'replacement', 'equivalent_rule')):
+            return 'rule_substitution'
+    return qt
+
+
 def _evaluate_option(question_type, option_phi, gamma, timeout_s):
     qt = (question_type or '').strip().lower()
     if qt in {'could_be_true','acceptability','partial_acceptability','valid_complete_assignment'}:
@@ -286,7 +328,89 @@ def _evaluate_option(question_type, option_phi, gamma, timeout_s):
         return _is_unsat(gamma + [option_phi], timeout_s)
     if qt == 'could_be_false':
         return _is_sat(gamma + [Not(option_phi)], timeout_s)
-    raise ValueError(f'Unsupported AR-LSAT grouping question_type: {question_type!r}')
+    raise ValueError(f'Unsupported standard question_type: {question_type!r}')
+
+
+def _resolve_rule_to_replace(
+    question_semantics: Dict[str, Any],
+    raw_rules: List[str],
+    rule_phis: List[Any],
+):
+    """Resolve the rule referenced by a rule-substitution question.
+
+    Supported metadata keys include ``target_rule``, ``rule_to_replace``,
+    ``replaced_rule``, ``target_rule_index``, and ``rule_index``. Indices may be
+    zero-based or one-based; explicit textual matches are preferred.
+    """
+    for key in ('target_rule', 'rule_to_replace', 'replaced_rule', 'original_rule'):
+        value = question_semantics.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            stripped = value.strip().rstrip('.')
+            for idx, raw in enumerate(raw_rules):
+                if str(raw).strip().rstrip('.') == stripped:
+                    return idx, rule_phis[idx]
+        try:
+            number = int(value)
+        except Exception:
+            continue
+        candidates = [number, number - 1]
+        for idx in candidates:
+            if 0 <= idx < len(rule_phis):
+                return idx, rule_phis[idx]
+
+    for key in ('target_rule_index', 'rule_index', 'replaced_rule_index'):
+        value = question_semantics.get(key)
+        if value is None:
+            continue
+        try:
+            number = int(value)
+        except Exception:
+            continue
+        for idx in (number, number - 1):
+            if 0 <= idx < len(rule_phis):
+                return idx, rule_phis[idx]
+    return None, None
+
+
+def _solve_rule_substitution_options(
+    *,
+    question_semantics: Dict[str, Any],
+    raw_rules: List[str],
+    rule_phis: List[Any],
+    fact_phis: List[Any],
+    base_assertions: List[Any],
+    option_phis: Dict[str, Any],
+    timeout_s: float,
+):
+    """Find the option logically equivalent to the replaced rule.
+
+    An option is a valid substitute iff, under the base theory, facts, and all
+    remaining rules, replacing the target rule with that option preserves the
+    same models. This is checked with ``UNSAT(Xor(target, option))``.
+    """
+    target_idx, target_phi = _resolve_rule_to_replace(
+        question_semantics, raw_rules, rule_phis
+    )
+    if target_phi is None:
+        return None, {}, [], None, (
+            'rule_substitution requires target-rule metadata such as '
+            'target_rule or target_rule_index'
+        )
+
+    remaining_rules = [phi for idx, phi in enumerate(rule_phis) if idx != target_idx]
+    context = list(base_assertions) + list(fact_phis) + remaining_rules
+    if not _is_sat(context + [target_phi], timeout_s):
+        return target_idx, {}, [], None, 'target rule is inconsistent with the remaining theory'
+
+    evaluations = {
+        label: _is_unsat(context + [Xor(target_phi, phi)], timeout_s)
+        for label, phi in sorted(option_phis.items())
+    }
+    correct = [label for label, ok in evaluations.items() if ok]
+    answer = correct[0] if len(correct) == 1 else None
+    return target_idx, evaluations, correct, answer, None
 
 
 def _solve_all_options(question_type, option_phis, gamma, timeout_s):
@@ -386,12 +510,12 @@ def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.
 
         selected = _selected_from_payload(payload)
         ground_truth_option = _selected_from_ground_truth(payload.get('ground_truth'))
-        question_type = (
-            (payload.get('question_semantics') or {}).get('question_type')
+        question_semantics = payload.get('question_semantics') or {}
+        raw_question_type = (
+            question_semantics.get('question_type')
             or payload.get('question_type')
         )
-        if not question_type:
-            raise ValueError('Missing question_type; grouping option semantics cannot be determined.')
+        question_type = _normalize_question_type(raw_question_type, question_semantics)
 
         expected_option_labels = {
             lab for lab in (_norm_option_label(x) for x in (payload.get('options') or {}).keys())
@@ -410,9 +534,39 @@ def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.
         option_evaluations = {}
         solver_correct_options = []
         solver_answer = None
-        if base_sat and formalization_complete:
-            option_evaluations, solver_correct_options, solver_answer = _solve_all_options(
-                question_type, option_phis, gamma, timeout_s
+        rule_substitution_target_index = None
+        unsupported_reason = None
+
+        supported_question_type = (
+            question_type in SUPPORTED_STANDARD_QUESTION_TYPES
+            or question_type == 'rule_substitution'
+        )
+
+        if base_sat and formalization_complete and supported_question_type:
+            if question_type == 'rule_substitution':
+                (
+                    rule_substitution_target_index,
+                    option_evaluations,
+                    solver_correct_options,
+                    solver_answer,
+                    unsupported_reason,
+                ) = _solve_rule_substitution_options(
+                    question_semantics=question_semantics,
+                    raw_rules=list(payload.get('rules') or []),
+                    rule_phis=rule_phis,
+                    fact_phis=fact_phis,
+                    base_assertions=base_assertions,
+                    option_phis=option_phis,
+                    timeout_s=timeout_s,
+                )
+            else:
+                option_evaluations, solver_correct_options, solver_answer = _solve_all_options(
+                    question_type, option_phis, gamma, timeout_s
+                )
+        elif not supported_question_type:
+            unsupported_reason = (
+                f'Unsupported AR-LSAT grouping question_type: {raw_question_type!r}; '
+                'provide a supported question_type or an option_interpretation_rule.'
             )
 
         solver_has_unique_answer = solver_answer is not None
@@ -465,6 +619,10 @@ def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.
             'selected_option_parse_ok': bool(selected_phi is not None),
 
             'question_type': question_type,
+            'raw_question_type': raw_question_type,
+            'supported_question_type': bool(supported_question_type and unsupported_reason is None),
+            'unsupported_reason': unsupported_reason,
+            'rule_substitution_target_index': rule_substitution_target_index,
             'rule_parse_errors': rule_errors,
             'fact_parse_errors': fact_errors,
             'option_parse_errors': option_errors,
@@ -488,10 +646,15 @@ def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.
             solver_answer=solver_answer,
             timeout_s=timeout_s,
         ))
-        report['parse_status'] = 'AR_LSAT_GROUPING_SUCCESS'
+        if unsupported_reason is not None:
+            report['parse_status'] = 'UNSUPPORTED_QUESTION_TYPE'
+        else:
+            report['parse_status'] = 'AR_LSAT_GROUPING_SUCCESS'
         return report
     except Exception as e:
-        logger.exception('AR-LSAT grouping validator failed')
+        # Unexpected implementation/parser failures are returned to VERL without
+        # emitting one full traceback per generated sample.
+        logger.debug('AR-LSAT grouping validator failed', exc_info=True)
         report['parse_status'] = 'Z3_EXCEPTION'
         report['error'] = f'{type(e).__name__}: {e}'
         return report

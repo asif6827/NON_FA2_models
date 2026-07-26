@@ -59,7 +59,7 @@ NUMERIC_KEYS = [
     "z3_base_sat", "z3_formalization_complete", "z3_solver_answer_present", "z3_solver_has_unique_answer",
     "z3_solver_matches_gt", "z3_model_matches_solver", "z3_model_matches_gt", "z3_answer_correct",
     "z3_solver_selected_ok", "z3_gt_match", "z3_rule_parse_error_count", "z3_fact_parse_error_count",
-    "z3_option_parse_error_count", "z3_selected_option_parse_ok",
+    "z3_option_parse_error_count", "z3_selected_option_parse_ok", "z3_unsupported_question_type",
     "reward_error_flag", "parse_error_flag", "epoch", "total_epochs",
 ]
 
@@ -290,7 +290,9 @@ def compute_score(
         final_result["format_status_ok"] = format_reward
 
         z3_out: Dict[str, Any] = {}
+        validator_ran = False
         if isinstance(payload, dict) and schema_reward > 0.0:
+            validator_ran = True
             z3_payload = dict(payload)
             z3_payload["ground_truth"] = ground_truth
             if isinstance(extra_info, dict) and extra_info.get("question_type"):
@@ -301,13 +303,22 @@ def compute_score(
                 z3_out = {"parse_status": "Z3_EXCEPTION", "error": f"{type(e).__name__}: {e}"}
 
         z3_status = str(z3_out.get("parse_status", ""))
-        if z3_status != "AR_LSAT_GROUPING_SUCCESS":
+        # Do not emit warnings for malformed/incomplete model outputs for which
+        # the validator was never run. During RL these are common and previously
+        # produced thousands of empty-status warnings.
+        if validator_ran and z3_status in {"Z3_EXCEPTION", "Z3_IMPORT_FAIL"}:
             logger.warning(
                 "Grouping Z3 validation failed: status=%s error=%r",
                 z3_status,
                 z3_out.get("error"),
             )
-        final_result["z3_status_ok"] = 1.0 if z3_out.get("parse_status") == "AR_LSAT_GROUPING_SUCCESS" else 0.0
+        elif validator_ran and z3_status == "UNSUPPORTED_QUESTION_TYPE":
+            logger.debug(
+                "Grouping question type not solver-supported: %s",
+                z3_out.get("unsupported_reason"),
+            )
+        final_result["z3_status_ok"] = 1.0 if z3_status == "AR_LSAT_GROUPING_SUCCESS" else 0.0
+        final_result["z3_unsupported_question_type"] = 1.0 if z3_status == "UNSUPPORTED_QUESTION_TYPE" else 0.0
         final_result["z3_base_sat"] = 1.0 if bool(z3_out.get("base_sat", False)) else 0.0
         final_result["z3_formalization_complete"] = 1.0 if bool(z3_out.get("formalization_complete", False)) else 0.0
         final_result["z3_solver_answer_present"] = 1.0 if z3_out.get("solver_answer") is not None else 0.0
