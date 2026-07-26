@@ -1220,6 +1220,7 @@ def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.
         report["z3_solution"] = z3_solution_full if z3_solution_full is not None else {}
         report["gt_solution_details"] = gt_details_full if base_sat_full else []
         report["base_sat_full_GT"] = bool(base_sat_full and gt_valid_full)
+        report["BASE_SAT"] = bool(base_sat_full)
         report["parse_status"] = "SAT_CHECK_SUCCESS"
 
     except Exception as e:
@@ -1227,6 +1228,7 @@ def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.
         report["z3_solution"] = {}
         report["gt_solution_details"] = {}
         report["base_sat_full_GT"] = 0.0
+        report["BASE_SAT"] = 0.0
         report["parse_status"] = "SAT_CHECK_FAIL"
 
     if report["base_sat_full_GT"]:
