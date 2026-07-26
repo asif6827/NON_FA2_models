@@ -21,9 +21,31 @@ except Exception:
     from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import solve_and_validate_payload
 
 try:
-    from check_interleved_format import check_interleaved_reasoning
+    from check_interleved_format import (
+        check_interleaved_reasoning,
+        check_interleaved_reasoning_detailed,
+    )
 except Exception:
-    from verl.utils.reward_score.check_interleved_format import check_interleaved_reasoning
+    try:
+        from verl.utils.reward_score.check_interleved_format import (
+            check_interleaved_reasoning,
+            check_interleaved_reasoning_detailed,
+        )
+    except Exception:
+        def check_interleaved_reasoning(reasoning, *, n_houses=0, require_terminal_period=True):
+            return False
+
+        def check_interleaved_reasoning_detailed(reasoning, *, n_houses=0, require_terminal_period=True):
+            return {
+                "ok": False,
+                "errors": [{
+                    "index": None,
+                    "code": "FORMAT_CHECKER_IMPORT_FAIL",
+                    "message": "Could not import check_interleved_format.py.",
+                }],
+                "n_entries": len(reasoning) if isinstance(reasoning, list) else 0,
+                "n_pairs": 0,
+            }
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s", handlers=[logging.StreamHandler(sys.stdout)], force=True)
 logger = logging.getLogger(__name__)
@@ -248,8 +270,20 @@ def compute_score(
         n_entities = _infer_n_entities(payload)
 
         try:
-            format_ok = check_interleaved_reasoning(reasoning, n_houses=int(n_groups or 0))
+            format_details = check_interleaved_reasoning_detailed(
+                reasoning,
+                n_houses=int(n_groups or 0),
+                require_terminal_period=True,
+            )
+            format_ok = bool(format_details.get("ok", False))
+            if not format_ok:
+                logger.debug(
+                    "Grouping interleaved-format validation failed: %s",
+                    format_details.get("errors", []),
+                )
         except Exception:
+            logger.exception("Grouping interleaved-format checker crashed.")
+            format_details = {"ok": False, "errors": []}
             format_ok = False
         format_reward = 1.0 if format_ok else 0.0
         final_result["format_reward"] = format_reward
@@ -428,7 +462,55 @@ def _make_missing_schema_answer() -> str:
     return "<answer>" + json.dumps(payload, ensure_ascii=False, indent=2) + "</answer>"
 
 
+def _run_grouping_format_demos() -> None:
+    """Quick checker-only demonstrations; these do not require Z3."""
+    demos = {
+        "valid_assign": [
+            "A and B are fixed in different groups.",
+            "S1: And(Assign(A, X), Assign(B, Y)).",
+            "Option A is feasible.",
+            "S2: Sat(Option_A).",
+        ],
+        "valid_group_relations": [
+            "A and B must be in different groups.",
+            "S1: DifferentGroup(A, B).",
+            "C and D must be together.",
+            "S2: SameGroup(C, D).",
+        ],
+        "invalid_unpaired": [
+            "A is assigned to X.",
+            "S1: Assign(A, X).",
+            "This explanation has no formal partner.",
+        ],
+        "invalid_order": [
+            "S1: Assign(A, X).",
+            "A is assigned to X.",
+        ],
+        "invalid_step_number": [
+            "A is assigned to X.",
+            "S2: Assign(A, X).",
+        ],
+        "invalid_expression": [
+            "A and B are together.",
+            "S1: A and B are in the same group.",
+        ],
+    }
+
+    print("\n===== GROUPING FORMAT CHECKER DEMOS =====")
+    for name, trace in demos.items():
+        details = check_interleaved_reasoning_detailed(
+            trace,
+            n_houses=2,
+            require_terminal_period=True,
+        )
+        print(f"\n{name}: ok={details['ok']}")
+        for error in details.get("errors", []):
+            print(f"  - {error['code']}: {error['message']}")
+
+
 if __name__ == "__main__":
+    _run_grouping_format_demos()
+
     tests = [
         ("correct_could_be_true", _make_grouping_answer("A"), "A"),
         ("wrong_selected_option", _make_grouping_answer("B"), "A"),
