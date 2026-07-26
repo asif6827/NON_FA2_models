@@ -19,13 +19,31 @@ except Exception:
             return {"parse_status": "Z3_IMPORT_FAIL", "base_sat_full_GT": False}
 
 try:
-    from check_interleved_format import check_interleaved_reasoning
+    from check_interleved_format import (
+        check_interleaved_reasoning,
+        check_interleaved_reasoning_detailed,
+    )
 except Exception:
     try:
-        from verl.utils.reward_score.check_interleved_format import check_interleaved_reasoning
+        from verl.utils.reward_score.check_interleved_format import (
+            check_interleaved_reasoning,
+            check_interleaved_reasoning_detailed,
+        )
     except Exception:
-        def check_interleaved_reasoning(reasoning, *, n_houses=0):
+        def check_interleaved_reasoning(reasoning, *, n_houses=0, require_terminal_period=True):
             return False
+
+        def check_interleaved_reasoning_detailed(reasoning, *, n_houses=0, require_terminal_period=True):
+            return {
+                "ok": False,
+                "errors": [{
+                    "index": None,
+                    "code": "FORMAT_CHECKER_IMPORT_FAIL",
+                    "message": "check_interleved_format could not be imported.",
+                }],
+                "n_entries": len(reasoning) if isinstance(reasoning, list) else 0,
+                "n_pairs": 0,
+            }
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s", handlers=[logging.StreamHandler(sys.stdout)], force=True)
 logger = logging.getLogger(__name__)
@@ -202,8 +220,20 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
         reasoning = payload.get("reasoning") if isinstance(payload, dict) else None
         n_values = _infer_n_values(payload); n_entities = _infer_n_entities(payload)
         try:
-            format_ok = check_interleaved_reasoning(reasoning, n_houses=int(n_values or 0))
+            format_details = check_interleaved_reasoning_detailed(
+                reasoning,
+                n_houses=int(n_values or 0),
+                require_terminal_period=True,
+            )
+            format_ok = bool(format_details.get("ok", False))
+            if not format_ok:
+                logger.debug(
+                    "Interleaved-format validation failed: %s",
+                    format_details.get("errors", []),
+                )
         except Exception:
+            logger.exception("Interleaved-format checker crashed.")
+            format_details = {"ok": False, "errors": []}
             format_ok = False
         out["format_reward"] = out["format_status_ok"] = 1.0 if format_ok else 0.0
         z3_out: Dict[str, Any] = {}
@@ -279,7 +309,39 @@ def _make_must_be_true_answer() -> str:
 
 
 if __name__ == "__main__":
-    tests = [
+    format_demos = {
+        "valid_interleaved": [
+            "A is not assigned to P1.",
+            "S1: Not(Assign(A, P1)).",
+            "Option A is feasible.",
+            "S2: Sat(Option_A).",
+        ],
+        "invalid_starts_with_formal": [
+            "S1: Not(Assign(A, P1)).",
+            "A is not assigned to P1.",
+        ],
+        "invalid_unpaired_nl": [
+            "A is not assigned to P1.",
+            "S1: Not(Assign(A, P1)).",
+            "This final explanation has no corresponding formal step.",
+        ],
+        "invalid_step_sequence": [
+            "A is not assigned to P1.",
+            "S2: Not(Assign(A, P1)).",
+        ],
+        "invalid_formal_grammar": [
+            "A is not assigned to P1.",
+            "S1: A is not in P1.",
+        ],
+    }
+
+    print("\n================ FORMAT CHECKER DEMO ================")
+    for name, reasoning in format_demos.items():
+        details = check_interleaved_reasoning_detailed(reasoning, n_houses=3)
+        print(f"\n=== {name} ===")
+        print(json.dumps(details, indent=2, ensure_ascii=False))
+
+    reward_tests = [
         ("correct_could_be_true", _make_answer("Option_A"), "A"),
         ("wrong_model_but_same_formalization", _make_answer("B"), "A"),
         ("bad_format_correct_answer", _make_answer("A", bad_format=True), "A"),
@@ -287,7 +349,9 @@ if __name__ == "__main__":
         ("malformed_json", "<answer>{bad json</answer>", "A"),
         ("none_output", None, "A"),
     ]
-    for name, pred, gt in tests:
+
+    print("\n================ REWARD DEMO ================")
+    for name, pred, gt in reward_tests:
         print(f"\n=== {name} ===")
         result = compute_score(pred, gt)
         print(json.dumps(result, indent=2, ensure_ascii=False))
