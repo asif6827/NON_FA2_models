@@ -23,22 +23,36 @@ except Exception:
             return {"parse_status": "Z3_IMPORT_FAIL", "base_sat_full_GT": False}
 
 try:
-    from check_interleved_format import check_interleaved_reasoning
+    from check_interleved_format import (
+        check_interleaved_reasoning,
+        check_interleaved_reasoning_detailed,
+    )
 except Exception:
     try:
-        from verl.utils.reward_score.check_interleved_format import check_interleaved_reasoning
+        from verl.utils.reward_score.check_interleved_format import (
+            check_interleaved_reasoning,
+            check_interleaved_reasoning_detailed,
+        )
     except Exception:
+        def check_interleaved_reasoning_detailed(reasoning, *, n_houses=0, require_terminal_period=True):
+            errors = []
+            if not isinstance(reasoning, list) or not reasoning:
+                errors.append({"code": "INVALID_REASONING"})
+            elif len(reasoning) % 2 != 0:
+                errors.append({"code": "UNPAIRED_ENTRY"})
+            return {
+                "ok": not errors,
+                "errors": errors,
+                "n_entries": len(reasoning) if isinstance(reasoning, list) else 0,
+                "n_pairs": len(reasoning) // 2 if isinstance(reasoning, list) else 0,
+            }
+
         def check_interleaved_reasoning(reasoning, *, n_houses=0):
-            if not isinstance(reasoning, list) or len(reasoning) == 0 or len(reasoning) % 2 != 0:
-                return False
-            for index, value in enumerate(reasoning):
-                if not isinstance(value, str) or not value.strip():
-                    return False
-                if index % 2 == 0 and re.match(r"^\s*S\d+\s*:", value, re.IGNORECASE):
-                    return False
-                if index % 2 == 1 and not re.match(r"^\s*S\d+\s*:", value, re.IGNORECASE):
-                    return False
-            return True
+            return bool(check_interleaved_reasoning_detailed(
+                reasoning,
+                n_houses=n_houses,
+                require_terminal_period=True,
+            )["ok"])
 
 logging.basicConfig(
     level=logging.INFO,
@@ -295,8 +309,20 @@ def compute_score(
         n_entities = _infer_n_entities(payload)
 
         try:
-            format_ok = bool(check_interleaved_reasoning(reasoning, n_houses=int(n_positions or 0)))
+            format_details = check_interleaved_reasoning_detailed(
+                reasoning,
+                n_houses=int(n_positions or 0),
+                require_terminal_period=True,
+            )
+            format_ok = bool(format_details.get("ok", False))
+            if not format_ok:
+                logger.debug(
+                    "Ordering interleaved-format validation failed: %s",
+                    format_details.get("errors", []),
+                )
         except Exception:
+            logger.exception("Ordering interleaved-format checker crashed")
+            format_details = {"ok": False, "errors": [{"code": "CHECKER_EXCEPTION"}]}
             format_ok = False
         output["format_reward"] = output["format_status_ok"] = 1.0 if format_ok else 0.0
 
@@ -443,10 +469,58 @@ def _make_answer(selected: str = "A") -> str:
 
 
 if __name__ == "__main__":
+    print("\n=== INTERLEAVED FORMAT DEMOS ===")
+    format_demos = {
+        "valid_predicates": [
+            "B is fixed in fourth position.",
+            "S1: AtPosition(B, 4).",
+            "A immediately precedes C.",
+            "S2: ImmediatelyBefore(A, C).",
+            "Option A is satisfiable.",
+            "S3: Sat(Option_A).",
+        ],
+        "valid_arithmetic": [
+            "C occurs immediately after A.",
+            "S1: Position(C) == Position(A) + 1.",
+            "A and B are two positions apart.",
+            "S2: Distance(A, B, 2).",
+        ],
+        "invalid_starts_formal": [
+            "S1: AtPosition(B, 4).",
+            "B is fixed in fourth position.",
+        ],
+        "invalid_unpaired": [
+            "B is fixed in fourth position.",
+            "S1: AtPosition(B, 4).",
+            "This explanation has no formal partner.",
+        ],
+        "invalid_step_number": [
+            "B is fixed in fourth position.",
+            "S2: AtPosition(B, 4).",
+        ],
+        "invalid_out_of_range": [
+            "B is placed outside the domain.",
+            "S1: AtPosition(B, 5).",
+        ],
+    }
+
+    for name, reasoning in format_demos.items():
+        details = check_interleaved_reasoning_detailed(
+            reasoning,
+            n_houses=4,
+            require_terminal_period=True,
+        )
+        print(
+            f"{name:28s} ok={details['ok']!s:5s} "
+            f"errors={[item['code'] for item in details['errors']]}"
+        )
+
+    print("\n=== COMPLETE REWARD DEMOS ===")
     tests = [
         ("correct_could_be_true", _make_answer("A"), "A"),
         ("wrong_selected_option", _make_answer("B"), "A"),
     ]
     for name, prediction, ground_truth in tests:
         print(f"\n=== {name} ===")
-        print(json.dumps(compute_score(prediction, ground_truth), indent=2))
+        result = compute_score(prediction, ground_truth)
+        print(json.dumps(result, indent=2))
