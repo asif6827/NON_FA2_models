@@ -774,6 +774,7 @@ def compute_score(
         final_result = {}
         z3_out = {}
         payload = {}
+        final_result["BASE_SAT"] = 0.0
         final_result["BASE_sat_full_GT"] = 0.0
         final_result["missed_data"] = 0.0
         final_result["BASE_n_steps_total"] = 0.0
@@ -798,6 +799,7 @@ def compute_score(
         final_result = {}
         payload = {}
         z3_out = {}
+        final_result["BASE_SAT"] = 0.0
         final_result["BASE_sat_full_GT"] = 0.0
         final_result["missed_data"] = 0.0
 
@@ -871,6 +873,7 @@ def compute_score(
     # -----------------------
 
     MISSING_BASE_DEFAULTS = {
+        "BASE_SAT":0.0,
         "BASE_sat_full_GT": 0.0,
         "n_steps_total": 0,
         "n_steps_parsed_ok": 0,
@@ -931,13 +934,16 @@ def compute_score(
             #logger.error("Crash while calculating Z3 score")
 
         if _is_sat_check_failure(z3_out):
+            final_result["BASE_SAT"] = 0.0
             final_result["BASE_sat_full_GT"] = 0.0
             _apply_base_results(final_result, MISSING_BASE_DEFAULTS, missed_data=1.0)
         else:
+            final_result["BASE_SAT"] = _normalize_binary(z3_out.get("BASE_SAT", 0.0))
             final_result["BASE_sat_full_GT"] = _normalize_binary(z3_out.get("base_sat_full_GT", 0.0))
             _apply_base_results(final_result, z3_out, missed_data=0.0)
 
     else:
+        final_result["BASE_SAT"] = 0.0
         final_result["BASE_sat_full_GT"] = 0.0
         _apply_base_results(final_result, MISSING_BASE_DEFAULTS, missed_data=1.0)
 

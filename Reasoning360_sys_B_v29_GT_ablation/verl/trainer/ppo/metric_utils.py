@@ -110,6 +110,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     #print()
     #pprint.pprint(batch, width=120)
 
+    BASE_SAT = torch.from_numpy(batch.non_tensor_batch["BASE_SAT"])
     base_sat_full_GT = torch.from_numpy(batch.non_tensor_batch["BASE_sat_full_GT"])
     missed_data = torch.from_numpy(batch.non_tensor_batch["missed_data"])
 
@@ -168,6 +169,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     metrics = {
         # Z3 and Acc Metrics:
         "TRAIN/Z3-solver/BASE_sat_full_GT/mean": torch.mean(base_sat_full_GT.float()).detach().item(),
+        "TRAIN/Z3-solver/BASE_SAT/mean": torch.mean(BASE_SAT.float()).detach().item(),
         "TRAIN/Z3-solver/missed_data/mean": torch.mean(missed_data.float()).detach().item(),
 
         "TRAIN/Z3-solver/BASE_n_steps_total/mean": torch.mean(BASE_n_steps_total.float()).detach().item(),
