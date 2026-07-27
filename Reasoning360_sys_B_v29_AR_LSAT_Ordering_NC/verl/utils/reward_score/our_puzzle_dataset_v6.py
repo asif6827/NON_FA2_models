@@ -403,9 +403,9 @@ def compute_score(
                     + 0.20 * output["format_reward"]
                 )
                 process_bonus = (
-                    0.40 * novel_step_score
+                    0.0 * novel_step_score
                     + 0.30 * output["consistency_score"]
-                    - 0.15 * contradiction_ratio
+                    - 0.0 * contradiction_ratio
                 )
                 reward = base_quality + accuracy * process_bonus
 
