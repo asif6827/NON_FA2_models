@@ -6,9 +6,9 @@ Supports assignment-style formulas:
   Assign(A, P1), Not(Assign(A, P1)), Assign(B, P1) == Assign(C, P1),
   Exactly/AtLeast/AtMost, Sat(Option_A), Unsat(Not(Option_A)).
 
-Important: BASE_sat_full_GT is independent of the model-selected answer. It is true iff:
-  the base rules/facts are satisfiable, the complete formalization parses,
-  Z3 derives exactly one answer option, and that option matches ground truth.
+Important: BASE_sat_full_GT is intentionally strict:
+  base rules/facts SAT AND selected option parseable AND selected option satisfies
+  question_type semantics AND normalized selected option == normalized ground truth.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     import z3
-    from z3 import And, AtLeast, AtMost, Bool, BoolVal, If, Implies, Not, Or, PbEq, Solver, Sum, Xor, sat, unsat, unknown
+    from z3 import And, AtLeast, AtMost, Bool, BoolVal, Implies, Not, Or, PbEq, Solver, Xor, sat, unsat
 except Exception:  # pragma: no cover
     z3 = None
 
@@ -26,8 +26,6 @@ logger = logging.getLogger(__name__)
 
 _STEP_RE = re.compile(r"^\s*S(\d+)\s*:\s*(.+?)\s*$", re.IGNORECASE)
 _FUNC_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*$", re.DOTALL)
-
-SUPPORTED_PROBLEM_TYPE = 'assignment'
 
 
 def normalize_header(data_sample): return data_sample
@@ -74,28 +72,6 @@ def _norm_option_label(x: Any) -> Optional[str]:
         return letters[-1]
 
     return None
-
-
-def _clean_expr(expr: Any) -> str:
-    """Normalize common harmless generation variations before parsing."""
-    text = "" if expr is None else str(expr)
-    text = text.strip().strip("`")
-    # Remove optional Logic-LLM natural-language annotations.
-    if ":::" in text:
-        text = text.split(":::", 1)[0].strip()
-    # Remove an accidental step prefix when a rule is copied from reasoning.
-    text = re.sub(r"^\s*S\d+\s*:\s*", "", text, flags=re.IGNORECASE)
-    text = text.rstrip(".;").strip()
-    # Normalize common Unicode / Python-style operators.
-    text = (
-        text.replace("¬", "Not ")
-        .replace("∧", " and ")
-        .replace("∨", " or ")
-        .replace("→", " -> ")
-        .replace("↔", " <-> ")
-    )
-    return text
-
 
 def _split_top_level_args(s: str) -> List[str]:
     args, buf, depth = [], [], 0
@@ -151,18 +127,11 @@ def _selected_from_payload(payload: Dict[str, Any]) -> Optional[str]:
 
 
 def _solver_check(assertions: List[Any], timeout_s: float):
-    solver = Solver()
-    solver.set('timeout', max(int(float(timeout_s) * 1000), 1))
-    solver.add(assertions)
-    return solver.check()
+    s = Solver(); s.set('timeout', int(timeout_s * 1000)); s.add(assertions); return s.check()
 
+def _is_sat(assertions: List[Any], timeout_s: float) -> bool: return _solver_check(assertions, timeout_s) == sat
 
-def _is_sat(assertions: List[Any], timeout_s: float) -> bool:
-    return _solver_check(assertions, timeout_s) == sat
-
-
-def _is_unsat(assertions: List[Any], timeout_s: float) -> bool:
-    return _solver_check(assertions, timeout_s) == unsat
+def _is_unsat(assertions: List[Any], timeout_s: float) -> bool: return _solver_check(assertions, timeout_s) == unsat
 
 
 def _status_under_gamma(gamma: List[Any], phi: Any, timeout_s: float) -> str:
@@ -277,110 +246,26 @@ def _extract_entities_values(world_model: Dict[str, Any]) -> Tuple[List[str], Li
     return entities, [_norm_token(v) for v in raw_values]
 
 
-def _structural_assumption_text(world_model: Dict[str, Any]) -> str:
-    assumptions = world_model.get('structural_assumptions') or []
-    if isinstance(assumptions, str):
-        assumptions = [assumptions]
-    return ' '.join(str(item).strip().lower() for item in assumptions)
-
-
 def _assignment_value_exactly_one_required(world_model: Dict[str, Any]) -> bool:
-    text = _structural_assumption_text(world_model)
-    return bool(
-        'one-to-one' in text
-        or 'one to one' in text
-        or 'bijective' in text
-        or re.search(
-            r"(each|every)\s+(value|project|room|day|slot|task|course|team|group)"
-            r"\b.*\b(exactly\s+one|one\s+entity|one\s+person)",
-            text,
-        )
-    )
-
-
-def _assignment_value_at_most_one_required(world_model: Dict[str, Any]) -> bool:
-    text = _structural_assumption_text(world_model)
-    return bool(
-        _assignment_value_exactly_one_required(world_model)
-        or re.search(
-            r"(each|every|no)\s+(value|project|room|day|slot|task|course|team|group)"
-            r"\b.*\b(at\s+most\s+one|no\s+more\s+than\s+one|cannot\s+be\s+shared)",
-            text,
-        )
-    )
-
-
-def _assignment_entity_exactly_one_required(world_model: Dict[str, Any]) -> bool:
-    """Assignment tasks normally map every entity to one value.
-
-    The default remains exactly one because this is the defining representation
-    used by the Assignment prompt. An explicit multi-assignment assumption can
-    disable it.
-    """
-    text = _structural_assumption_text(world_model)
-    multi_assignment = bool(
-        re.search(
-            r"(entity|person|worker|item)\b.*\b"
-            r"(one\s+or\s+more|at\s+least\s+one|multiple|more\s+than\s+one)",
-            text,
-        )
-    )
-    return not multi_assignment
-
+    assumptions = world_model.get('structural_assumptions') or []
+    if isinstance(assumptions, str): assumptions = [assumptions]
+    text = ' '.join(str(x).lower() for x in assumptions)
+    return bool('one-to-one' in text or 'bijective' in text or re.search(r"(each|every)\s+(value|project|room|day|slot|task|course|team|group)\b.*\bexactly\s+one\b", text))
 
 
 def _make_assignment_base(world_model: Dict[str, Any], timeout_s: float):
-    del timeout_s  # Kept for API compatibility.
-    if z3 is None:
-        raise RuntimeError('z3-solver is not installed')
-
+    if z3 is None: raise RuntimeError('z3-solver is not installed')
     entities, values = _extract_entities_values(world_model)
-    entities = [item for item in entities if item]
-    values = [item for item in values if item]
-
-    if not entities:
-        raise ValueError('world_model.entities is empty')
-    if not values:
-        raise ValueError(
-            'world_model.domains must contain a non-empty assignment domain '
-            '(values/assignments/projects/rooms/days/slots/tasks/courses/teams/groups)'
-        )
-    if len(set(entities)) != len(entities):
-        raise ValueError(f'Duplicate normalized entities: {entities}')
-    if len(set(values)) != len(values):
-        raise ValueError(f'Duplicate normalized assignment values: {values}')
-
-    assign_vars: Dict[Tuple[str, str], Any] = {
-        (entity, value): Bool(f'Assign__{entity}__{value}')
-        for entity in entities
-        for value in values
-    }
+    if not entities: raise ValueError('world_model.entities is empty')
+    if not values: raise ValueError('world_model.domains.values/assignments/projects/etc. is empty')
+    assign_vars: Dict[Tuple[str, str], Any] = {(e, v): Bool(f'Assign__{e}__{v}') for e in entities for v in values}
     base_assertions: List[Any] = []
-
-    if _assignment_entity_exactly_one_required(world_model):
-        for entity in entities:
-            base_assertions.append(
-                PbEq([(assign_vars[(entity, value)], 1) for value in values], 1)
-            )
-    else:
-        for entity in entities:
-            base_assertions.append(
-                Or(*[assign_vars[(entity, value)] for value in values])
-            )
-
+    for e in entities:
+        base_assertions.append(PbEq([(assign_vars[(e, v)], 1) for v in values], 1))
     if _assignment_value_exactly_one_required(world_model):
-        for value in values:
-            base_assertions.append(
-                PbEq([(assign_vars[(entity, value)], 1) for entity in entities], 1)
-            )
-    elif _assignment_value_at_most_one_required(world_model):
-        for value in values:
-            base_assertions.append(
-                AtMost(*[assign_vars[(entity, value)] for entity in entities], 1)
-            )
-
+        for v in values:
+            base_assertions.append(PbEq([(assign_vars[(e, v)], 1) for e in entities], 1))
     return assign_vars, base_assertions, len(values), len(entities)
-
 
 
 def _assignment_var(entity_raw: str, value_raw: str, assign_vars: Dict[Tuple[str, str], Any]):
@@ -393,171 +278,47 @@ def _assignment_var(entity_raw: str, value_raw: str, assign_vars: Dict[Tuple[str
 
 
 def _parse_assignment_expr(expr: str, assign_vars: Dict[Tuple[str, str], Any]):
-    e = _clean_expr(expr)
-    if not e:
-        raise ValueError('Empty assignment expression')
-
-    lowered = e.lower()
-    if lowered == 'true':
-        return BoolVal(True)
-    if lowered == 'false':
-        return BoolVal(False)
-
-    # Infix implication/equivalence generated by some models.
-    for operator in ('<->', ' iff ', '->'):
-        split = _split_top_level_binary(e, operator)
+    e = str(expr).strip().rstrip('.')
+    if e.lower() == 'true': return BoolVal(True)
+    if e.lower() == 'false': return BoolVal(False)
+    for op in ('==', '!='):
+        split = _split_top_level_binary(e, op)
         if split:
-            left = _parse_assignment_expr(split[0], assign_vars)
-            right = _parse_assignment_expr(split[1], assign_vars)
-            if operator in {'<->', ' iff '}:
-                return left == right
-            return Implies(left, right)
-
-    # Python-like top-level Boolean operators.
-    for operator, constructor in ((' or ', Or), (' and ', And)):
-        split = _split_top_level_binary(e, operator)
-        if split:
-            return constructor(
-                _parse_assignment_expr(split[0], assign_vars),
-                _parse_assignment_expr(split[1], assign_vars),
-            )
-
-    if lowered.startswith('not '):
-        return Not(_parse_assignment_expr(e[4:].strip(), assign_vars))
-
-    for operator in ('==', '!='):
-        split = _split_top_level_binary(e, operator)
-        if split:
-            left = _parse_assignment_expr(split[0], assign_vars)
-            right = _parse_assignment_expr(split[1], assign_vars)
-            return (left == right) if operator == '==' else (left != right)
-
-    match = _FUNC_RE.match(e)
-    if not match:
-        raise ValueError(f'Unrecognized assignment expression: {expr!r}')
-
-    function_name = match.group(1).lower()
-    args = _split_top_level_args(match.group(2))
-
-    if function_name in {'assign', 'assigned'}:
-        if len(args) != 2:
-            raise ValueError('Assign expects exactly two arguments')
+            L = _parse_assignment_expr(split[0], assign_vars)
+            R = _parse_assignment_expr(split[1], assign_vars)
+            return (L == R) if op == '==' else (L != R)
+    m = _FUNC_RE.match(e)
+    if not m: raise ValueError(f'Unrecognized assignment expression: {expr!r}')
+    fn, args = m.group(1).lower(), _split_top_level_args(m.group(2))
+    if fn == 'assign':
+        if len(args) != 2: raise ValueError('Assign expects exactly two arguments')
         return _assignment_var(args[0], args[1], assign_vars)
-
-    if function_name == 'not':
-        if len(args) != 1:
-            raise ValueError('Not expects one argument')
+    if fn == 'not':
+        if len(args) != 1: raise ValueError('Not expects one argument')
         return Not(_parse_assignment_expr(args[0], assign_vars))
-
-    if function_name in {'and', 'all'}:
-        if not args:
-            raise ValueError(f'{function_name} expects at least one argument')
-        return And(*[_parse_assignment_expr(arg, assign_vars) for arg in args])
-
-    if function_name in {'or', 'any'}:
-        if not args:
-            raise ValueError(f'{function_name} expects at least one argument')
-        return Or(*[_parse_assignment_expr(arg, assign_vars) for arg in args])
-
-    if function_name in {'implies', 'ifthen'}:
-        if len(args) != 2:
-            raise ValueError('Implies expects two arguments')
-        return Implies(
-            _parse_assignment_expr(args[0], assign_vars),
-            _parse_assignment_expr(args[1], assign_vars),
-        )
-
-    if function_name in {'iff', 'equivalent', 'equiv'}:
-        if len(args) != 2:
-            raise ValueError('Iff expects two arguments')
-        return (
-            _parse_assignment_expr(args[0], assign_vars)
-            == _parse_assignment_expr(args[1], assign_vars)
-        )
-
-    if function_name == 'if':
-        if len(args) != 3:
-            raise ValueError('If expects condition, then-expression, else-expression')
-        return If(
-            _parse_assignment_expr(args[0], assign_vars),
-            _parse_assignment_expr(args[1], assign_vars),
-            _parse_assignment_expr(args[2], assign_vars),
-        )
-
-    if function_name == 'xor':
-        if len(args) != 2:
-            raise ValueError('Xor expects two arguments')
-        return Xor(
-            _parse_assignment_expr(args[0], assign_vars),
-            _parse_assignment_expr(args[1], assign_vars),
-        )
-
-    if function_name in {'exactly', 'atleast', 'atmost', 'count'}:
-        if len(args) < 2:
-            raise ValueError(f'{function_name} expects a count and Boolean arguments')
-        count = int(str(args[0]).strip())
-        parsed = [_parse_assignment_expr(arg, assign_vars) for arg in args[1:]]
-        if count < 0 or count > len(parsed):
-            raise ValueError(
-                f'{function_name} count {count} is outside 0..{len(parsed)}'
-            )
-        if function_name in {'exactly', 'count'}:
-            return PbEq([(item, 1) for item in parsed], count)
-        if function_name == 'atleast':
-            return AtLeast(*parsed, count)
-        return AtMost(*parsed, count)
-
-    if function_name in {'same', 'samevalue', 'same_assignment'}:
-        if len(args) != 2:
-            raise ValueError('Same expects two entities')
-        left = _norm_token(args[0])
-        right = _norm_token(args[1])
-        values = sorted({value for _, value in assign_vars})
-        if left not in {entity for entity, _ in assign_vars}:
-            raise KeyError(f'Unknown entity in Same: {left}')
-        if right not in {entity for entity, _ in assign_vars}:
-            raise KeyError(f'Unknown entity in Same: {right}')
-        return And(*[
-            assign_vars[(left, value)] == assign_vars[(right, value)]
-            for value in values
-        ])
-
-    if function_name in {'different', 'differentvalue', 'different_assignment'}:
-        if len(args) != 2:
-            raise ValueError('Different expects two entities')
-        return Not(
-            _parse_assignment_expr(
-                f'Same({args[0]}, {args[1]})',
-                assign_vars,
-            )
-        )
-
-    raise ValueError(f'Unsupported assignment function: {function_name}')
-
+    if fn == 'and': return And(*[_parse_assignment_expr(a, assign_vars) for a in args])
+    if fn == 'or': return Or(*[_parse_assignment_expr(a, assign_vars) for a in args])
+    if fn == 'implies':
+        if len(args) != 2: raise ValueError('Implies expects two arguments')
+        return Implies(_parse_assignment_expr(args[0], assign_vars), _parse_assignment_expr(args[1], assign_vars))
+    if fn == 'xor':
+        if len(args) != 2: raise ValueError('Xor expects two arguments')
+        return Xor(_parse_assignment_expr(args[0], assign_vars), _parse_assignment_expr(args[1], assign_vars))
+    if fn in {'exactly', 'atleast', 'atmost'}:
+        if len(args) < 2: raise ValueError(f'{fn} expects count plus Boolean arguments')
+        k = int(str(args[0]).strip())
+        parsed = [_parse_assignment_expr(a, assign_vars) for a in args[1:]]
+        if fn == 'exactly': return PbEq([(p, 1) for p in parsed], k)
+        if fn == 'atleast': return AtLeast(*parsed, k)
+        return AtMost(*parsed, k)
+    raise ValueError(f'Unsupported assignment function: {fn}')
 
 
 def _parse_constraints(lines: List[str], parser_fn: Callable[[str], Any]) -> Tuple[List[Any], List[Dict[str, str]]]:
-    phis: List[Any] = []
-    errors: List[Dict[str, str]] = []
-    for index, raw in enumerate(lines or []):
-        expression = raw
-        if isinstance(raw, dict):
-            expression = (
-                raw.get('formula')
-                or raw.get('expression')
-                or raw.get('logic')
-                or raw.get('rule')
-            )
-        try:
-            if expression is None:
-                raise ValueError('Missing formula/expression field')
-            phis.append(parser_fn(str(expression)))
-        except Exception as exc:
-            errors.append({
-                'index': str(index),
-                'raw': str(raw),
-                'error': f'{type(exc).__name__}: {exc}',
-            })
+    phis, errors = [], []
+    for raw in lines or []:
+        try: phis.append(parser_fn(str(raw)))
+        except Exception as e: errors.append({'raw': str(raw), 'error': f'{type(e).__name__}: {e}'})
     return phis, errors
 
 
@@ -670,8 +431,7 @@ def solve_and_validate_payload(
 
         rule_fact_phis = rule_phis + fact_phis
         gamma = base_assertions + rule_fact_phis
-        base_check = _solver_check(gamma, timeout_s)
-        base_sat = base_check == sat
+        base_sat = _is_sat(gamma, timeout_s)
 
         selected = _selected_from_payload(payload)
         ground_truth_option = _selected_from_ground_truth(payload.get('ground_truth'))
@@ -729,7 +489,6 @@ def solve_and_validate_payload(
                 and solver_matches_gt
             ),
             'base_sat': bool(base_sat),
-            'base_solver_status': str(base_check),
             'formalization_complete': bool(formalization_complete),
             'all_rules_parsed': bool(all_rules_parsed),
             'all_facts_parsed': bool(all_facts_parsed),
@@ -783,95 +542,38 @@ def solve_and_validate_payload(
         return report
 
     except Exception as exc:
-        logger.warning('AR-LSAT Assignment Z3 validation failed: %s: %s', type(exc).__name__, exc)
+        logger.exception('AR-LSAT Assignment Z3 validation failed')
         report['parse_status'] = 'Z3_EXCEPTION'
         report['error'] = f'{type(exc).__name__}: {exc}'
         return report
 
 
 if __name__ == '__main__':
-    tests = {
-        'must_be_true_independent_of_model_answer': {
-            'problem_type': 'assignment',
-            'world_model': {
-                'entities': ['A', 'B'],
-                'domains': {'values': ['P1', 'P2']},
-                'structural_assumptions': [
-                    'each entity is assigned exactly one value',
-                    'each value is assigned to exactly one entity',
-                ],
-            },
-            'rules': ['Assign(A, P1)'],
-            'facts': [],
-            'question_semantics': {'question_type': 'must_be_true'},
-            'options': {
-                'A': 'Assign(A, P1)',
-                'B': 'Assign(A, P2)',
-            },
-            'reasoning': [
-                'The first rule fixes A to P1.',
-                'S1: Assign(A, P1).',
-                'The negation of option A is inconsistent with the rules.',
-                'S2: Unsat(Not(Option_A)).',
+    sample = {
+        'problem_type': 'assignment',
+        'world_model': {
+            'entities': ['A', 'B'],
+            'domains': {'values': ['P1', 'P2']},
+            'structural_assumptions': [
+                'each entity is assigned exactly one value',
+                'each value is assigned to exactly one entity',
             ],
-            'solution': {'selected_option': 'B'},
-            'ground_truth': 'A',
         },
-        'shared_value_assignment': {
-            'problem_type': 'assignment',
-            'world_model': {
-                'entities': ['A', 'B', 'C'],
-                'domains': {'rooms': ['R1', 'R2']},
-                'structural_assumptions': [
-                    'each entity is assigned exactly one room',
-                    'rooms may be shared',
-                ],
-            },
-            'rules': [
-                'Same(A, B)',
-                'Different(B, C)',
-                'Assign(A, R1)',
-            ],
-            'facts': [],
-            'question_semantics': {'question_type': 'must_be_true'},
-            'options': {
-                'A': 'Assign(B, R1)',
-                'B': 'Assign(C, R1)',
-            },
-            'reasoning': [],
-            'solution': {'selected_option': 'A'},
-            'ground_truth': 'A',
+        'rules': ['Assign(A, P1)'],
+        'facts': [],
+        'question_semantics': {'question_type': 'must_be_true'},
+        'options': {
+            'A': 'Assign(A, P1)',
+            'B': 'Assign(A, P2)',
         },
-        'dsl_variations': {
-            'problem_type': 'assignment',
-            'world_model': {
-                'entities': ['A', 'B'],
-                'domains': {'values': ['P1', 'P2']},
-                'structural_assumptions': ['bijective assignment'],
-            },
-            'rules': [
-                'S1: Assigned(A, P1). ::: harmless annotation',
-                'Iff(Assign(A, P1), Not(Assign(B, P1)))',
-            ],
-            'facts': [],
-            'question_semantics': {'question_type': 'must_be_true'},
-            'options': {
-                'Option_A': 'Assign(B, P2)',
-                'Option_B': 'Assign(B, P1)',
-            },
-            'reasoning': [],
-            'solution': {'selected_option': 'A'},
-            'ground_truth': 'A',
-        },
+        'reasoning': [
+            'The first rule fixes A to P1.',
+            'S1: Assign(A, P1).',
+            'The negation of option A is inconsistent with the rules.',
+            'S2: Unsat(Not(Option_A)).',
+        ],
+        # Deliberately wrong model selection: Z3 must still derive A independently.
+        'solution': {'selected_option': 'B'},
+        'ground_truth': 'A',
     }
-
-    all_ok = True
-    for name, sample in tests.items():
-        result = solve_and_validate_payload(sample)
-        print(f'\n=== {name} ===')
-        print(json.dumps(result, indent=2, default=str))
-        if not result.get('base_sat_full_GT'):
-            all_ok = False
-
-    if not all_ok:
-        raise SystemExit('One or more Assignment validator self-tests failed.')
+    print(json.dumps(solve_and_validate_payload(sample), indent=2, default=str))
