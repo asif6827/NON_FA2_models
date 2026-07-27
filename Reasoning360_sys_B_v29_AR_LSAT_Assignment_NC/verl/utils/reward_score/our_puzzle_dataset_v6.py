@@ -178,16 +178,58 @@ def _selected_from_prediction(payload: Optional[Dict[str, Any]]) -> Optional[str
     return None
 
 
+_ASSIGNMENT_DOMAIN_KEYS = (
+    "values",
+    "assignments",
+    "projects",
+    "colors",
+    "rooms",
+    "days",
+    "slots",
+    "tasks",
+    "teams",
+)
+
+
+def _extract_assignment_values(payload: Optional[Dict[str, Any]]) -> Optional[list]:
+    """Return the explicit non-empty assignment-value domain.
+
+    The Z3 Assignment validator requires one recognized domain list.  Do not
+    silently flatten arbitrary lists from ``domains`` because those lists may
+    describe unrelated metadata and can cause malformed payloads to pass the
+    schema check before failing inside Z3.
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    world_model = payload.get("world_model")
+    if not isinstance(world_model, dict):
+        return None
+
+    domains = world_model.get("domains")
+    if not isinstance(domains, dict):
+        return None
+
+    for key in _ASSIGNMENT_DOMAIN_KEYS:
+        values = domains.get(key)
+        if not isinstance(values, list) or not values:
+            continue
+
+        # Reject empty/null values and duplicates after normalization.  These
+        # would otherwise create an ill-defined Assignment world model.
+        normalized = [str(value).strip() for value in values]
+        if any(not value for value in normalized):
+            return None
+        if len(set(normalized)) != len(normalized):
+            return None
+        return values
+
+    return None
+
+
 def _infer_n_values(payload: Optional[Dict[str, Any]]) -> Optional[int]:
-    if not isinstance(payload, dict): return None
-    wm = payload.get("world_model") or {}; domains = wm.get("domains", {}) if isinstance(wm, dict) else {}
-    raw_values = domains.get("values") or domains.get("assignments") or domains.get("projects") or domains.get("colors") or domains.get("rooms") or domains.get("days") or domains.get("slots") or domains.get("tasks") or domains.get("teams") or []
-    if isinstance(raw_values, list) and raw_values: return len(raw_values)
-    flat = []
-    if isinstance(domains, dict):
-        for v in domains.values():
-            if isinstance(v, list): flat.extend(v)
-    return len(set(str(x) for x in flat)) if flat else None
+    values = _extract_assignment_values(payload)
+    return len(values) if values is not None else None
 
 
 def _infer_n_entities(payload: Optional[Dict[str, Any]]) -> Optional[int]:
@@ -197,11 +239,72 @@ def _infer_n_entities(payload: Optional[Dict[str, Any]]) -> Optional[int]:
 
 
 def _schema_ok(payload: Optional[Dict[str, Any]]) -> bool:
-    if not isinstance(payload, dict): return False
-    required = ["problem_type", "world_model", "rules", "facts", "question_semantics", "options", "reasoning", "solution"]
-    if any(k not in payload for k in required): return False
-    if str(payload.get("problem_type") or "").strip().lower() != "assignment": return False
-    return isinstance(payload.get("world_model"), dict) and isinstance(payload.get("rules"), list) and isinstance(payload.get("facts"), list) and isinstance(payload.get("question_semantics"), dict) and isinstance(payload.get("options"), dict) and isinstance(payload.get("reasoning"), list) and isinstance(payload.get("solution"), dict) and bool(payload["solution"].get("selected_option"))
+    """Validate all fields required before invoking the Z3 Assignment solver."""
+    if not isinstance(payload, dict):
+        return False
+
+    required = {
+        "problem_type",
+        "world_model",
+        "rules",
+        "facts",
+        "question_semantics",
+        "options",
+        "reasoning",
+        "solution",
+    }
+    if not required.issubset(payload):
+        return False
+
+    if str(payload.get("problem_type") or "").strip().lower() != "assignment":
+        return False
+
+    world_model = payload.get("world_model")
+    if not isinstance(world_model, dict):
+        return False
+
+    entities = world_model.get("entities")
+    if not isinstance(entities, list) or not entities:
+        return False
+    normalized_entities = [str(entity).strip() for entity in entities]
+    if any(not entity for entity in normalized_entities):
+        return False
+    if len(set(normalized_entities)) != len(normalized_entities):
+        return False
+
+    # This is the critical fix: reject empty/unrecognized assignment domains
+    # here, before solve_and_validate_payload() reaches _make_assignment_base().
+    if _extract_assignment_values(payload) is None:
+        return False
+
+    if not isinstance(payload.get("rules"), list):
+        return False
+    if not isinstance(payload.get("facts"), list):
+        return False
+
+    question_semantics = payload.get("question_semantics")
+    if not isinstance(question_semantics, dict):
+        return False
+    if not (
+        question_semantics.get("question_type")
+        or payload.get("question_type")
+    ):
+        return False
+
+    options = payload.get("options")
+    if not isinstance(options, dict) or not options:
+        return False
+
+    if not isinstance(payload.get("reasoning"), list):
+        return False
+
+    solution = payload.get("solution")
+    if not isinstance(solution, dict):
+        return False
+    if not _norm_option_label(solution.get("selected_option")):
+        return False
+
+    return True
 
 
 def compute_score(solution_str, ground_truth, extra_info: Any = None, score_method: str = "gt", timeout: float = 3.0, acc_weight: float = 0.8, clue_weight: float = 1.0, z3_weight: float = 0.2, meta: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
@@ -237,6 +340,10 @@ def compute_score(solution_str, ground_truth, extra_info: Any = None, score_meth
             format_ok = False
         out["format_reward"] = out["format_status_ok"] = 1.0 if format_ok else 0.0
         z3_out: Dict[str, Any] = {}
+        # Invoke Z3 only after the strengthened schema check confirms that the
+        # entity list and a recognized, non-empty assignment domain are present.
+        # Malformed model outputs now receive schema_reward=0 without producing
+        # an expected ValueError traceback in the training log.
         if isinstance(payload, dict) and schema_reward > 0.0:
             z3_payload = dict(payload); z3_payload["ground_truth"] = ground_truth
             if isinstance(extra_info, dict) and extra_info.get("question_type"):
