@@ -7,10 +7,11 @@
 #sbatch ./data_preprocess/logic/v6a/data_preprocess_parsed_v6a_ALL.sh
 
 
-echo "Model Gemmas Downloading...!"
+echo "Qwen3-14B Model Downloading...!"
 
-sbatch ./scripts_data_etc/download_hub_MiniCPM.sh
+sbatch ./scripts_data_etc/download_hub_qwen.sh
 
+#sbatch ./scripts_data_etc/download_hub_MiniCPM.sh
 #sbatch ./scripts_data_etc/download_hub_SmolLM3_3B.sh
 #sbatch ./scripts_data_etc/download_hub_gemma.sh
 #sbatch ./scripts_data_etc/download_hub_Phi4.sh
