@@ -33,15 +33,72 @@ export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 # Force ALL temp/cache off /tmp
 # ===============================
 
-# temp dirs (your existing block)
-LOCAL_BASE="/var/tmp/$USER/${SLURM_JOB_ID}"
-export RAY_TMPDIR="$LOCAL_BASE/ray"
-export TMPDIR="$LOCAL_BASE/tmp"
-export TMP="$TMPDIR"
-export TEMP="$TMPDIR"
-mkdir -p "$RAY_TMPDIR" "$TMPDIR"
-chmod 700 "$LOCAL_BASE" "$RAY_TMPDIR" "$TMPDIR"
+
+
+set -euo pipefail
+
+VAR_TMP_ROOT="/var/tmp/${USER}"
+
+echo "Preparing temporary storage on $(hostname)"
+echo "Cleaning: ${VAR_TMP_ROOT}"
+
+# Create the user-owned root if it does not exist.
+mkdir -p "${VAR_TMP_ROOT}"
+chmod 700 "${VAR_TMP_ROOT}"
+
+# WARNING: This removes temporary files from all of your previous jobs
+# under /var/tmp/$USER. Do not run concurrent jobs using this directory.
+find "${VAR_TMP_ROOT}" \
+    -mindepth 1 \
+    -maxdepth 1 \
+    -exec rm -rf -- {} +
+
+# Verify that cleanup succeeded.
+if find "${VAR_TMP_ROOT}" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+    echo "ERROR: Failed to fully clean ${VAR_TMP_ROOT}" >&2
+    exit 1
+fi
+
+echo "Cleanup completed successfully."
+
+# Create isolated directories for the current Slurm job.
+LOCAL_BASE="${VAR_TMP_ROOT}/${SLURM_JOB_ID}"
+
+export RAY_TMPDIR="${LOCAL_BASE}/ray"
+export RAY_TEMP_DIR="${RAY_TMPDIR}"
+
+export TMPDIR="${LOCAL_BASE}/tmp"
+export TMP="${TMPDIR}"
+export TEMP="${TMPDIR}"
+
+mkdir -p "${RAY_TMPDIR}" "${TMPDIR}"
+chmod 700 "${LOCAL_BASE}" "${RAY_TMPDIR}" "${TMPDIR}"
+
 export RAY_DISABLE_DASHBOARD=1
+
+echo "Temporary-directory configuration:"
+echo "  LOCAL_BASE=${LOCAL_BASE}"
+echo "  RAY_TMPDIR=${RAY_TMPDIR}"
+echo "  TMPDIR=${TMPDIR}"
+
+df -h "${VAR_TMP_ROOT}" || true
+df -i "${VAR_TMP_ROOT}" || true
+
+# Remove only this job's directory when the job exits.
+cleanup_job_tmp() {
+    ray stop --force >/dev/null 2>&1 || true
+
+    if [[ -n "${LOCAL_BASE:-}" && -d "${LOCAL_BASE}" ]]; then
+        echo "Removing current job temporary directory: ${LOCAL_BASE}"
+        rm -rf -- "${LOCAL_BASE}"
+    fi
+}
+
+trap cleanup_job_tmp EXIT TERM INT
+
+
+
+
 
 # ensure we don't connect to an old cluster
 unset RAY_ADDRESS RAY_HEAD_IP RAY_PORT
