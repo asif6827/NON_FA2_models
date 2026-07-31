@@ -35,7 +35,6 @@ export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 
 
 
-set -euo pipefail
 
 VAR_TMP_ROOT="/var/tmp/${USER}"
 
