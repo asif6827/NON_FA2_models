@@ -110,42 +110,43 @@ def print_example(example, example_number):
 
     payload = example.get("payload", {})
 
-    print("\n\n### PAYLOAD ###")
-
+    #print("\n\n### PAYLOAD ###")
     if not payload:
-
-        print("EMPTY")
-
+        print("LLM OUTPUT PARSING ERROR")
+        return
     else:
 
-        print("\nNumber of houses:")
-        print(payload.get("n_houses"))
+        #print("\nNumber of houses:")
+        #print(payload.get("n_houses"))
 
-        print("\nAttribute values:")
-        print_dict(
-            payload.get("attribute_values", {}),
-            indent=4
-        )
+        #print("\nAttribute values:")
+        #print_dict(payload.get("attribute_values", {}), indent=4)
+
+
+
+
 
         print("\nSyntactic clues:")
 
-        syntactic_clues = payload.get(
-            "syntactic_clues",
-            []
-        )
+        syntactic_clues = payload.get("syntactic_clues",[])
 
         if syntactic_clues:
-
-            for i, clue in enumerate(
-                syntactic_clues,
-                start=1
-            ):
+            for i, clue in enumerate(syntactic_clues, start=1):
                 print(f"  [{i}] {clue}")
-
         else:
-
             print("  NONE")
 
+        # =========================================================
+        # Z3 Output
+        # =========================================================
+
+        print("\n\n### Z3 Stats ###\n")
+        z3_out = example.get("z3_out", {})
+        base_sat_full_gt = z3_out.get("base_sat_full_GT")
+        print(f"Z3-SAT && Z3-Solution == GT : {base_sat_full_gt}")
+
+        if not base_sat_full_gt:
+            return
 
         # -----------------------------------------------------
         # Reasoning
@@ -153,73 +154,58 @@ def print_example(example, example_number):
 
         print("\nReasoning:")
 
-        reasoning = payload.get(
-            "reasoning",
-            []
-        )
+        reasoning = payload.get("reasoning",[])
 
         if reasoning:
-
-            for i, step in enumerate(
-                reasoning,
-                start=1
-            ):
-
-                print(f"\n  [{i}] {step}")
+            for i, step in enumerate(reasoning, start=1):
+                print(f"  [{i}] {step}")
 
         else:
-
             print("  NONE")
 
+        print("\n===== Reasoning Statistics =====")
+        print(f"Total steps      : {z3_out.get('n_steps_total', 0)}")
+        print(f"Parsed steps     : {z3_out.get('n_steps_parsed_ok', 0)}")
+        print(f"Valid steps      : {z3_out.get('n_steps_valid', 0)}")
+        print(f"Novel steps      : {z3_out.get('n_steps_novel_inc_clues', 0)}")
 
-    # =========================================================
-    # Z3 Output
-    # =========================================================
+        print("\n===== Novel Steps =====")
+        novel_steps = z3_out.get("list_novel_steps_inc_clues", [])
 
-    print("\n\n### Z3 OUTPUT ###\n")
-
-    z3_out = example.get(
-        "z3_out",
-        {}
-    )
-
-    if z3_out:
-
-        print_dict(
-            z3_out,
-            indent=2
-        )
-
-    else:
-
-        print("EMPTY")
-
-
+        if novel_steps:
+            for i, step in enumerate(novel_steps, 1):
+                print(f"{i}. {step}")
+        else:
+            print("No novel steps found.")
     # =========================================================
     # Reasoning Validation
     # =========================================================
 
-    print(
-        "\n\n"
-        "### REASONING VS SOLUTION VALIDATION ###"
-        "\n"
-    )
+    #print("\n\n ### REASONING VS SOLUTION VALIDATION ###\n")
+    #validation = example.get("reasoning_vs_sol_validate", {})
+    #if validation:
+    #    print_dict(validation, indent=2)
 
-    validation = example.get(
-        "reasoning_vs_sol_validate",
-        {}
-    )
+    #else:
+    #    print("EMPTY")
 
-    if validation:
 
-        print_dict(
-            validation,
-            indent=2
-        )
+    # =========================================================
+    # Original Prediction
+    # =========================================================
+
+    print("\n\n### PREDICTION ###\n")
+
+    original = example.get("original_prediction")
+
+    if original is None:
+        print("NONE")
+    elif isinstance(original, dict):
+        print_ground_truth(original)
 
     else:
+        print(original)
 
-        print("EMPTY")
 
 
     # =========================================================
@@ -228,58 +214,23 @@ def print_example(example, example_number):
 
     print("\n\n### GROUND TRUTH ###\n")
 
-    print_ground_truth(
-        example.get(
-            "ground_truth",
-            {}
-        )
-    )
+    print_ground_truth(example.get("ground_truth",{}))
 
-
-    # =========================================================
-    # Original Prediction
-    # =========================================================
-
-    print(
-        "\n\n### ORIGINAL PREDICTION ###\n"
-    )
-
-    original = example.get(
-        "original_prediction"
-    )
-
-    if original is None:
-
-        print("NONE")
-
-    elif isinstance(original, dict):
-
-        print_ground_truth(original)
-
-    else:
-
-        print(original)
 
 
     # =========================================================
     # Processed Prediction
     # =========================================================
 
-    print(
-        "\n\n### PROCESSED PREDICTION ###\n"
-    )
+    #print("\n\n### PROCESSED PREDICTION ###\n")
 
-    processed = example.get(
-        "processed_prediction"
-    )
+    #processed = example.get("processed_prediction")
 
-    if isinstance(processed, dict):
+    #if isinstance(processed, dict):
+    #    print_ground_truth(processed)
 
-        print_ground_truth(processed)
-
-    else:
-
-        print(processed)
+    #else:
+    #    print(processed)
 
 
     # =========================================================
@@ -303,7 +254,7 @@ def print_example(example, example_number):
     # Final Result
     # =========================================================
 
-    print("\n\n### FINAL RESULT ###\n")
+    print("\n\n### FINAL RESULT STATS ###\n")
 
     final_result = example.get(
         "final_result",
@@ -314,12 +265,9 @@ def print_example(example, example_number):
 
         for key, value in final_result.items():
 
-            print(
-                f"{key:35s}: {value}"
-            )
+            print(f"{key:35s}: {value}")
 
     else:
-
         print("EMPTY")
 
 
@@ -441,13 +389,8 @@ def analyze_file(
 ):
 
     input_path = Path(filename)
-
-    output_folder = input_path.parent / "Outputs"
-
-    output_folder.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    output_folder = Path("./Outputs")
+    output_folder.mkdir(parents=True, exist_ok=True)
 
     # =========================================================
     # Output filename based on selected mode
@@ -515,20 +458,13 @@ if __name__ == "__main__":
     # PATH
     # =========================================================
 
-    base_path = Path(
-        "/home/asif/data3/Codes_QCRI/NON_FA2_models/"
-        "Reasoning360_sys_B_v29/evaluation_results/"
-        "mlxl_train_mlxl_test_1_parsed_v6a_MLXL/"
-        "qwen34bthinking2507/jobid_276924"
-    )
+    base_path = Path("./Input_Logs")
 
     # =========================================================
     # FILE
     # =========================================================
 
-    file_name = (
-        "jobid_276924_epoch_28_valid_feedback.jsonl"
-    )
+    file_name = ("jobid_276924_epoch_28_valid_feedback.jsonl")
 
     filename = base_path / file_name
 
