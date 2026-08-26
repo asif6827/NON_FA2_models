@@ -427,7 +427,6 @@ def read_log(filename):
     total_examples = 0
     successfully_compared = 0
     correct_puzzles = 0
-
     total_correct_cells = 0
     total_cells = 0
 
@@ -482,11 +481,12 @@ def read_log(filename):
                 output.write("\n" * 8)
                 continue
 
+            # =================================================
+            # ID / SIZE / STATUS
+            # =================================================
+
             output.write(
-                f"\nINDEX  : {record.get('index')}\n"
-            )
-            output.write(
-                f"ID     : {record.get('id')}\n"
+                f"\nID     : {record.get('id')}\n"
             )
             output.write(
                 f"SIZE   : {record.get('size')}\n"
@@ -496,7 +496,7 @@ def read_log(filename):
             )
 
             # =================================================
-            # Ground truth
+            # GROUND TRUTH
             # =================================================
 
             ground_truth = record.get(
@@ -514,25 +514,13 @@ def read_log(filename):
             )
 
             # =================================================
-            # Raw LLM output
+            # Parse LLM answer payload first so MODEL SOLUTION
+            # can appear before RAW LLM OUTPUT in the readable log.
             # =================================================
 
             llm_output = record.get(
                 "llm_output"
             )
-
-            output.write(
-                "\n\n### RAW LLM OUTPUT ###\n\n"
-            )
-
-            output.write(
-                str(llm_output)
-                + "\n"
-            )
-
-            # =================================================
-            # Parse <answer> payload
-            # =================================================
 
             payload, error = extract_answer_payload(
                 llm_output
@@ -541,19 +529,84 @@ def read_log(filename):
             if payload is None:
 
                 output.write(
-                    "\n\n### LLM OUTPUT PARSING ERROR ###\n\n"
+                    "\n\n### MODEL SOLUTION ###\n\n"
+                )
+                output.write("UNAVAILABLE\n")
+
+                output.write(
+                    "\n\n### RAW LLM OUTPUT ###\n\n"
+                )
+                output.write(
+                    str(llm_output) + "\n"
                 )
 
                 output.write(
-                    str(error)
-                    + "\n"
+                    "\n\n### LLM OUTPUT PARSING ERROR ###\n\n"
+                )
+                output.write(
+                    str(error) + "\n"
                 )
 
                 output.write("\n" * 8)
                 continue
 
+            prediction = payload.get(
+                "solution",
+                {}
+            )
+
             # =================================================
-            # Number of houses
+            # MODEL SOLUTION
+            # =================================================
+
+            output.write(
+                "\n\n### MODEL SOLUTION ###\n\n"
+            )
+
+            print_table_to_file(
+                output,
+                prediction
+            )
+
+            # =================================================
+            # Accuracy is still computed here, but not printed here,
+            # so the requested section ordering remains exact.
+            # =================================================
+
+            metrics = compare_gt_prediction(
+                ground_truth,
+                prediction
+            )
+
+            if metrics["puzzle_accuracy"] is not None:
+
+                successfully_compared += 1
+
+                if metrics["puzzle_accuracy"] == 1.0:
+                    correct_puzzles += 1
+
+                total_correct_cells += (
+                    metrics["correct_cells"]
+                )
+
+                total_cells += (
+                    metrics["total_cells"]
+                )
+
+            # =================================================
+            # RAW LLM OUTPUT
+            # =================================================
+
+            output.write(
+                "\n\n### RAW LLM OUTPUT ###\n\n"
+            )
+
+            output.write(
+                str(llm_output) + "\n"
+            )
+
+            # =================================================
+            # NUMBER OF HOUSES
             # =================================================
 
             output.write(
@@ -561,12 +614,11 @@ def read_log(filename):
             )
 
             output.write(
-                str(payload.get("n_houses"))
-                + "\n"
+                str(payload.get("n_houses")) + "\n"
             )
 
             # =================================================
-            # Attribute values
+            # ATTRIBUTE VALUES
             # =================================================
 
             output.write(
@@ -586,7 +638,7 @@ def read_log(filename):
             )
 
             # =================================================
-            # Syntactic clues
+            # SYNTACTIC CLUES
             # =================================================
 
             output.write(
@@ -618,7 +670,7 @@ def read_log(filename):
                 output.write("NONE\n")
 
             # =================================================
-            # Reasoning
+            # REASONING
             # =================================================
 
             output.write(
@@ -636,103 +688,7 @@ def read_log(filename):
             )
 
             # =================================================
-            # Model solution
-            # =================================================
-
-            prediction = payload.get(
-                "solution",
-                {}
-            )
-
-            output.write(
-                "\n\n### MODEL PREDICTION ###\n\n"
-            )
-
-            print_table_to_file(
-                output,
-                prediction
-            )
-
-            # =================================================
-            # GT vs Prediction accuracy
-            # =================================================
-
-            metrics = compare_gt_prediction(
-                ground_truth,
-                prediction
-            )
-
-            output.write(
-                "\n\n### GT VS PREDICTION ACCURACY ###\n\n"
-            )
-
-            output.write(
-                f"Puzzle Accuracy : "
-                f"{metrics['puzzle_accuracy']}\n"
-            )
-
-            output.write(
-                f"Cell Accuracy   : "
-                f"{metrics['cell_accuracy']}\n"
-            )
-
-            output.write(
-                f"Correct Cells   : "
-                f"{metrics['correct_cells']}\n"
-            )
-
-            output.write(
-                f"Total Cells     : "
-                f"{metrics['total_cells']}\n"
-            )
-
-            output.write(
-                f"Mismatched Cells: "
-                f"{len(metrics['mismatches'])}\n"
-            )
-
-            if metrics["puzzle_accuracy"] is not None:
-
-                successfully_compared += 1
-
-                if metrics["puzzle_accuracy"] == 1.0:
-                    correct_puzzles += 1
-
-                total_correct_cells += (
-                    metrics["correct_cells"]
-                )
-
-                total_cells += (
-                    metrics["total_cells"]
-                )
-
-            # =================================================
-            # Mismatch details
-            # =================================================
-
-            output.write(
-                "\n### MISMATCH DETAILS ###\n"
-            )
-
-            if metrics["mismatches"]:
-
-                for mismatch in metrics["mismatches"]:
-                    output.write(
-                        json.dumps(
-                            mismatch,
-                            ensure_ascii=False
-                        )
-                        + "\n"
-                    )
-
-            else:
-                output.write(
-                    "NONE - Prediction matches GT "
-                    "after canonicalization.\n"
-                )
-
-            # =================================================
-            # Complete parsed answer
+            # COMPLETE PARSED ANSWER JSON
             # =================================================
 
             output.write(
@@ -751,34 +707,27 @@ def read_log(filename):
             output.write("\n" * 8)
 
         # =====================================================
-        # Dataset-level summary
+        # Dataset-level accuracy summary
         # =====================================================
 
         output.write(
             "\n" + "=" * 120 + "\n"
         )
-
         output.write(
             "DATASET-LEVEL ACCURACY SUMMARY\n"
         )
-
         output.write(
             "=" * 120 + "\n\n"
         )
 
         output.write(
-            f"Examples read                : "
-            f"{total_examples}\n"
+            f"Examples read                 : {total_examples}\n"
         )
-
         output.write(
-            f"Examples successfully compared: "
-            f"{successfully_compared}\n"
+            f"Examples successfully compared: {successfully_compared}\n"
         )
-
         output.write(
-            f"Correct puzzles              : "
-            f"{correct_puzzles}\n"
+            f"Correct puzzles               : {correct_puzzles}\n"
         )
 
         puzzle_accuracy = (
@@ -794,22 +743,17 @@ def read_log(filename):
         )
 
         output.write(
-            f"Overall Puzzle Accuracy       : "
-            f"{puzzle_accuracy}\n"
+            f"Overall Puzzle Accuracy       : {puzzle_accuracy}\n"
         )
-
         output.write(
-            f"Overall Cell Accuracy         : "
-            f"{dataset_cell_accuracy}\n"
+            f"Overall Cell Accuracy         : {dataset_cell_accuracy}\n"
         )
-
         output.write(
-            f"Correct cells / total cells   : "
-            f"{total_correct_cells} / {total_cells}\n"
+            f"Correct cells / total cells   : {total_correct_cells} / {total_cells}\n"
         )
 
     print(
-        f"\nReadable log with accuracy saved to:\n"
+        f"\nReadable log saved to:\n"
         f"{output_file.resolve()}"
     )
 
