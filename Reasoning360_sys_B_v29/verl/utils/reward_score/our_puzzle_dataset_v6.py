@@ -159,7 +159,7 @@ def _compute_acc_from_normalized(norm_pred: Dict[str, Any], norm_gt: Dict[str, A
     total = 0
     for rp, rg in zip(pr, gr):
         if len(rp) != len(rg):
-            return 0.0
+            return (0.0, 0.0)
         total += len(rp)
         correct += sum(1 for a, b in zip(rp, rg) if a == b)
     cell_accuracy = correct / total if total > 0 else 0.0

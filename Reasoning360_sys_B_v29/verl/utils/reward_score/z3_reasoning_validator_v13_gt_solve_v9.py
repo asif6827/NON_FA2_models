@@ -763,6 +763,11 @@ def _parse_atomic_constraint(expr: str, var_map: Dict[str, Any]) -> Any:
         left_raw, k_raw, right_raw = m.group(1), m.group(2), m.group(3)
         L = _parse_term_literal(left_raw, var_map, side="left")
         R = _parse_term_literal(right_raw, var_map, side="right")
+        if isinstance(L, int) and isinstance(R, int):
+            raise ValueError(
+                "Literal-only constraint is not allowed: "
+                f"{expr!r}"
+            )
         return L + int(k_raw) == R
 
     for op in ("==", "!=", "<", ">"):
@@ -772,6 +777,12 @@ def _parse_atomic_constraint(expr: str, var_map: Dict[str, Any]) -> Any:
             L = _parse_term_literal(left_raw, var_map, side="left")
 
             R = _parse_term_literal(right_raw, var_map, side="right")
+
+            if isinstance(L, int) and isinstance(R, int):
+                raise ValueError(
+                    "Literal-only constraint is not allowed: "
+                    f"{expr!r}"
+                )
 
             if op == "==": return L == R
             if op == "!=": return L != R
@@ -1535,6 +1546,19 @@ def count_distinct_reasoning_steps_v13_relaxed(
                 phi = _parse_constraint(expr, var_map)
             if phi is None:
                 raise ValueError("Failed to parse step to z3 constraint.")
+
+            # Defensive check
+            if isinstance(phi, bool):
+                raise ValueError(
+                    f"Constraint evaluated to Python bool: {expr!r}"
+                )
+
+            if not hasattr(phi, "sexpr"):
+                raise TypeError(
+                    f"Expected Z3 expression, got "
+                    f"{type(phi).__name__}: {expr!r}"
+                )
+
         except Exception as e:
             entry = {"k": k, "raw": raw, "expr": expr, "status": "PARSE_ERROR", "error": f"{type(e).__name__}: {e}"}
             step_parse_errors.append(entry)
