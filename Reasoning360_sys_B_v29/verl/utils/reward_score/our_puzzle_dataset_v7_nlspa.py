@@ -25,13 +25,29 @@ Key changes from v6
    - support by clue + S-prefix explicit equality state
    - monotonicity
    - progressive filling
-4. S-step PRM is normalized by the number of emitted S steps, not
+4. Interleaving PRM gives dense partial credit for NL_i -> S_i ordering,
+   index continuity, and PA placement.
+5. S-step PRM is normalized by the number of emitted S steps, not
    2 * houses * attributes.
-5. All S_i deductions, not only novel deductions, are checked against the
+6. All S_i deductions, not only novel deductions, are checked against the
    final predicted solution.
-6. Fixes two v6 reward issues:
+7. Fixes two v6 reward issues:
    - normal <answer> JSON receives parsing_reward=1.
    - zero novel steps no longer automatically forces reward=-0.5.
+
+Reward formulas added in this version
+-------------------------------------
+R_interleave =
+    0.40 * pair_score
+  + 0.25 * order_score
+  + 0.20 * index_score
+  + 0.15 * PA_placement_score
+
+With PA:
+    R_process = 0.20 * R_interleave + 0.55 * R_S + 0.25 * R_PA
+
+Without PA:
+    R_process = 0.25 * R_interleave + 0.75 * R_S
 
 The stable v6 parsing/accuracy helpers and v9 Z3 core remain reused.
 """
@@ -70,17 +86,22 @@ except Exception:
 
 try:
     from verl.utils.reward_score.nlspa_reward_utils import (
-        validate_reasoning_schema,
         score_partial_answers,
         compute_s_prm_metrics,
-        combine_process_prm,
     )
 except Exception:
     from nlspa_reward_utils import (
-        validate_reasoning_schema,
         score_partial_answers,
         compute_s_prm_metrics,
-        combine_process_prm,
+    )
+
+try:
+    from verl.utils.reward_score.check_interleved_format_v7_nlspa import (
+        check_interleaved_reasoning_detailed,
+    )
+except Exception:
+    from check_interleved_format_v7_nlspa import (
+        check_interleaved_reasoning_detailed,
     )
 
 
@@ -137,6 +158,34 @@ def _safe_float(x: Any) -> float:
         return 0.0
 
 
+
+def _combine_process_prm_with_interleave(
+    *,
+    interleave_reward: float,
+    s_prm_score: float,
+    pa_prm_score: float,
+    pa_present: float,
+) -> float:
+    """
+    Combined process PRM.
+
+    With PA:
+        R_process = 0.20 R_interleave + 0.55 R_S + 0.25 R_PA
+
+    Without PA (PA is optional):
+        R_process = 0.25 R_interleave + 0.75 R_S
+    """
+    ri = max(0.0, min(1.0, _safe_float(interleave_reward)))
+    rs = max(0.0, min(1.0, _safe_float(s_prm_score)))
+    rpa = max(0.0, min(1.0, _safe_float(pa_prm_score)))
+
+    if _safe_float(pa_present) > 0.0:
+        score = 0.20 * ri + 0.55 * rs + 0.25 * rpa
+    else:
+        score = 0.25 * ri + 0.75 * rs
+    return max(0.0, min(1.0, float(score)))
+
+
 def compute_score(
     solution_str,
     ground_truth,
@@ -181,6 +230,11 @@ def compute_score(
         "NLSPA_n_nl": 0.0,
         "NLSPA_n_s": 0.0,
         "NLSPA_n_pa": 0.0,
+        "interleave_pair_score": 0.0,
+        "interleave_order_score": 0.0,
+        "interleave_index_score": 0.0,
+        "interleave_pa_placement_score": 0.0,
+        "interleave_reward": 0.0,
         "s_parse_ratio": 0.0,
         "s_validity_ratio": 0.0,
         "s_novelty_ratio": 0.0,
@@ -240,16 +294,36 @@ def compute_score(
             norm_gt = _legacy_reward.normalize_table(gt_conv)
             if norm_pred and norm_gt:
                 norm_pred = normalize_header(norm_pred)
-                cell_acc, puzzle_acc = _legacy_reward._compute_acc_from_normalized(
-                    norm_pred,
-                    norm_gt,
-                )
+                try:
+                    acc_result = _legacy_reward._compute_acc_from_normalized(
+                        norm_pred,
+                        norm_gt,
+                    )
+                    if (
+                        isinstance(acc_result, (tuple, list))
+                        and len(acc_result) == 2
+                    ):
+                        cell_acc, puzzle_acc = acc_result
+                    else:
+                        # Legacy helper has a malformed-row branch that can
+                        # return a scalar 0.0 instead of (0.0, 0.0). Treat
+                        # malformed grids as zero accuracy rather than
+                        # crashing the entire reward computation.
+                        cell_acc = 0.0
+                        puzzle_acc = 0.0
+                except Exception as acc_error:
+                    logger.warning(
+                        "ACC computation failed; assigning zero accuracy: %s",
+                        acc_error,
+                    )
+                    cell_acc = 0.0
+                    puzzle_acc = 0.0
 
         out["CELL_ACCURACY"] = float(cell_acc)
         out["PUZZLE_ACCURACY"] = float(puzzle_acc)
 
         # ---------------- NL/S/PA FORMAT ----------------
-        schema = validate_reasoning_schema(
+        schema = check_interleaved_reasoning_detailed(
             reasoning,
             n_houses=int(n_houses or 0),
             expected_header=gt.get("header", []),
@@ -269,6 +343,17 @@ def compute_score(
         out["NLSPA_n_s"] = float(schema["n_s"])
         out["NLSPA_n_pa"] = float(schema["n_pa"])
         out["format_reward"] = 1.0 if format_ok else 0.0
+
+        # Dense process-format reward. Unlike format_reward, this is NOT
+        # all-or-nothing: mostly-correct interleaving receives partial credit.
+        for key in (
+            "interleave_pair_score",
+            "interleave_order_score",
+            "interleave_index_score",
+            "interleave_pa_placement_score",
+            "interleave_reward",
+        ):
+            out[key] = _safe_float(schema.get(key, 0.0))
 
         # ---------------- Z3 S-STEP VALIDATION ----------------
         z3_out: Dict[str, Any] = {}
@@ -384,7 +469,8 @@ def compute_score(
             if isinstance(value, (int, float, bool)):
                 out[key] = float(value)
 
-        process_prm = combine_process_prm(
+        process_prm = _combine_process_prm_with_interleave(
+            interleave_reward=out["interleave_reward"],
             s_prm_score=s_metrics["s_prm_score"],
             pa_prm_score=pa_metrics["pa_prm_score"],
             pa_present=pa_metrics["pa_present"],
@@ -397,7 +483,7 @@ def compute_score(
         #   base quality <= 1.0
         #   process bonus <= 0.7
         #
-        # PA is optional. If absent, combined process PRM == S PRM.
+        # PA is optional. R_interleave always contributes to process quality.
         if not required_inputs:
             reward = -0.5
         elif sat_ok == 0.0:
@@ -405,6 +491,7 @@ def compute_score(
                 0.15 * parsing_reward
                 + 0.10 * out["format_reward"]
                 + 0.60 * float(puzzle_acc)
+                + 0.15 * out["interleave_reward"]
                 - 0.20 * s_metrics["s_contradiction_ratio"]
             )
         else:
@@ -570,6 +657,11 @@ if __name__ == "__main__":
             "NLSPA_format_ok",
             "NLSPA_n_s",
             "NLSPA_n_pa",
+            "interleave_pair_score",
+            "interleave_order_score",
+            "interleave_index_score",
+            "interleave_pa_placement_score",
+            "interleave_reward",
             "BASE_sat_full_GT",
             "Z3_s_analysis_ok",
             "Z3_base_validation_exception",
@@ -621,6 +713,22 @@ if __name__ == "__main__":
             ("PA precision = 1", lambda r: r["pa_cell_precision"] == 1.0),
             ("PA prefix support = 1", lambda r: r["pa_prefix_support_score"] == 1.0),
             ("PA monotonicity = 1", lambda r: r["pa_monotonicity_score"] == 1.0),
+            ("interleave reward = 1", lambda r: r["interleave_reward"] == 1.0),
+            ("pair score = 1", lambda r: r["interleave_pair_score"] == 1.0),
+            ("order score = 1", lambda r: r["interleave_order_score"] == 1.0),
+            ("index score = 1", lambda r: r["interleave_index_score"] == 1.0),
+            ("PA placement score = 1", lambda r: r["interleave_pa_placement_score"] == 1.0),
+            (
+                "process PRM uses 20% interleave + 55% S + 25% PA",
+                lambda r: abs(
+                    r["process_prm_score"]
+                    - (
+                        0.20 * r["interleave_reward"]
+                        + 0.55 * r["s_prm_score"]
+                        + 0.25 * r["pa_prm_score"]
+                    )
+                ) < 1e-9,
+            ),
             ("S analysis actually ran", lambda r: r["Z3_s_analysis_ok"] == 1.0),
             ("all S steps parse", lambda r: r["s_parse_ratio"] == 1.0),
             ("all valid-example S steps are valid", lambda r: r["s_validity_ratio"] == 1.0),
@@ -642,6 +750,18 @@ if __name__ == "__main__":
             ("format still valid", lambda r: r["NLSPA_format_ok"] == 1.0),
             ("no PA", lambda r: r["NLSPA_n_pa"] == 0.0),
             ("pa_present = 0", lambda r: r["pa_present"] == 0.0),
+            ("no-PA interleave stays perfect", lambda r: r["interleave_reward"] == 1.0),
+            ("no-PA placement is neutral", lambda r: r["interleave_pa_placement_score"] == 1.0),
+            (
+                "no-PA process PRM uses 25% interleave + 75% S",
+                lambda r: abs(
+                    r["process_prm_score"]
+                    - (
+                        0.25 * r["interleave_reward"]
+                        + 0.75 * r["s_prm_score"]
+                    )
+                ) < 1e-9,
+            ),
             ("puzzle correct", lambda r: r["PUZZLE_ACCURACY"] == 1.0),
             ("S analysis still runs without PA", lambda r: r["Z3_s_analysis_ok"] == 1.0),
             ("S parse ratio remains 1", lambda r: r["s_parse_ratio"] == 1.0),
@@ -666,6 +786,8 @@ if __name__ == "__main__":
         [
             ("schema rejected", lambda r: r["NLSPA_format_ok"] == 0.0),
             ("format reward = 0", lambda r: r["format_reward"] == 0.0),
+            ("interleave reward gives partial credit", lambda r: 0.0 < r["interleave_reward"] < 1.0),
+            ("bad PA placement is detected", lambda r: r["interleave_pa_placement_score"] < 1.0),
         ],
         True,
     ))
@@ -681,6 +803,7 @@ if __name__ == "__main__":
         [
             ("schema rejected", lambda r: r["NLSPA_format_ok"] == 0.0),
             ("PA structure penalized", lambda r: r["pa_structure_score"] < 1.0),
+            ("interleaving itself remains perfect", lambda r: r["interleave_reward"] == 1.0),
         ],
         True,
     ))
@@ -696,6 +819,7 @@ if __name__ == "__main__":
             ("schema still valid", lambda r: r["NLSPA_format_ok"] == 1.0),
             ("PA cells remain GT-correct", lambda r: r["pa_cell_precision"] == 1.0),
             ("prefix support drops", lambda r: r["pa_prefix_support_score"] < 1.0),
+            ("interleaving remains perfect", lambda r: r["interleave_reward"] == 1.0),
         ],
         True,
     ))
@@ -725,6 +849,7 @@ if __name__ == "__main__":
         [
             ("individual PA structures valid", lambda r: r["pa_structure_score"] == 1.0),
             ("monotonicity drops", lambda r: r["pa_monotonicity_score"] < 1.0),
+            ("interleaving remains perfect", lambda r: r["interleave_reward"] == 1.0),
         ],
         True,
     ))
@@ -738,6 +863,7 @@ if __name__ == "__main__":
         p,
         [
             ("contradiction detected", lambda r: r["s_contradiction_ratio"] > 0.0),
+            ("interleaving remains perfect", lambda r: r["interleave_reward"] == 1.0),
             ("final consistency drops", lambda r: r["consistency_score"] < 1.0),
         ],
         True,
@@ -752,6 +878,7 @@ if __name__ == "__main__":
         [
             ("NL/S object structure remains valid", lambda r: r["NLSPA_format_ok"] == 1.0),
             ("S parse ratio drops", lambda r: r["s_parse_ratio"] < 1.0),
+            ("interleaving remains perfect", lambda r: r["interleave_reward"] == 1.0),
         ],
         True,
     ))
@@ -765,6 +892,7 @@ if __name__ == "__main__":
         p,
         [
             ("puzzle accuracy = 0", lambda r: r["PUZZLE_ACCURACY"] == 0.0),
+            ("interleaving remains perfect", lambda r: r["interleave_reward"] == 1.0),
             ("reasoning/final consistency drops", lambda r: r["consistency_score"] < 1.0),
         ],
         True,
@@ -793,6 +921,67 @@ if __name__ == "__main__":
         [
             ("schema rejected", lambda r: r["NLSPA_format_ok"] == 0.0),
             ("format reward = 0", lambda r: r["format_reward"] == 0.0),
+            ("unpaired NL lowers pair reward", lambda r: r["interleave_pair_score"] < 1.0),
+            ("unpaired NL lowers interleave reward", lambda r: r["interleave_reward"] < 1.0),
+        ],
+        True,
+    ))
+
+    # 13) Consecutive NL steps: dense interleaving reward should drop even
+    # though we can still inspect the rest of the trajectory.
+    p = make_prediction()
+    r = p["reasoning"]
+    bad = {}
+    for key, value in r.items():
+        if key == "S2":
+            continue
+        bad[key] = copy.deepcopy(value)
+    p["reasoning"] = bad
+    cases.append((
+        "13. consecutive_NL_missing_S2",
+        p,
+        [
+            ("strict format rejected", lambda r: r["NLSPA_format_ok"] == 0.0),
+            ("pair score drops", lambda r: r["interleave_pair_score"] < 1.0),
+            ("order score drops", lambda r: r["interleave_order_score"] < 1.0),
+            ("dense interleave remains > 0", lambda r: r["interleave_reward"] > 0.0),
+            ("dense interleave remains < 1", lambda r: r["interleave_reward"] < 1.0),
+        ],
+        True,
+    ))
+
+    # 14) Skip NL/S index 2 while preserving local NL->S pairs. This isolates
+    # the index-continuity component.
+    p = make_prediction()
+    p["reasoning"] = {
+        "NL1": "Arnold must be in house 2.",
+        "S1": "Arnold == 2.",
+        "NL3": "Peter must be in house 1.",
+        "S3": "Peter == 1.",
+    }
+    cases.append((
+        "14. skipped_NL_S_indices",
+        p,
+        [
+            ("strict format rejected", lambda r: r["NLSPA_format_ok"] == 0.0),
+            ("index score drops", lambda r: r["interleave_index_score"] < 1.0),
+            ("interleave reward drops", lambda r: r["interleave_reward"] < 1.0),
+        ],
+        True,
+    ))
+
+    # 15) PA at the very beginning: isolates PA-placement reward.
+    p = make_prediction()
+    r = p["reasoning"]
+    first_pa = copy.deepcopy(r["PA1"])
+    p["reasoning"] = {"PA1": first_pa, **{k: copy.deepcopy(v) for k, v in r.items() if k != "PA1"}}
+    cases.append((
+        "15. PA_before_first_pair",
+        p,
+        [
+            ("strict format rejected", lambda r: r["NLSPA_format_ok"] == 0.0),
+            ("PA placement score drops", lambda r: r["interleave_pa_placement_score"] < 1.0),
+            ("interleave reward drops", lambda r: r["interleave_reward"] < 1.0),
         ],
         True,
     ))
@@ -808,4 +997,4 @@ if __name__ == "__main__":
         passed += 1
 
     print("\n" + "=" * 80)
-    print(f"ALL {passed} NL/S/PA REWARD REGRESSION CASES PASSED.")
+    print(f"ALL {passed} NL/S/PA + R_interleave REGRESSION CASES PASSED.")
