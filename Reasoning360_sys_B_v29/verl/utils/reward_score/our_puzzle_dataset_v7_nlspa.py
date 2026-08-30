@@ -33,21 +33,16 @@ Key changes from v6
    final predicted solution.
 7. Fixes two v6 reward issues:
    - normal <answer> JSON receives parsing_reward=1.
-   - zero novel steps no longer automatically forces reward=-0.5.
+   - novelty remains diagnostic and does not gate the binary reward.
 
-Reward formulas added in this version
--------------------------------------
-R_interleave =
-    0.40 * pair_score
-  + 0.25 * order_score
-  + 0.20 * index_score
-  + 0.15 * PA_placement_score
+Binary scalar reward
+--------------------
+The detailed S/PA/interleaving metrics are retained for diagnostics only.
 
-With PA:
-    R_process = 0.20 * R_interleave + 0.55 * R_S + 0.25 * R_PA
+    R = 1.0  iff ALL required checks pass
+    R = 0.0  otherwise
 
-Without PA:
-    R_process = 0.25 * R_interleave + 0.75 * R_S
+Novelty is logged but is NOT a binary reward gate.
 
 The stable v6 parsing/accuracy helpers and v9 Z3 core remain reused.
 """
@@ -108,17 +103,9 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
-def _clamp_reward(x: float) -> float:
-    """
-    Preserve the approximate v6 scale.
-
-    v6 base quality is <=1 and its process bonus can add roughly <=0.7.
-    """
-    try:
-        x = float(x)
-    except Exception:
-        return -0.5
-    return max(-0.5, min(1.7, x))
+def _binary_reward(x: Any) -> float:
+    """Return exactly 1.0 for truthy success, otherwise 0.0."""
+    return 1.0 if bool(x) else 0.0
 
 
 def _parse_payload(solution_str: str) -> tuple[Optional[Dict[str, Any]], str]:
@@ -167,7 +154,7 @@ def _combine_process_prm_with_interleave(
     pa_present: float,
 ) -> float:
     """
-    Combined process PRM.
+    Diagnostic process PRM only; NOT used by the scalar binary reward.
 
     With PA:
         R_process = 0.20 R_interleave + 0.55 R_S + 0.25 R_PA
@@ -235,6 +222,7 @@ def compute_score(
         "interleave_index_score": 0.0,
         "interleave_pa_placement_score": 0.0,
         "interleave_reward": 0.0,
+        "interleave_ok": 0.0,
         "s_parse_ratio": 0.0,
         "s_validity_ratio": 0.0,
         "s_novelty_ratio": 0.0,
@@ -257,6 +245,23 @@ def compute_score(
         "pa_prefix_support_score": 0.0,
         "pa_prm_score": 0.0,
         "process_prm_score": 0.0,
+        # Binary all-correct reward gates.
+        "all_correct": 0.0,
+        "gate_required_inputs": 0.0,
+        "gate_output_format": 0.0,
+        "gate_interleave": 0.0,
+        "gate_s_all_parsed": 0.0,
+        "gate_s_all_valid": 0.0,
+        "gate_s_no_contradiction": 0.0,
+        "gate_s_solution_consistent": 0.0,
+        "gate_pa_present": 0.0,
+        "gate_pa_nonempty": 0.0,
+        "gate_pa_structure": 0.0,
+        "gate_pa_cells_correct": 0.0,
+        "gate_pa_prefix_supported": 0.0,
+        "gate_pa_monotonic": 0.0,
+        "gate_pa_progress": 0.0,
+        "gate_final_solution": 0.0,
         "missed_data": 0.0,
         "reward_exception": 0.0,
         "epoch": float(epoch),
@@ -276,7 +281,7 @@ def compute_score(
 
         if not isinstance(payload, dict):
             out["missed_data"] = 1.0
-            out["acc"] = out["score"] = out["reward_logged"] = -0.5
+            out["acc"] = out["score"] = out["reward_logged"] = 0.0
             return out
 
         n_houses = payload.get("n_houses")
@@ -343,9 +348,10 @@ def compute_score(
         out["NLSPA_n_s"] = float(schema["n_s"])
         out["NLSPA_n_pa"] = float(schema["n_pa"])
         out["format_reward"] = 1.0 if format_ok else 0.0
+        out["interleave_ok"] = 1.0 if schema.get("interleave_ok", False) else 0.0
 
-        # Dense process-format reward. Unlike format_reward, this is NOT
-        # all-or-nothing: mostly-correct interleaving receives partial credit.
+        # Interleaving is binary for the scalar objective. Fractional
+        # component scores are kept only as diagnostics.
         for key in (
             "interleave_pair_score",
             "interleave_order_score",
@@ -477,40 +483,97 @@ def compute_score(
         )
         out["process_prm_score"] = process_prm
 
-        # ---------------- FINAL REWARD ----------------
+        # ---------------- BINARY ALL-CORRECT REWARD ----------------
         #
-        # Preserve v6's approximate scale:
-        #   base quality <= 1.0
-        #   process bonus <= 0.7
+        # R = 1.0 iff ALL gates pass; otherwise R = 0.0.
         #
-        # PA is optional. R_interleave always contributes to process quality.
-        if not required_inputs:
-            reward = -0.5
-        elif sat_ok == 0.0:
-            reward = (
-                0.15 * parsing_reward
-                + 0.10 * out["format_reward"]
-                + 0.60 * float(puzzle_acc)
-                + 0.15 * out["interleave_reward"]
-                - 0.20 * s_metrics["s_contradiction_ratio"]
-            )
-        else:
-            base_quality = (
-                0.60 * float(puzzle_acc)
-                + 0.20 * parsing_reward
-                + 0.20 * out["format_reward"]
-            )
+        # Novelty is intentionally NOT a gate. It remains an analysis metric.
 
-            process_bonus = 0.70 * process_prm
+        n_s = int(schema.get("n_s", 0) or 0)
+        n_pa = int(schema.get("n_pa", 0) or 0)
 
-            # Preserve the existing final-answer gate: process reward adds to
-            # the scalar objective only when the final puzzle is correct.
-            reward = (
-                base_quality
-                + float(puzzle_acc) * process_bonus
-            )
+        gate_required_inputs = bool(required_inputs)
 
-        reward = _clamp_reward(reward)
+        # Requires valid <answer> wrapper, exact top-level schema, strict
+        # NL/S/PA value/grid schema, and the PA-mandatory trajectory.
+        gate_output_format = bool(format_ok)
+        gate_interleave = bool(schema.get("interleave_ok", False))
+
+        gate_s_all_parsed = bool(
+            n_s > 0
+            and int(out["BASE_n_steps_parsed_ok"]) == n_s
+        )
+        gate_s_all_valid = bool(
+            n_s > 0
+            and int(out["BASE_n_steps_valid"]) == n_s
+        )
+        gate_s_no_contradiction = bool(
+            int(out["BASE_n_non_valid_contradiction"]) == 0
+        )
+        gate_s_solution_consistent = bool(
+            reasoning_solution_consistency == 1.0
+        )
+
+        gate_pa_present = bool(
+            n_pa >= 1
+            and pa_metrics.get("pa_present", 0.0) == 1.0
+        )
+        gate_pa_nonempty = bool(
+            pa_metrics.get("PA_resolved_cells", 0.0) > 0.0
+        )
+        gate_pa_structure = bool(
+            n_pa >= 1
+            and int(pa_metrics.get("PA_n_total", 0.0)) == n_pa
+            and int(pa_metrics.get("PA_n_structurally_valid", 0.0)) == n_pa
+            and pa_metrics.get("pa_structure_score", 0.0) == 1.0
+        )
+        gate_pa_cells_correct = bool(
+            pa_metrics.get("PA_incorrect_resolved_cells", 0.0) == 0.0
+            and pa_metrics.get("pa_cell_precision", 0.0) == 1.0
+        )
+        gate_pa_prefix_supported = bool(
+            pa_metrics.get("PA_unsupported_resolved_cells", 0.0) == 0.0
+            and pa_metrics.get("pa_prefix_support_score", 0.0) == 1.0
+        )
+        gate_pa_monotonic = bool(
+            pa_metrics.get("pa_monotonicity_score", 0.0) == 1.0
+        )
+        gate_pa_progress = bool(
+            pa_metrics.get("pa_transition_progress_score", 0.0) == 1.0
+        )
+
+        # Exact final solution. CELL_ACCURACY is included as an additional
+        # defensive check even though PUZZLE_ACCURACY==1 should imply it.
+        gate_final_solution = bool(
+            float(puzzle_acc) == 1.0
+            and float(cell_acc) == 1.0
+        )
+
+        gates = {
+            "gate_required_inputs": gate_required_inputs,
+            "gate_output_format": gate_output_format,
+            "gate_interleave": gate_interleave,
+            "gate_s_all_parsed": gate_s_all_parsed,
+            "gate_s_all_valid": gate_s_all_valid,
+            "gate_s_no_contradiction": gate_s_no_contradiction,
+            "gate_s_solution_consistent": gate_s_solution_consistent,
+            "gate_pa_present": gate_pa_present,
+            "gate_pa_nonempty": gate_pa_nonempty,
+            "gate_pa_structure": gate_pa_structure,
+            "gate_pa_cells_correct": gate_pa_cells_correct,
+            "gate_pa_prefix_supported": gate_pa_prefix_supported,
+            "gate_pa_monotonic": gate_pa_monotonic,
+            "gate_pa_progress": gate_pa_progress,
+            "gate_final_solution": gate_final_solution,
+        }
+
+        for gate_name, gate_value in gates.items():
+            out[gate_name] = 1.0 if gate_value else 0.0
+
+        all_correct = all(gates.values())
+        reward = 1.0 if all_correct else 0.0
+        out["all_correct"] = reward
+
         out["acc"] = reward
         out["score"] = reward
         out["reward_logged"] = reward
@@ -519,21 +582,21 @@ def compute_score(
     except Exception:
         logger.exception("Crash in NLSPA reward computation")
         out["reward_exception"] = 1.0
-        out["acc"] = out["score"] = out["reward_logged"] = -0.5
+        out["acc"] = out["score"] = out["reward_logged"] = 0.0
         return out
 
 
 if __name__ == "__main__":
     # ============================================================
-    # NL/S/PA REWARD REGRESSION SUITE
+    # BINARY ALL-CORRECT REWARD REGRESSION SUITE
     # ============================================================
     #
-    # Run in the normal VERL reward environment:
+    # Required scalar formulation:
     #
-    #   python our_puzzle_dataset_v8_nlspa_corner_cases.py
+    #   all correct -> R = 1.0
+    #   otherwise   -> R = 0.0
     #
-    # Each case changes only one aspect of the prediction and checks the
-    # reward/PRM signal that should respond to that change.
+    # Novelty remains diagnostic and does not gate R.
 
     ATTRIBUTE_VALUES = {
         "Name": ["Peter", "Eric", "Arnold"],
@@ -559,15 +622,12 @@ if __name__ == "__main__":
     }
 
     BASE_REASONING = {
-        "NL1": "Clues 1 and 3 together show that Arnold, who has the red favorite color, must occupy house 2.",
+        "NL1": "Clues 1 and 3 together show that Arnold must occupy house 2.",
         "S1": "Arnold == 2.",
-
         "NL2": "Because Fred is somewhere to the left of Eric, Eric cannot occupy house 1.",
         "S2": "Eric != 1.",
-
-        "NL3": "Arnold already occupies house 2, so Eric cannot occupy house 2 and therefore must occupy house 3.",
+        "NL3": "Arnold is already in house 2, so Eric must occupy house 3.",
         "S3": "Eric == 3.",
-
         "PA1": {
             "header": ["House", "Name", "Color", "Children"],
             "rows": [
@@ -576,19 +636,14 @@ if __name__ == "__main__":
                 ["3", "Eric", "?", "?"],
             ],
         },
-
-        "NL4": "With Arnold in house 2 and Eric in house 3, the remaining person Peter must occupy house 1.",
+        "NL4": "The remaining person Peter must occupy house 1.",
         "S4": "Peter == 1.",
-
-        "NL5": "Since Eric is in house 3 and Fred must be somewhere to his left, Fred can only be in house 1 or house 2.",
+        "NL5": "Fred must be in house 1 or house 2.",
         "S5": "Or(Fred == 1, Fred == 2).",
-
-        "NL6": "Bella is fixed in house 1 by Clue 4, so child uniqueness forces Fred into house 2.",
+        "NL6": "Bella is in house 1, so Fred must occupy house 2.",
         "S6": "Fred == 2.",
-
-        "NL7": "With Bella in house 1 and Fred in house 2, the remaining child Meredith must occupy house 3.",
+        "NL7": "The remaining child Meredith must occupy house 3.",
         "S7": "Meredith == 3.",
-
         "PA2": {
             "header": ["House", "Name", "Color", "Children"],
             "rows": [
@@ -597,11 +652,9 @@ if __name__ == "__main__":
                 ["3", "Eric", "?", "Meredith"],
             ],
         },
-
-        "NL8": "Clue 5 places white in the same house as Meredith, so white must occupy house 3.",
+        "NL8": "White is with Meredith, so white occupies house 3.",
         "S8": "white == 3.",
-
-        "NL9": "Red is already in house 2 and white is in house 3, so color uniqueness forces yellow into house 1.",
+        "NL9": "The remaining color yellow occupies house 1.",
         "S9": "yellow == 1.",
     }
 
@@ -621,380 +674,201 @@ if __name__ == "__main__":
             + "\n</answer>"
         )
 
-    def run_case(name, payload, checks, *, use_answer_wrapper=True):
+    GATE_KEYS = [
+        "gate_required_inputs",
+        "gate_output_format",
+        "gate_interleave",
+        "gate_s_all_parsed",
+        "gate_s_all_valid",
+        "gate_s_no_contradiction",
+        "gate_s_solution_consistent",
+        "gate_pa_present",
+        "gate_pa_nonempty",
+        "gate_pa_structure",
+        "gate_pa_cells_correct",
+        "gate_pa_prefix_supported",
+        "gate_pa_monotonic",
+        "gate_pa_progress",
+        "gate_final_solution",
+    ]
+
+    def run_case(name, payload, expected_reward, *, use_wrapper=True):
         text = (
             wrap_answer(payload)
-            if use_answer_wrapper
+            if use_wrapper
             else json.dumps(payload, indent=2, ensure_ascii=False)
         )
-
         result = compute_score(
             text,
             copy.deepcopy(GROUND_TRUTH),
         )
 
-        failures = []
-        for description, predicate in checks:
-            try:
-                passed = bool(predicate(result))
-            except Exception as exc:
-                passed = False
-                description += (
-                    f" [predicate raised {type(exc).__name__}: {exc}]"
-                )
-            if not passed:
-                failures.append(description)
-
-        print("\n" + "=" * 80)
-        print(("PASS" if not failures else "FAIL") + f": {name}")
-        print("-" * 80)
-        summary_keys = [
-            "score",
-            "PUZZLE_ACCURACY",
-            "CELL_ACCURACY",
-            "parsing_reward",
-            "format_reward",
-            "NLSPA_format_ok",
-            "NLSPA_n_s",
-            "NLSPA_n_pa",
-            "interleave_pair_score",
-            "interleave_order_score",
-            "interleave_index_score",
-            "interleave_pa_placement_score",
-            "interleave_reward",
-            "BASE_sat_full_GT",
-            "Z3_s_analysis_ok",
-            "Z3_base_validation_exception",
-            "Z3_s_analysis_exception",
-            "s_parse_ratio",
-            "s_validity_ratio",
-            "s_novelty_ratio",
-            "s_contradiction_ratio",
-            "consistency_score",
-            "pa_present",
-            "pa_structure_score",
-            "pa_cell_precision",
-            "pa_prefix_support_score",
-            "pa_monotonicity_score",
-            "pa_transition_progress_score",
-            "pa_prm_score",
-            "process_prm_score",
+        failed_gates = [
+            key for key in GATE_KEYS
+            if result.get(key, 0.0) != 1.0
         ]
-        print(
-            json.dumps(
-                {k: result.get(k) for k in summary_keys},
-                indent=2,
-                ensure_ascii=False,
-            )
+
+        print("\n" + "=" * 88)
+        print(name)
+        print("-" * 88)
+        print(json.dumps({
+            "reward": result["score"],
+            "all_correct": result["all_correct"],
+            "PUZZLE_ACCURACY": result["PUZZLE_ACCURACY"],
+            "CELL_ACCURACY": result["CELL_ACCURACY"],
+            "NLSPA_format_ok": result["NLSPA_format_ok"],
+            "interleave_ok": result["interleave_ok"],
+            "NLSPA_n_s": result["NLSPA_n_s"],
+            "NLSPA_n_pa": result["NLSPA_n_pa"],
+            "s_parse_ratio": result["s_parse_ratio"],
+            "s_validity_ratio": result["s_validity_ratio"],
+            "s_novelty_ratio": result["s_novelty_ratio"],
+            "s_contradiction_ratio": result["s_contradiction_ratio"],
+            "consistency_score": result["consistency_score"],
+            "pa_structure_score": result["pa_structure_score"],
+            "pa_cell_precision": result["pa_cell_precision"],
+            "pa_prefix_support_score": result["pa_prefix_support_score"],
+            "pa_monotonicity_score": result["pa_monotonicity_score"],
+            "pa_transition_progress_score": result["pa_transition_progress_score"],
+            "failed_gates": failed_gates,
+        }, indent=2, ensure_ascii=False))
+
+        assert result["score"] == expected_reward, (
+            name,
+            expected_reward,
+            result["score"],
+            failed_gates,
         )
-
-        if failures:
-            print("Failed expectations:")
-            for item in failures:
-                print("  -", item)
-            raise AssertionError(
-                f"{name}: {len(failures)} regression expectation(s) failed."
-            )
-
+        assert result["all_correct"] == expected_reward
         return result
 
-    cases = []
-
-    # 1) Fully valid trace.
-    cases.append((
-        "1. valid_full_trace",
+    # 1) Everything correct -> 1.
+    run_case(
+        "1. ALL CORRECT",
         make_prediction(),
-        [
-            ("parsing reward = 1", lambda r: r["parsing_reward"] == 1.0),
-            ("format valid", lambda r: r["NLSPA_format_ok"] == 1.0),
-            ("9 S steps", lambda r: r["NLSPA_n_s"] == 9.0),
-            ("2 PAs", lambda r: r["NLSPA_n_pa"] == 2.0),
-            ("puzzle correct", lambda r: r["PUZZLE_ACCURACY"] == 1.0),
-            ("PA precision = 1", lambda r: r["pa_cell_precision"] == 1.0),
-            ("PA prefix support = 1", lambda r: r["pa_prefix_support_score"] == 1.0),
-            ("PA monotonicity = 1", lambda r: r["pa_monotonicity_score"] == 1.0),
-            ("interleave reward = 1", lambda r: r["interleave_reward"] == 1.0),
-            ("pair score = 1", lambda r: r["interleave_pair_score"] == 1.0),
-            ("order score = 1", lambda r: r["interleave_order_score"] == 1.0),
-            ("index score = 1", lambda r: r["interleave_index_score"] == 1.0),
-            ("PA placement score = 1", lambda r: r["interleave_pa_placement_score"] == 1.0),
-            (
-                "process PRM uses 20% interleave + 55% S + 25% PA",
-                lambda r: abs(
-                    r["process_prm_score"]
-                    - (
-                        0.20 * r["interleave_reward"]
-                        + 0.55 * r["s_prm_score"]
-                        + 0.25 * r["pa_prm_score"]
-                    )
-                ) < 1e-9,
-            ),
-            ("S analysis actually ran", lambda r: r["Z3_s_analysis_ok"] == 1.0),
-            ("all S steps parse", lambda r: r["s_parse_ratio"] == 1.0),
-            ("all valid-example S steps are valid", lambda r: r["s_validity_ratio"] == 1.0),
-            ("reasoning agrees with final solution", lambda r: r["consistency_score"] == 1.0),
-        ],
-        True,
-    ))
+        1.0,
+    )
 
-    # 2) PAs omitted entirely. They are currently optional.
+    # 2) PA is mandatory.
     p = make_prediction()
     p["reasoning"] = {
         k: v for k, v in p["reasoning"].items()
         if not k.startswith("PA")
     }
-    cases.append((
-        "2. valid_trace_without_PA",
-        p,
-        [
-            ("format still valid", lambda r: r["NLSPA_format_ok"] == 1.0),
-            ("no PA", lambda r: r["NLSPA_n_pa"] == 0.0),
-            ("pa_present = 0", lambda r: r["pa_present"] == 0.0),
-            ("no-PA interleave stays perfect", lambda r: r["interleave_reward"] == 1.0),
-            ("no-PA placement is neutral", lambda r: r["interleave_pa_placement_score"] == 1.0),
-            (
-                "no-PA process PRM uses 25% interleave + 75% S",
-                lambda r: abs(
-                    r["process_prm_score"]
-                    - (
-                        0.25 * r["interleave_reward"]
-                        + 0.75 * r["s_prm_score"]
-                    )
-                ) < 1e-9,
-            ),
-            ("puzzle correct", lambda r: r["PUZZLE_ACCURACY"] == 1.0),
-            ("S analysis still runs without PA", lambda r: r["Z3_s_analysis_ok"] == 1.0),
-            ("S parse ratio remains 1", lambda r: r["s_parse_ratio"] == 1.0),
-        ],
-        True,
-    ))
+    r = run_case("2. NO PA -> 0", p, 0.0)
+    assert r["gate_interleave"] == 0.0
+    assert r["gate_pa_present"] == 0.0
 
-    # 3) PA illegally inserted between NL3 and S3.
+    # 3) PA cannot appear between NL_i and S_i.
     p = make_prediction()
-    original = p["reasoning"]
-    reordered = {}
-    for key, value in original.items():
-        if key == "S3":
-            reordered["PA1"] = copy.deepcopy(original["PA1"])
-        if key == "PA1":
-            continue
-        reordered[key] = copy.deepcopy(value)
-    p["reasoning"] = reordered
-    cases.append((
-        "3. invalid_PA_between_NL_and_S",
-        p,
-        [
-            ("schema rejected", lambda r: r["NLSPA_format_ok"] == 0.0),
-            ("format reward = 0", lambda r: r["format_reward"] == 0.0),
-            ("interleave reward gives partial credit", lambda r: 0.0 < r["interleave_reward"] < 1.0),
-            ("bad PA placement is detected", lambda r: r["interleave_pa_placement_score"] < 1.0),
-        ],
-        True,
-    ))
-
-    # 4) Wrong PA header.
-    p = make_prediction()
-    p["reasoning"]["PA1"]["header"] = [
-        "House", "Name", "WrongColor", "Children"
-    ]
-    cases.append((
-        "4. invalid_PA_header",
-        p,
-        [
-            ("schema rejected", lambda r: r["NLSPA_format_ok"] == 0.0),
-            ("PA structure penalized", lambda r: r["pa_structure_score"] < 1.0),
-            ("interleaving itself remains perfect", lambda r: r["interleave_reward"] == 1.0),
-        ],
-        True,
-    ))
-
-    # 5) Correct GT cell filled too early.
-    # Peter=1 is correct but has not been established at PA1 (which is after S3).
-    p = make_prediction()
-    p["reasoning"]["PA1"]["rows"][0][1] = "Peter"
-    cases.append((
-        "5. premature_but_correct_PA_cell",
-        p,
-        [
-            ("schema still valid", lambda r: r["NLSPA_format_ok"] == 1.0),
-            ("PA cells remain GT-correct", lambda r: r["pa_cell_precision"] == 1.0),
-            ("prefix support drops", lambda r: r["pa_prefix_support_score"] < 1.0),
-            ("interleaving remains perfect", lambda r: r["interleave_reward"] == 1.0),
-        ],
-        True,
-    ))
-
-    # 6) Wrong resolved PA cell, but structurally valid and monotonic.
-    p = make_prediction()
-    p["reasoning"]["PA1"]["rows"][0][2] = "white"
-    p["reasoning"]["PA2"]["rows"][0][2] = "white"
-    cases.append((
-        "6. wrong_PA_cell",
-        p,
-        [
-            ("structure still valid", lambda r: r["pa_structure_score"] == 1.0),
-            ("PA precision drops", lambda r: r["pa_cell_precision"] < 1.0),
-            ("monotonicity stays valid", lambda r: r["pa_monotonicity_score"] == 1.0),
-            ("prefix support drops", lambda r: r["pa_prefix_support_score"] < 1.0),
-        ],
-        True,
-    ))
-
-    # 7) Non-monotonic PA: Arnold resolved in PA1 then reverted to '?' in PA2.
-    p = make_prediction()
-    p["reasoning"]["PA2"]["rows"][1][1] = "?"
-    cases.append((
-        "7. non_monotonic_PA",
-        p,
-        [
-            ("individual PA structures valid", lambda r: r["pa_structure_score"] == 1.0),
-            ("monotonicity drops", lambda r: r["pa_monotonicity_score"] < 1.0),
-            ("interleaving remains perfect", lambda r: r["interleave_reward"] == 1.0),
-        ],
-        True,
-    ))
-
-    # 8) Contradictory S step.
-    # This is the regression that exposed the old silent-zero S pipeline.
-    p = make_prediction()
-    p["reasoning"]["S4"] = "Peter == 2."
-    cases.append((
-        "8. contradictory_S_step",
-        p,
-        [
-            ("contradiction detected", lambda r: r["s_contradiction_ratio"] > 0.0),
-            ("interleaving remains perfect", lambda r: r["interleave_reward"] == 1.0),
-            ("final consistency drops", lambda r: r["consistency_score"] < 1.0),
-        ],
-        True,
-    ))
-
-    # 9) Structurally valid S string, but not parseable by the Z3 DSL.
-    p = make_prediction()
-    p["reasoning"]["S4"] = "Peter occupies house 1."
-    cases.append((
-        "9. unparseable_S_step",
-        p,
-        [
-            ("NL/S object structure remains valid", lambda r: r["NLSPA_format_ok"] == 1.0),
-            ("S parse ratio drops", lambda r: r["s_parse_ratio"] < 1.0),
-            ("interleaving remains perfect", lambda r: r["interleave_reward"] == 1.0),
-        ],
-        True,
-    ))
-
-    # 10) Wrong final solution with otherwise correct reasoning and PAs.
-    p = make_prediction()
-    p["solution"]["rows"][0][1] = "Eric"
-    p["solution"]["rows"][2][1] = "Peter"
-    cases.append((
-        "10. wrong_final_solution",
-        p,
-        [
-            ("puzzle accuracy = 0", lambda r: r["PUZZLE_ACCURACY"] == 0.0),
-            ("interleaving remains perfect", lambda r: r["interleave_reward"] == 1.0),
-            ("reasoning/final consistency drops", lambda r: r["consistency_score"] < 1.0),
-        ],
-        True,
-    ))
-
-    # 11) Direct JSON without the required <answer> wrapper.
-    p = make_prediction()
-    cases.append((
-        "11. direct_JSON_without_answer_wrapper",
-        p,
-        [
-            ("JSON still parses", lambda r: r["parsing_reward"] == 1.0),
-            ("response-contract format reward = 0", lambda r: r["format_reward"] == 0.0),
-        ],
-        False,
-    ))
-
-    # 12) Final NL step without matching S step.
-    p = make_prediction()
-    p["reasoning"]["NL10"] = (
-        "This natural-language deduction has no matching syntactic step."
-    )
-    cases.append((
-        "12. unpaired_final_NL",
-        p,
-        [
-            ("schema rejected", lambda r: r["NLSPA_format_ok"] == 0.0),
-            ("format reward = 0", lambda r: r["format_reward"] == 0.0),
-            ("unpaired NL lowers pair reward", lambda r: r["interleave_pair_score"] < 1.0),
-            ("unpaired NL lowers interleave reward", lambda r: r["interleave_reward"] < 1.0),
-        ],
-        True,
-    ))
-
-    # 13) Consecutive NL steps: dense interleaving reward should drop even
-    # though we can still inspect the rest of the trajectory.
-    p = make_prediction()
-    r = p["reasoning"]
+    old = p["reasoning"]
     bad = {}
-    for key, value in r.items():
-        if key == "S2":
+    for key, value in old.items():
+        if key == "S3":
+            bad["PA1"] = copy.deepcopy(old["PA1"])
+        if key == "PA1":
             continue
         bad[key] = copy.deepcopy(value)
     p["reasoning"] = bad
-    cases.append((
-        "13. consecutive_NL_missing_S2",
-        p,
-        [
-            ("strict format rejected", lambda r: r["NLSPA_format_ok"] == 0.0),
-            ("pair score drops", lambda r: r["interleave_pair_score"] < 1.0),
-            ("order score drops", lambda r: r["interleave_order_score"] < 1.0),
-            ("dense interleave remains > 0", lambda r: r["interleave_reward"] > 0.0),
-            ("dense interleave remains < 1", lambda r: r["interleave_reward"] < 1.0),
-        ],
-        True,
-    ))
+    r = run_case("3. PA BETWEEN NL3/S3 -> 0", p, 0.0)
+    assert r["gate_interleave"] == 0.0
 
-    # 14) Skip NL/S index 2 while preserving local NL->S pairs. This isolates
-    # the index-continuity component.
+    # 4) Consecutive PAs are forbidden: a new NL/S pair is required.
+    p = make_prediction()
+    old = p["reasoning"]
+    bad = {}
+    for key, value in old.items():
+        bad[key] = copy.deepcopy(value)
+        if key == "PA1":
+            bad["PA2"] = copy.deepcopy(old["PA2"])
+        if key == "PA2":
+            continue
+    p["reasoning"] = bad
+    r = run_case("4. CONSECUTIVE PA -> 0", p, 0.0)
+    assert r["gate_interleave"] == 0.0
+
+    # 5) Last reasoning item cannot be PA.
     p = make_prediction()
     p["reasoning"] = {
-        "NL1": "Arnold must be in house 2.",
-        "S1": "Arnold == 2.",
-        "NL3": "Peter must be in house 1.",
-        "S3": "Peter == 1.",
+        "NL1": BASE_REASONING["NL1"],
+        "S1": BASE_REASONING["S1"],
+        "PA1": copy.deepcopy(BASE_REASONING["PA1"]),
     }
-    cases.append((
-        "14. skipped_NL_S_indices",
-        p,
-        [
-            ("strict format rejected", lambda r: r["NLSPA_format_ok"] == 0.0),
-            ("index score drops", lambda r: r["interleave_index_score"] < 1.0),
-            ("interleave reward drops", lambda r: r["interleave_reward"] < 1.0),
-        ],
-        True,
-    ))
+    r = run_case("5. PA AT END -> 0", p, 0.0)
+    assert r["gate_interleave"] == 0.0
 
-    # 15) PA at the very beginning: isolates PA-placement reward.
+    # 6) Wrong PA cell -> 0.
     p = make_prediction()
-    r = p["reasoning"]
-    first_pa = copy.deepcopy(r["PA1"])
-    p["reasoning"] = {"PA1": first_pa, **{k: copy.deepcopy(v) for k, v in r.items() if k != "PA1"}}
-    cases.append((
-        "15. PA_before_first_pair",
+    p["reasoning"]["PA1"]["rows"][0][2] = "white"
+    p["reasoning"]["PA2"]["rows"][0][2] = "white"
+    r = run_case("6. WRONG PA CELL -> 0", p, 0.0)
+    assert r["gate_pa_cells_correct"] == 0.0
+
+    # 7) GT-correct but premature PA cell -> 0 because prefix unsupported.
+    p = make_prediction()
+    p["reasoning"]["PA1"]["rows"][0][1] = "Peter"
+    r = run_case("7. PREMATURE PA CELL -> 0", p, 0.0)
+    assert r["gate_pa_prefix_supported"] == 0.0
+
+    # 8) Non-monotonic PA -> 0.
+    p = make_prediction()
+    p["reasoning"]["PA2"]["rows"][1][1] = "?"
+    r = run_case("8. NON-MONOTONIC PA -> 0", p, 0.0)
+    assert r["gate_pa_monotonic"] == 0.0
+
+    # 9) PA2 makes no new progress -> 0.
+    p = make_prediction()
+    p["reasoning"]["PA2"] = copy.deepcopy(p["reasoning"]["PA1"])
+    r = run_case("9. PA WITHOUT NEW GRID PROGRESS -> 0", p, 0.0)
+    assert r["gate_pa_progress"] == 0.0
+
+    # 10) Contradictory S -> 0.
+    p = make_prediction()
+    p["reasoning"]["S4"] = "Peter == 2."
+    r = run_case("10. CONTRADICTORY S -> 0", p, 0.0)
+    assert (
+        r["gate_s_all_valid"] == 0.0
+        or r["gate_s_no_contradiction"] == 0.0
+        or r["gate_s_solution_consistent"] == 0.0
+    )
+
+    # 11) Unparseable S -> 0.
+    p = make_prediction()
+    p["reasoning"]["S4"] = "Peter occupies house 1."
+    r = run_case("11. UNPARSEABLE S -> 0", p, 0.0)
+    assert r["gate_s_all_parsed"] == 0.0
+
+    # 12) Wrong final solution -> 0.
+    p = make_prediction()
+    p["solution"]["rows"][0][1] = "Eric"
+    p["solution"]["rows"][2][1] = "Peter"
+    r = run_case("12. WRONG FINAL SOLUTION -> 0", p, 0.0)
+    assert r["gate_final_solution"] == 0.0
+
+    # 13) Missing required <answer> wrapper -> 0.
+    p = make_prediction()
+    r = run_case(
+        "13. DIRECT JSON WITHOUT <answer> -> 0",
         p,
-        [
-            ("strict format rejected", lambda r: r["NLSPA_format_ok"] == 0.0),
-            ("PA placement score drops", lambda r: r["interleave_pa_placement_score"] < 1.0),
-            ("interleave reward drops", lambda r: r["interleave_reward"] < 1.0),
-        ],
-        True,
-    ))
+        0.0,
+        use_wrapper=False,
+    )
+    assert r["gate_output_format"] == 0.0
 
-    passed = 0
-    for name, payload, checks, use_wrapper in cases:
-        run_case(
-            name,
-            payload,
-            checks,
-            use_answer_wrapper=use_wrapper,
-        )
-        passed += 1
+    # 14) Missing S2 / broken NL-S pairing -> 0.
+    p = make_prediction()
+    p["reasoning"].pop("S2")
+    r = run_case("14. BROKEN NL/S PAIR -> 0", p, 0.0)
+    assert r["gate_interleave"] == 0.0
 
-    print("\n" + "=" * 80)
-    print(f"ALL {passed} NL/S/PA + R_interleave REGRESSION CASES PASSED.")
+    # 15) Non-novel but valid repeated deduction is NOT itself a reward gate.
+    # Add one final valid NL/S pair repeating Arnold==2.
+    p = make_prediction()
+    p["reasoning"]["NL10"] = "Arnold remains in house 2."
+    p["reasoning"]["S10"] = "Arnold == 2."
+    r = run_case("15. VALID BUT REDUNDANT S STEP: novelty is diagnostic", p, 1.0)
+    assert r["s_novelty_ratio"] <= 1.0
+    assert r["gate_s_all_valid"] == 1.0
+
+    print("\n" + "=" * 88)
+    print("ALL BINARY REWARD REGRESSION CASES PASSED.")
