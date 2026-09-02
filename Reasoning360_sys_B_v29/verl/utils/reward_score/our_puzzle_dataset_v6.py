@@ -720,6 +720,10 @@ def normalize_table(t: Any) -> Optional[Dict[str, Any]]:
         "header": [str(h) for h in header],
         "rows": norm_rows,
     }
+def reward_PA(payload: Dict[str, Any], *, timeout_s: float = 2.0):
+    PA_out = {"reward_status": None}
+    return PA_out
+
 
 def compute_score(
         solution_str,
@@ -915,11 +919,16 @@ def compute_score(
     ])
 
     if required_inputs_present:
+        S_steps = {
+            k: v
+            for k, v in parsed_reasoning.items()
+            if k.startswith("S")
+        }
         payload = {
             "n_houses": n_houses,
             "attribute_values": attribute_values,
             "syntactic_clues": syntactic_clues,
-            "reasoning": parsed_reasoning,
+            "reasoning": S_steps,
             "ground_truth": ground_truth,
         }
 
@@ -929,6 +938,27 @@ def compute_score(
         except Exception:
             z3_out = dict(MISSING_BASE_DEFAULTS)
             #logger.error("Crash while calculating Z3 score")
+
+        PA_steps = {
+            k: v
+            for k, v in parsed_reasoning.items()
+            if k.startswith("PA")
+        }
+        payload = {
+            "n_houses": n_houses,
+            "attribute_values": attribute_values,
+            "syntactic_clues": syntactic_clues,
+            "reasoning": PA_steps,
+            "z3_out": z3_out,
+            "ground_truth": ground_truth,
+        }
+
+        try:
+            PA_out = reward_PA(payload, timeout_s=5.0)
+            logger.debug("PA reward_status=%s", PA_out.get("reward_status"))
+        except Exception:
+            z3_out = dict(MISSING_BASE_DEFAULTS)
+
 
         if _is_sat_check_failure(z3_out):
             final_result["BASE_sat_full_GT"] = 0.0
@@ -1138,8 +1168,7 @@ def pretty(x):
 
 
 if __name__ == "__main__":
-
-    sol_str = """```json
+    sol_str = """<answer>
     {
         "n_houses": 3,
         "attribute_values": {
@@ -1154,33 +1183,70 @@ if __name__ == "__main__":
             "C4: Fred < Eric.",
             "C5: white == Meredith."
         ],
-        "reasoning": [
-            "I am NL",
-            "S1: Or(eric ==1, Eric ==2, Eric == 3).",
-            "I am NL.",
-            "S2: Not(Eric == 1).",
-            "I am NL",
-            "S3: Arnold == 2."
-        ],
-      "solution": {
-        "header": ["House", "Name", "Color", "Children"],
-        "rows": [
-          ["1", "Peter", "yellow", "Bella"],
-          ["2", "Arnold", "red", "Fred"],
-          ["3", "Eric", "white", "Meredith"]
-        ]
-      }
-    }
-    ```"""
+        "reasoning": {
+            "NL1": "Clues 1 and 2 show that Arnold, who has the red favorite color, must occupy house 2.",
+            "S1": "Arnold == 2.",
 
-    ground_truth =  {
+            "NL2": "Because Fred is somewhere to the left of Eric, Eric cannot occupy house 1.",
+            "S2": "Eric != 1.",
+
+            "NL3": "Arnold already occupies house 2, so Eric cannot occupy house 2 and therefore must occupy house 3.",
+            "S3": "Eric == 3.",
+
+            "PA1": {
+                "header": ["House", "Name", "Color", "Children"],
+                "rows": [
+                    ["1", "?", "?", "Bella"],
+                    ["2", "Arnold", "red", "?"],
+                    ["3", "Eric", "?", "?"]
+                ]
+            },
+
+            "NL4": "With Arnold in house 2 and Eric in house 3, the remaining person Peter must occupy house 1.",
+            "S4": "Peter == 1.",
+
+            "NL5": "Since Eric occupies house 3 and Fred must be somewhere to the left of Eric, Fred can only occupy house 1 or house 2.",
+            "S5": "Or(Fred == 1, Fred == 2).",
+
+            "NL6": "Bella already occupies house 1, so child uniqueness forces Fred to occupy house 2.",
+            "S6": "Fred == 2.",
+
+            "NL7": "With Bella in house 1 and Fred in house 2, the remaining child Meredith must occupy house 3.",
+            "S7": "Meredith == 3.",
+
+            "PA2": {
+                "header": ["House", "Name", "Color", "Children"],
+                "rows": [
+                    ["1", "Peter", "?", "Bella"],
+                    ["2", "Arnold", "red", "Fred"],
+                    ["3", "Eric", "?", "Meredith"]
+                ]
+            },
+
+            "NL8": "Clue 5 places white in the same house as Meredith, so white must occupy house 3.",
+            "S8": "white == 3.",
+
+            "NL9": "Red occupies house 2 and white occupies house 3, so color uniqueness forces yellow to occupy house 1.",
+            "S9": "yellow == 1."
+        },
+        "solution": {
+            "header": ["House", "Name", "Color", "Children"],
+            "rows": [
+                ["1", "Peter", "yellow", "Bella"],
+                ["2", "Arnold", "red", "Fred"],
+                ["3", "Eric", "white", "Meredith"]
+            ]
+        }
+    }
+    </answer>"""
+
+    ground_truth = {
         "header": ["House", "Name", "Color", "Children"],
         "rows": [
             ["1", "Peter", "yellow", "Bella"],
             ["2", "Arnold", "red", "Fred"],
-            ["3", "Eric", "white", "Meredith"],
+            ["3", "Eric", "white", "Meredith"]
         ]
     }
-
     res = compute_score(sol_str, ground_truth)
     print(f"Result = {json.dumps (res, indent=2, ensure_ascii=False)}")
