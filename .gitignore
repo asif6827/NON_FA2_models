@@ -173,3 +173,4 @@ Prompts_Z3_testing
 BKUP
 /Analysis_Reasoning/Outputs
 /Analysis_Reasoning/Input_Logs
+*.jsonl
