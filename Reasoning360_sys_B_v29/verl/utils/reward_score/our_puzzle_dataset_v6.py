@@ -904,7 +904,7 @@ def compute_score(
         z3_error = ""
         reward_error = ""
 
-        final_result = {}
+        
         z3_out = {}
         z3_payload = {}
         PA_payload = {}
