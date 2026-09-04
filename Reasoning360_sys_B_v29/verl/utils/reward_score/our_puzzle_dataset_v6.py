@@ -772,6 +772,95 @@ def compute_score(
     import logging
     import time
 
+    DEFAULT_RESULT = {
+        # Final reward
+        "acc": 0.0,
+        "score": 0.0,
+        "reward_logged": 0.0,
+
+        # Accuracy
+        "PUZZLE_ACCURACY": 0.0,
+        "CELL_ACCURACY": 0.0,
+
+        # Parsing / format
+        "parsing_reward": 0.0,
+        "format_reward": 0.0,
+
+        # Z3
+        "BASE_sat_full_GT": 0.0,
+        "missed_data": 1.0,
+        "BASE_n_steps_total": 0.0,
+        "BASE_n_steps_parsed_ok": 0.0,
+        "BASE_n_steps_valid": 0.0,
+        "BASE_n_steps_novel_inc_clues": 0.0,
+        "BASE_n_non_valid_contradiction": 0.0,
+
+        # Process reward
+        "Normalizer": 1.0,
+        "novel_step_score": 0.0,
+        "consistency_score": 0.0,
+        "contradiction_ratio": 0.0,
+        "process_bonus": 0.0,
+        "base_quality": 0.0,
+
+        # PA
+        "pa_present": 0.0,
+        "PA_n_total": 0.0,
+        "PA_n_evaluated": 0.0,
+        "PA_n_resolved_cells": 0.0,
+        "PA_n_supported_cells": 0.0,
+        "PA_n_unsupported_cells": 0.0,
+        "pa_prefix_support_score": 0.0,
+        "pa_monotonicity_score": 0.0,
+        "pa_monotonicity_applicable": 0.0,
+        "pa_supported_progress_score": 0.0,
+        "pa_reward": 0.0,
+        "pa_available": 0.0,
+
+        # bookkeeping
+        "epoch": 0.0,
+        "total_epochs": 0.0,
+    }
+    final_result = copy.deepcopy(DEFAULT_RESULT)
+
+    # Parsed objects
+    syntactic_clues = None
+    parsed_reasoning = None
+    predicted_arrangement = None
+    attribute_values = None
+    n_houses = None
+    parse_status = "parsing_failed"
+
+    # Payloads / outputs
+    z3_payload = {}
+    z3_out = {}
+    PA_payload = {}
+    PA_out = copy.deepcopy(MISSING_PA_DEFAULTS)
+    reasoning_vs_sol_validate = {}
+
+    # Component rewards
+    parsing_reward = 0.0
+    format_reward = 0.0
+    format_ok = False
+    format_details = {}
+
+    cell_acc_score = 0.0
+    puzzle_acc_score = 0.0
+
+    consistency_score = 0.0
+    novel_step_score = 0.0
+    contradiction_ratio = 0.0
+
+    pa_available = False
+    pa_reward_score = 0.0
+
+    base_quality = 0.0
+    process_bonus = 0.0
+    normalizer = 1.0
+    sat_ok = 0.0
+
+    reward = 0.0
+
     try:
         epoch = int(os.getenv("CURRENT_EPOCH", "90"))
         total_epochs = int(os.getenv("TOTAL_EPOCH", "100"))
@@ -1023,10 +1112,12 @@ def compute_score(
                         final_result[key] = 0.0
 
             except Exception as e:
-                logger.exception("PA reward computation failed: %s",e, )
+                logger.exception("PA reward failed: %s", e)
 
                 PA_out = copy.deepcopy(MISSING_PA_DEFAULTS)
-                PA_out["reward_status"] = (f"PA_REWARD_EXCEPTION: {type(e).__name__}: {e}")
+                PA_out["reward_status"] = (
+                    f"PA_REWARD_EXCEPTION: {type(e).__name__}: {e}"
+                )
 
 
 
@@ -1059,9 +1150,13 @@ def compute_score(
             format_ok = float(format_reward) == 1.0
             #print(parsed_reasoning)
             #print(format_ok)
-        except Exception:
+        except Exception as e:
             #logger.error("Error computing format penalty..!")
+            format_reward = 0.0
             format_ok = False
+            format_details = {
+                "Failure_reason": f"{type(e).__name__}: {e}"
+            }
     else:
         format_ok = False
     #print('Format reward = {}'.format(format_ok))
