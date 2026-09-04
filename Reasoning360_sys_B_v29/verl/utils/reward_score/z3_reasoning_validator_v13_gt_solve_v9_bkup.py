@@ -1278,6 +1278,18 @@ def solve_and_validate_payload(payload: Dict[str, Any], *, timeout_s: float = 2.
 # - Ensure function returns a dict (was previously truncated)
 # ============================================================
 
+'''
+##_SID_RE = re.compile(r"^\s*S(\d+)\s*:\s*(.+?)\s*$", re.IGNORECASE)
+
+def _extract_sid_and_expr_bkup(line: str) -> Tuple[int, str]:
+    raw = line.strip()
+    if raw.endswith("."):
+        raw = raw[:-1]
+    m = _SID_RE.match(raw)
+    if not m:
+        return -1, raw
+    return int(m.group(1)), m.group(2).strip()
+'''
 
 _SID_RE = re.compile(r"^S(\d+)$", re.IGNORECASE)
 

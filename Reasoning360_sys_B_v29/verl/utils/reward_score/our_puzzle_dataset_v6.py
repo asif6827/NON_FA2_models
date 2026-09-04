@@ -11,6 +11,7 @@ Reward scoring for Zebra/Logic puzzles with triple scoring:
 import re
 import os
 import json
+import copy
 from typing import Dict, List, Any, Optional, Tuple
 import logging
 import sys
@@ -25,6 +26,33 @@ from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import norma
 from verl.utils.reward_score.check_interleved_format_nspa_v1 import check_interleaved_reasoning
 from verl.utils.reward_score.z3_reasoning_vs_solution_verifier_v2 import verify_solution_two_step
 
+try:
+    from verl.utils.reward_score.reward_PA_v2 import (
+        reward_PA,
+        MISSING_PA_DEFAULTS,
+    )
+except Exception:
+    try:
+        from reward_PA_v2 import (
+            reward_PA,
+            MISSING_PA_DEFAULTS,
+        )
+    except Exception:
+        reward_PA = None
+        MISSING_PA_DEFAULTS = {
+            "pa_present": 0.0,
+            "PA_n_total": 0,
+            "PA_n_evaluated": 0,
+            "PA_n_resolved_cells": 0,
+            "PA_n_supported_cells": 0,
+            "PA_n_unsupported_cells": 0,
+            "pa_prefix_support_score": 0.0,
+            "pa_monotonicity_score": 0.0,
+            "pa_monotonicity_applicable": 0.0,
+            "pa_supported_progress_score": 0.0,
+            "pa_reward": 0.0,
+            "reward_status": "IMPORT_FAIL",
+        }
 
 os.environ.setdefault("CLUE_TIMEOUT_S", "3.0")
 os.environ.setdefault("Z3_TIMEOUT_S", "1.5")
@@ -720,9 +748,8 @@ def normalize_table(t: Any) -> Optional[Dict[str, Any]]:
         "header": [str(h) for h in header],
         "rows": norm_rows,
     }
-def reward_PA(payload: Dict[str, Any], *, timeout_s: float = 2.0):
-    PA_out = {"reward_status": None}
-    return PA_out
+
+
 
 
 def compute_score(
@@ -760,6 +787,19 @@ def compute_score(
         if puzzle_id is None and isinstance(meta, dict):
             puzzle_id = meta.get("id") or meta.get("puzzle_id")
 
+        PA_RESULT_KEYS = (
+            "pa_present",
+            "PA_n_total",
+            "PA_n_evaluated",
+            "PA_n_resolved_cells",
+            "PA_n_supported_cells",
+            "PA_n_unsupported_cells",
+            "pa_prefix_support_score",
+            "pa_monotonicity_score",
+            "pa_monotonicity_applicable",
+            "pa_supported_progress_score",
+            "pa_reward",
+        )
 
 
         ground_truth = normalize_ground_truth(ground_truth)
@@ -777,7 +817,8 @@ def compute_score(
 
         final_result = {}
         z3_out = {}
-        payload = {}
+        z3_payload = {}
+        PA_payload = {}
         final_result["BASE_sat_full_GT"] = 0.0
         final_result["missed_data"] = 0.0
         final_result["BASE_n_steps_total"] = 0.0
@@ -795,6 +836,7 @@ def compute_score(
         final_result["epoch"] = epoch
         final_result["total_epochs"] = total_epochs
         final_result["reward_logged"] = 0.0
+
 
     except Exception as e:
         #logger.exception(f"Failed to get puzzle id from extra_info: {e}")
@@ -827,7 +869,10 @@ def compute_score(
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 log_case("non_boxed_answer", solution_str, ground_truth, logger)
 
-        if parse_status == "success_direct_json" or parse_status == "success_answer_json":
+        if parse_status in {
+            "success_answer_tag",
+            "success_direct_json",
+        }:
             parsing_reward = 1.0
         # meta selection
         meta_used = meta
@@ -886,6 +931,8 @@ def compute_score(
         "list_novel_steps_inc_clues": [],
     }
 
+
+
     FINAL_BASE_KEYS_MAP = {
         "n_steps_total": "BASE_n_steps_total",
         "n_steps_parsed_ok": "BASE_n_steps_parsed_ok",
@@ -924,7 +971,7 @@ def compute_score(
             for k, v in parsed_reasoning.items()
             if k.startswith("S")
         }
-        payload = {
+        z3_payload = {
             "n_houses": n_houses,
             "attribute_values": attribute_values,
             "syntactic_clues": syntactic_clues,
@@ -933,31 +980,55 @@ def compute_score(
         }
 
         try:
-            z3_out = solve_and_validate_payload(payload, timeout_s=5.0, conflict_tolerant_clues=False,)
+            z3_out = solve_and_validate_payload(z3_payload, timeout_s=5.0, conflict_tolerant_clues=False,)
             logger.debug("Z3 parse_status=%s", z3_out.get("parse_status"))
         except Exception:
             z3_out = dict(MISSING_BASE_DEFAULTS)
             #logger.error("Crash while calculating Z3 score")
 
-        PA_steps = {
-            k: v
-            for k, v in parsed_reasoning.items()
-            if k.startswith("PA")
-        }
-        payload = {
+        # ------------------------------------------------------------
+        # PA REWARD
+        # ------------------------------------------------------------
+
+        PA_out = copy.deepcopy(MISSING_PA_DEFAULTS)
+
+        PA_payload = {
             "n_houses": n_houses,
             "attribute_values": attribute_values,
             "syntactic_clues": syntactic_clues,
-            "reasoning": PA_steps,
+            "reasoning": parsed_reasoning,
             "z3_out": z3_out,
             "ground_truth": ground_truth,
         }
 
-        try:
-            PA_out = reward_PA(payload, timeout_s=5.0)
-            logger.debug("PA reward_status=%s", PA_out.get("reward_status"))
-        except Exception:
-            z3_out = dict(MISSING_BASE_DEFAULTS)
+        if (reward_PA is not None and isinstance(parsed_reasoning, dict)):
+            try:
+                PA_out = reward_PA(PA_payload, timeout_s=max(float(timeout), 0.1), )
+
+                logger.debug(
+                    "PA reward_status=%s pa_reward=%s",
+                    PA_out.get("reward_status"),
+                    PA_out.get("pa_reward"),
+                )
+
+                for key in PA_RESULT_KEYS:
+                    value = PA_out.get(
+                        key,
+                        MISSING_PA_DEFAULTS.get(key, 0.0),
+                    )
+
+                    if isinstance(value, (int, float, bool)):
+                        final_result[key] = float(value)
+                    else:
+                        final_result[key] = 0.0
+
+            except Exception as e:
+                logger.exception("PA reward computation failed: %s",e, )
+
+                PA_out = copy.deepcopy(MISSING_PA_DEFAULTS)
+                PA_out["reward_status"] = (f"PA_REWARD_EXCEPTION: {type(e).__name__}: {e}")
+
+
 
 
         if _is_sat_check_failure(z3_out):
@@ -978,7 +1049,14 @@ def compute_score(
     #if num_blocks==1 and parsed_reasoning:
     if parsed_reasoning:
         try:
-            format_ok = check_interleaved_reasoning(parsed_reasoning, n_houses=int(n_houses))
+            expected_header = ground_truth.get("header", ["House"] + list(attribute_values.keys()))
+            format_reward, format_details = check_interleaved_reasoning(
+                parsed_reasoning,
+                n_houses=int(n_houses),
+                expected_header=expected_header,
+                attribute_values=attribute_values,
+            )
+            format_ok = float(format_reward) == 1.0
             #print(parsed_reasoning)
             #print(format_ok)
         except Exception:
@@ -1028,6 +1106,13 @@ def compute_score(
             novel_step_score = float(min(n_novel_steps / normalizer, 1.0))
             contradiction_ratio = float(min(n_contradictions / normalizer, 1.0))
             sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))  # expected 1.0 or 0.0
+            pa_available = (
+                    float(PA_out.get("pa_present", 0.0)) > 0.0
+                    and float(PA_out.get("PA_n_evaluated", 0.0)) > 0.0
+            )
+            pa_reward_score = clamp01(
+                PA_out.get("pa_reward", 0.0)
+            )
 
             if format_ok:
                 format_reward = 1.0
@@ -1049,12 +1134,19 @@ def compute_score(
                         + 0.20 * format_reward
                 )
 
-                process_bonus = (
-                        0.40 * novel_step_score
-                        + 0.30 * consistency_score
-                        - 0.15 * contradiction_ratio
-                )
-
+                if pa_available:
+                    process_bonus = (
+                            0.30 * novel_step_score
+                            + 0.20 * consistency_score
+                            + 0.20 * pa_reward_score
+                            - 0.15 * contradiction_ratio
+                    )
+                else:
+                    process_bonus = (
+                            0.40 * novel_step_score
+                            + 0.30 * consistency_score
+                            - 0.15 * contradiction_ratio
+                    )
                 # gate process reward by solution quality
                 reward = base_quality + float(puzzle_acc_score) * process_bonus
 
@@ -1089,6 +1181,19 @@ def compute_score(
         final_result["total_epochs"] = total_epochs
         final_result["reward_logged"] = float(reward)
 
+        final_result["parsing_reward"] = float(parsing_reward)
+        final_result["format_reward"] = float(format_reward)
+
+        final_result["novel_step_score"] = float(novel_step_score)
+        final_result["consistency_score"] = float(consistency_score)
+        final_result["contradiction_ratio"] = float(contradiction_ratio)
+
+        final_result["pa_reward"] = float(pa_reward_score)
+        final_result["pa_available"] = float(pa_available)
+
+        final_result["process_bonus"] = float(process_bonus)
+        final_result["base_quality"] = float(base_quality)
+
 
     except Exception:
         reward = 0.0
@@ -1112,7 +1217,9 @@ def compute_score(
             example_["pid"] = puzzle_id
             example_["puzzle_text"] = pid_to_puzzle_dic[puzzle_id]
             example_["z3_out"] = z3_out
-            example_["payload"] = payload
+            example_["z3_payload"] = z3_payload
+            example_["PA_payload"] = PA_payload
+            example_["PA_out"] = PA_out
             example_["ground_truth"] = ground_truth
             example_["original_prediction"] = predicted_arrangement
             if norm_pred != None:
@@ -1122,7 +1229,10 @@ def compute_score(
             example_["z3_out"] = z3_out
             example_["reasoning_vs_sol_validate"] = reasoning_vs_sol_validate
             example_["reward"] = reward
-            example_["Format_Check"] = format_ok
+            example_["Format_Check"] = {
+                "reward": float(format_reward),
+                "details": format_details,
+            }
             example_["final_result"] = final_result
             if example_:
                 os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
@@ -1139,7 +1249,9 @@ def compute_score(
             example_["puzzle_text"] = pid_to_puzzle_dic[puzzle_id]
             example_ ["z3_out"] = z3_out
             example_["reasoning_vs_sol_validate"] = reasoning_vs_sol_validate
-            example_["payload"] = payload
+            example_["z3_payload"] = z3_payload
+            example_["PA_payload"] = PA_payload
+            example_["PA_out"] = PA_out
             example_["ground_truth"] = ground_truth
             example_["original_prediction"] = predicted_arrangement
             if norm_pred != None:
@@ -1148,7 +1260,10 @@ def compute_score(
                 example_["processed_prediction"] = "WRONG OUTPUT FORMAT"
             example_["z3_out"] = z3_out
             example_["reward"] = reward
-            example_["Format_Check"] = format_ok
+            example_["Format_Check"] = {
+                "reward": float(format_reward),
+                "details": format_details,
+            }
             example_["final_result"] = final_result
             if example_:
                 os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
