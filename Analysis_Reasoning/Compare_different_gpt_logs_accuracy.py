@@ -719,7 +719,7 @@ def compare_logs(
 
     output_file = (
         output_dir
-        / "first_40_accuracy_comparison.txt"
+        / "GPT_700_accuracy_comparison_temp_0.txt"
     )
 
     # ========================================================
@@ -927,11 +927,11 @@ def main():
     # ========================================================
 
     file_a_name = (
-        "gpt51_outputs_test_50_mlxl_nss.jsonl"
+        "gpt51_outputs_test_700_mlxl_nss_temp_0.jsonl"
     )
 
     file_b_name = (
-        "gpt51_outputs_test_700.jsonl"
+        "gpt51_outputs_test_700_temp_0.jsonl"
     )
 
     file_a = (
@@ -945,7 +945,7 @@ def main():
     )
 
     # Compare first 40 cases.
-    n_cases = 40
+    n_cases = 700
 
     compare_logs(
         file_a=file_a,
