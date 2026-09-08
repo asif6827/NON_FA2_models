@@ -242,7 +242,7 @@ def read_log(filename):
     # Output directory
     # ========================================================
 
-    output_dir = Path("./Outputs")
+    output_dir = Path("../Outputs")
 
     output_dir.mkdir(
         parents=True,
@@ -543,7 +543,7 @@ def read_log(filename):
 def main():
 
     base_path = Path(
-        "./Input_Logs"
+        "../Input_Logs"
     )
 
     file_name = (
