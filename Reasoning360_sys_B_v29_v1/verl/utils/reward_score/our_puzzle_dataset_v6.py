@@ -27,13 +27,13 @@ from verl.utils.reward_score.check_interleved_format_nspa_v1 import check_interl
 from verl.utils.reward_score.z3_reasoning_vs_solution_verifier_v2 import verify_solution_two_step
 
 try:
-    from verl.utils.reward_score.reward_PA_v2 import (
+    from verl.utils.reward_score.reward_PA_v3 import (
         reward_PA,
         MISSING_PA_DEFAULTS,
     )
 except Exception:
     try:
-        from reward_PA_v2 import (
+        from reward_PA_v3 import (
             reward_PA,
             MISSING_PA_DEFAULTS,
         )
@@ -44,12 +44,6 @@ except Exception:
             "PA_n_total": 0,
             "PA_n_evaluated": 0,
             "PA_n_resolved_cells": 0,
-            "PA_n_supported_cells": 0,
-            "PA_n_unsupported_cells": 0,
-            "pa_prefix_support_score": 0.0,
-            "pa_monotonicity_score": 0.0,
-            "pa_monotonicity_applicable": 0.0,
-            "pa_supported_progress_score": 0.0,
             "pa_reward": 0.0,
             "reward_status": "IMPORT_FAIL",
         }
@@ -1219,29 +1213,19 @@ def compute_score(
                 reward = (
                         0.15 * parsing_reward
                         + 0.10 * format_reward
-                        + 0.60 * float(puzzle_acc_score)
+                        + 0.10 * float(puzzle_acc_score)
                         - 0.20 * contradiction_ratio
                 )
             else:
                 base_quality = (
-                        0.60 * float(puzzle_acc_score)
+                        0.10 * float(puzzle_acc_score)
+                        + 0.60 * pa_reward_score
                         + 0.20 * parsing_reward
-                        + 0.20 * format_reward
-                )
-
-                if pa_available:
-                    process_bonus = (
-                            0.30 * novel_step_score
-                            + 0.20 * consistency_score
-                            + 0.20 * pa_reward_score
-                            - 0.15 * contradiction_ratio
-                    )
-                else:
-                    process_bonus = (
-                            0.40 * novel_step_score
-                            + 0.30 * consistency_score
-                            - 0.15 * contradiction_ratio
-                    )
+                        + 0.20 * format_reward)
+                process_bonus = (
+                        0.40 * novel_step_score
+                        + 0.30 * consistency_score
+                        - 0.15 * contradiction_ratio)
                 # gate process reward by solution quality
                 reward = base_quality + float(puzzle_acc_score) * process_bonus
 
