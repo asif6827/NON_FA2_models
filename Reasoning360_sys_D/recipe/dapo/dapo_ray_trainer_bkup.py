@@ -397,7 +397,8 @@ class RayDAPOTrainer(RayPPOTrainer):
                                 else:
                                     raise ValueError(
                                         f"{num_gen_batches=} >= {max_num_gen_batches=}."
-                                        + " Generated too many. Please check if your data are too difficult.")
+                                        + " Generated too many. Please check if your data are too difficult."
+                                    )
                             else:
                                 traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
                                 batch = batch[:traj_bsz]
@@ -549,8 +550,6 @@ class RayDAPOTrainer(RayPPOTrainer):
                         filename=f"jobid_{job_id}_feedback", sample_size=len(feedback_data))
 
                     self._create_dataloader_feedback(data_path=train_feedback_path,collate_fn=None,train_sampler=None)
-
-
                     #print("FEEDBACK DATALOADER DONE")
                     step2_iter = 0
                     for batch_dict in self.feedback_dataloader:
