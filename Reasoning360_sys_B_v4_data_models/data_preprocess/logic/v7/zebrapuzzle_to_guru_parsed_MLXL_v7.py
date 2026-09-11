@@ -137,6 +137,9 @@ IMPORTANT:
     "S1",  "S2",  ..., "Sz"
     and
     "PA1", "PA2", ..., "PAk"
+    
+- At least one PA is MANDATORY.
+- PA checkpoints MUST be inserted during the reasoning trajectory.
 - Do NOT add any other keys inside "reasoning".
 
 Required NL/S structure:
