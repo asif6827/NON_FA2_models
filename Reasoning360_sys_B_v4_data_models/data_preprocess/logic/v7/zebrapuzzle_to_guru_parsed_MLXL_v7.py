@@ -135,7 +135,7 @@ IMPORTANT:
 - The keys of "reasoning" MUST consist ONLY of:
     "NL1", "NL2", ..., "NLz"
     "S1",  "S2",  ..., "Sz"
-    and optional
+    and
     "PA1", "PA2", ..., "PAk"
 - Do NOT add any other keys inside "reasoning".
 
@@ -156,7 +156,7 @@ Required NL/S structure:
 - Do NOT place a PA key between NL<i> and S<i>.
 
 Partial Answer insertion:
-- OPTIONAL Partial Answer keys PA_k may be inserted ONLY after a completed NL<i>/S<i> pair.
+- Partial Answer keys PA_k may be inserted ONLY after a completed NL<i>/S<i> pair.
 - PA numbering MUST start at 1 and increase consecutively with no gaps.
 - A PA does NOT replace an NL/S pair and does NOT itself introduce a new deduction.
 
@@ -237,7 +237,7 @@ Boolean operators:
 - Nested Boolean expressions are allowed but MUST remain solver-verifiable.
 
 Partial Answer (PA_k) format:
-- PA_k is an OPTIONAL structured snapshot of the partially solved puzzle.
+- PA_k is a structured snapshot of the partially solved puzzle.
 - PA_k MUST be a JSON object directly associated with the "PA<k>" key.
 - Do NOT encode PA_k as a string.
 - PA_k MUST have exactly TWO keys:
@@ -509,7 +509,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_path', default='/home/asif/data3/HF_cache/ZebraLogic/', help='Path to json file')
     parser.add_argument('--data_setting', default='mlxl_nss_mlxl_nss', help='Path to json file')
     parser.add_argument('--output_dir', default='/home/asif/data3/Codes_QCRI/OpenAI_test_ZebraPuzzles/mlxl_train_mlxl_test', help='Directory to save processed data')
-    parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
+    parser.add_argument('--hdfs_dir', default=None, help='HDFS directory ()')
     parser.add_argument('--train_size', type=float, default=0.3, help='Proportion of data for train set')
     parser.add_argument('--test_size', type=float, default=0.7, help='Proportion of data for test set')
     parser.add_argument('--data_source_train', default='our_zebra_puzzle_new_reward', help='Name of data source')
