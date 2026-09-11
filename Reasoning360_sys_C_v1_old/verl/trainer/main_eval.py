@@ -1,0 +1,118 @@
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""
+Offline evaluate the performance of a generated file using reward model and ground truth verifier.
+The input is a parquet file that contains N generated sequences and (optional) the ground truth.
+"""
+
+from collections import defaultdict
+
+import hydra
+import numpy as np
+import pandas as pd
+import ray
+from tqdm import tqdm
+
+from verl.trainer.ppo.reward import get_custom_reward_fn
+from verl.utils.reward_score import default_compute_score
+from verl.utils.fs import copy_to_local
+
+def reduce_scores(score_lst):
+    """Reduce a list of scores which may be floats or dicts.
+    - If list of floats/ints: return their mean as float.
+    - If list of dicts: compute mean per key and return a dict.
+    """
+    if len(score_lst) == 0:
+        return np.nan
+    first = score_lst[0]
+    if isinstance(first, dict):
+        keys = list(first.keys())
+        out = {}
+        for k in keys:
+            vals = [s[k] for s in score_lst if isinstance(s, dict) and k in s]
+            out[k] = float(np.mean(vals)) if len(vals) > 0 else np.nan
+        return out
+    else:
+        return float(np.mean(score_lst))
+    
+@ray.remote
+def process_item(reward_fn, data_source, response_lst, reward_data):
+    ground_truth = reward_data["ground_truth"]
+    score_lst = [reward_fn(data_source, r, ground_truth) for r in response_lst]
+    return data_source, reduce_scores(score_lst)
+
+
+@hydra.main(config_path="config", config_name="evaluation", version_base=None)
+def main(config):
+    local_path = copy_to_local(config.data.path, use_shm=config.data.get("use_shm", False))
+    dataset = pd.read_parquet(local_path)
+    #############Added by Asif ##########################
+    #rows_to_process = 450
+    #print("Selected {} rows for test data to_process".format(rows_to_process))
+    #dataset = dataset.head(rows_to_process)
+    #############Added by Asif ##########################
+    responses = dataset[config.data.response_key]
+    data_sources = dataset[config.data.data_source_key]
+    reward_model_data = dataset[config.data.reward_model_key]
+
+    total = len(dataset)
+
+    # Initialize Ray
+    if not ray.is_initialized():
+        ray.init(num_cpus=config.ray_init.num_cpus)
+
+    # evaluate test_score based on data source
+    data_source_reward = defaultdict(list)
+    compute_score = get_custom_reward_fn(config)
+    # Fallback to default scorer when no custom reward function is configured
+    if compute_score is None:
+        def compute_score(data_source, solution_str, ground_truth):
+            return default_compute_score(data_source, solution_str, ground_truth)
+
+    # Create remote tasks
+    remote_tasks = [
+        process_item.remote(compute_score, data_sources[i], responses[i], reward_model_data[i]) for i in range(total)
+    ]
+
+    # Process results as they come in
+    with tqdm(total=total) as pbar:
+        while len(remote_tasks) > 0:
+            # Use ray.wait to get completed tasks
+            done_ids, remote_tasks = ray.wait(remote_tasks)
+            for result_id in done_ids:
+                data_source, score = ray.get(result_id)
+                data_source_reward[data_source].append(score)
+                #############Added by Asif ##########################
+                #print("result-id = {}; score = {}".format(result_id, score))
+                #############Added by Asif ##########################
+                pbar.update(1)
+
+    metric_dict = {}
+    for data_source, rewards in data_source_reward.items():
+        if len(rewards) == 0:
+            metric_dict[f"test_score/{data_source}"] = np.nan
+            continue
+        first = rewards[0]
+        if isinstance(first, dict):
+            for k in first.keys():
+                vals = [r[k] for r in rewards if isinstance(r, dict) and k in r]
+                metric_dict[f"test_score/{data_source}/{k}"] = float(np.mean(vals)) if len(vals) > 0 else np.nan
+        else:
+            metric_dict[f"test_score/{data_source}"] = float(np.mean(rewards))
+
+    print(metric_dict)
+
+
+if __name__ == "__main__":
+    main()
