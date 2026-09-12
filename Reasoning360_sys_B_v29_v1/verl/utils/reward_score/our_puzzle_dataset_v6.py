@@ -1213,12 +1213,12 @@ def compute_score(
                 reward = (
                         0.15 * parsing_reward
                         + 0.10 * format_reward
-                        + 0.30 * float(puzzle_acc_score)
+                        + 0.60 * float(puzzle_acc_score)
                         - 0.20 * contradiction_ratio
                 )
             else:
                 base_quality = (
-                        0.30 * float(puzzle_acc_score)
+                        0.60 * float(puzzle_acc_score)
                         + 0.60 * pa_reward_score
                         + 0.20 * parsing_reward
                         + 0.20 * format_reward)
