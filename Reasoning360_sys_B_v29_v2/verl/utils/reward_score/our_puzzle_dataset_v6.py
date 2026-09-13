@@ -622,6 +622,7 @@ def find_last_answer_block(text: str) -> Optional[str]:
     return matches[-1].group(0)
 
 
+'''
 def extract_reasoning_and_solution(solution_str: str):
     """
     Extract both reasoning and solution.
@@ -639,6 +640,117 @@ def extract_reasoning_and_solution(solution_str: str):
         return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses", None), "success_direct_json"
 
     return None, None, None, None, None, "parsing_failed"
+'''
+
+import re
+from typing import Optional, List
+
+
+def find_answer_blocks(text: str) -> List[str]:
+    """
+    Return all complete <answer>...</answer> blocks in emitted order.
+
+    - Case-insensitive tags: <answer> or <ANSWER>
+    - Allows attributes in the opening tag: <answer id="x">
+    - Dot matches newlines
+    """
+    if not isinstance(text, str) or not text:
+        return []
+
+    pattern = re.compile(
+        r"<answer\b[^>]*>.*?</answer\s*>",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    return [m.group(0) for m in pattern.finditer(text)]
+
+
+def extract_reasoning_and_solution(solution_str: str):
+    """
+    Extract syntactic_clues, reasoning, solution, attribute_values, and n_houses.
+
+    Strategy:
+      1. If complete <answer> blocks exist:
+           a. Try the LAST block first.
+           b. If the last block is not valid JSON, try the FIRST block.
+      2. If no complete <answer> block exists, try parsing JSON directly.
+      3. Otherwise report parsing failure.
+    """
+
+    answer_blocks = find_answer_blocks(solution_str)
+
+    if answer_blocks:
+
+        # ------------------------------------------------------------
+        # 1. Try LAST answer block first
+        # ------------------------------------------------------------
+        last_block = answer_blocks[-1]
+
+        parsed = _try_parse_first_json_obj(last_block)
+
+        if parsed is not None:
+            return (
+                parsed.get("syntactic_clues", None),
+                parsed.get("reasoning", None),
+                parsed.get("solution", None),
+                parsed.get("attribute_values", None),
+                parsed.get("n_houses", None),
+                "success_answer_tag_last",
+            )
+
+        # ------------------------------------------------------------
+        # 2. Last failed -> try FIRST answer block
+        #    Avoid retrying the same block when only one exists.
+        # ------------------------------------------------------------
+        if len(answer_blocks) > 1:
+
+            first_block = answer_blocks[0]
+
+            parsed = _try_parse_first_json_obj(first_block)
+
+            if parsed is not None:
+                return (
+                    parsed.get("syntactic_clues", None),
+                    parsed.get("reasoning", None),
+                    parsed.get("solution", None),
+                    parsed.get("attribute_values", None),
+                    parsed.get("n_houses", None),
+                    "success_answer_tag_first_fallback",
+                )
+
+        # Answer blocks existed, but none of the selected blocks parsed.
+        return (
+            None,
+            None,
+            None,
+            None,
+            None,
+            "answer_tag_json_error",
+        )
+
+    # ----------------------------------------------------------------
+    # 3. No complete <answer> block -> try direct JSON
+    # ----------------------------------------------------------------
+    parsed = _try_parse_first_json_obj(solution_str)
+
+    if parsed is not None:
+        return (
+            parsed.get("syntactic_clues", None),
+            parsed.get("reasoning", None),
+            parsed.get("solution", None),
+            parsed.get("attribute_values", None),
+            parsed.get("n_houses", None),
+            "success_direct_json",
+        )
+
+    return (
+        None,
+        None,
+        None,
+        None,
+        None,
+        "parsing_failed",
+    )
 
 def normalize_ground_truth(ground_truth: dict) -> dict:
     """
@@ -953,7 +1065,8 @@ def compute_score(
                 log_case("non_boxed_answer", solution_str, ground_truth, logger)
 
         if parse_status in {
-            "success_answer_tag",
+            "success_answer_tag_last",
+            "success_answer_tag_first_fallback",
             "success_direct_json",
         }:
             parsing_reward = 1.0
@@ -1182,7 +1295,7 @@ def compute_score(
         normalizer = 1.0  # will be overwritten if inputs are valid
         n_novel_steps = float(final_result.get("BASE_n_steps_novel_inc_clues", 0.0))
 
-        has_required_inputs = ((attribute_values is not None) and (n_houses is not None) and (n_novel_steps > 0))
+        has_required_inputs = ((attribute_values is not None) and (n_houses is not None))
 
         if has_required_inputs:
             n_houses_i = max(int(n_houses), 0)
@@ -1227,7 +1340,7 @@ def compute_score(
                         + 0.30 * consistency_score
                         - 0.15 * contradiction_ratio)
                 # gate process reward by solution quality
-                reward = base_quality + float(puzzle_acc_score) * process_bonus
+                reward = base_quality + float(base_quality) * process_bonus
 
             #if sat_ok == 0.0:
             #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
