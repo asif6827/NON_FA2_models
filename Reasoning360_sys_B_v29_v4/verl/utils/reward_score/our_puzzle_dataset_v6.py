@@ -956,6 +956,8 @@ def compute_score(
     consistency_score = 0.0
     novel_step_score = 0.0
     contradiction_ratio = 0.0
+    final_clue_satisfaction_rate = 0.0
+    final_vs_reasoning = 0.0
 
     pa_available = False
     pa_reward_score = 0.0
@@ -1272,7 +1274,9 @@ def compute_score(
     # ---------------------------
     # Reasoning + Clues vs Solution Validator
     # ---------------------------
-    consistency_score = 0
+    consistency_score = 0.0
+    final_clue_satisfaction_rate = 0.0
+    final_vs_reasoning = 0.0
     reasoning_vs_sol_validate = {}
     if syntactic_clues and predicted_arrangement and z3_out:
         try:
