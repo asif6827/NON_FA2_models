@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 
 
 #pid_to_puzzle_dic_file = '/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json'
-pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/home/asif/data/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
+pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/home/asif/data3/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
 
 with open(pid_to_puzzle_dic_file, "r", encoding="utf-8") as f:
     pid_to_puzzle_dic = json.load(f)   # this is a dict (if JSON root is an object)
@@ -1278,9 +1278,15 @@ def compute_score(
         try:
             list_novel_steps_inc_clues = z3_out.get("list_novel_steps_inc_clues", [])
             reasoning_vs_sol_validate = verify_solution_two_step(syntactic_clues, list_novel_steps_inc_clues, predicted_arrangement)
+            final_clue_satisfaction_rate = float(reasoning_vs_sol_validate.get("final_vs_clues", 0.0))
+            final_vs_reasoning = float(reasoning_vs_sol_validate.get("final_vs_reasoning",0.0))
             consistency_score = reasoning_vs_sol_validate['reward']
+
         except Exception:
             consistency_score = 0
+            final_clue_satisfaction_rate = 0
+            final_vs_reasoning = 0
+
     #print("Consistency score:", consistency_score)
 
 
@@ -1295,7 +1301,7 @@ def compute_score(
         normalizer = 1.0  # will be overwritten if inputs are valid
         n_novel_steps = float(final_result.get("BASE_n_steps_novel_inc_clues", 0.0))
 
-        has_required_inputs = ((attribute_values is not None) and (n_houses is not None))
+        has_required_inputs = ((attribute_values is not None) and (n_houses is not None) and (n_novel_steps > 0))
 
         if has_required_inputs:
             n_houses_i = max(int(n_houses), 0)
@@ -1322,60 +1328,44 @@ def compute_score(
                 format_reward = 0.0
             #print("Format reward = {}".format(format_reward))
 
-            base_quality = (
-                    0.60 * puzzle_acc_score
-                    + 0.20 * sat_ok
-                    + 0.20 * pa_reward_score
-                    + 0.05 * parsing_reward
-                    + 0.05 * format_reward
+            P = float(puzzle_acc_score)
+            final_clue_satisfaction_rate *= sat_ok
+            novel_presence = 1.0 if n_novel_steps > 0 else 0.0
+
+            novel_efficiency = min(
+                n_novel_steps /
+                max(float(final_result.get("BASE_n_steps_total", 0.0)), 1.0),
+                1.0
             )
 
-            process_bonus = (
-                    0.40 * novel_step_score
-                    + 0.25 * consistency_score
-                    - 0.20 * contradiction_ratio
+            reasoning_quality = (
+                    0.50 * novel_presence
+                    + 0.50 * novel_efficiency
             )
 
-            reward = (
-                    base_quality
-                    + 0.20 * sat_ok * process_bonus
+            # PA is useful only as an auxiliary shaping signal.
+            # Gate it by BASE-SAT so we do not reward PA behavior when the
+            # model's formalization itself is incorrect.
+            pa_quality = sat_ok * pa_reward_score
+
+            aux = (
+                    0.45 * final_clue_satisfaction_rate
+                    + 0.25 * reasoning_quality
+                    + 0.10 * final_vs_reasoning
+                    + 0.10 * format_reward
+                    + 0.10 * pa_quality
+                    + 0.10 * sat_ok
+                    - 0.10 * contradiction_ratio
             )
 
-            '''
-            if sat_ok == 0.0:
-                reward = (
-                        0.60 * float(puzzle_acc_score)
-                        + 0.15 * parsing_reward
-                        + 0.10 * format_reward
-                        - 0.20 * contradiction_ratio
-                )
+            aux = clamp01(aux)
 
-            else:
-                base_quality = (
-                        0.60 * float(puzzle_acc_score)
-                        + 0.50 * pa_reward_score
-                        + 0.075 * parsing_reward
-                        + 0.075 * format_reward
-                )
+            t = clamp01(epoch / max(total_epochs - 1, 1))
 
-                process_bonus = (
-                        0.40 * novel_step_score
-                        + 0.35 * consistency_score
-                        - 0.20 * contradiction_ratio
-                )
+            # More shaping early, more exact-answer focus late.
+            epsilon = 0.35 - 0.20 * t
 
-                reward = base_quality * (1.0 + 0.30 * process_bonus)
-            '''
-
-            #if sat_ok == 0.0:
-            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
-            #else:
-            #    #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
-            #    #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
-            #    #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
-            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)  + 0.2 * float(cell_acc_score) + 0.4 * (n_novel_steps / normalizer) + 0.2 * format_reward + 0.4 * consistency_score
-            #    #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
-        
+            reward = P + epsilon * aux
         
         else:
             reward = -0.5

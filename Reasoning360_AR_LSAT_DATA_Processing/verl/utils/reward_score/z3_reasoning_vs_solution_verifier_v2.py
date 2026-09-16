@@ -435,8 +435,8 @@ def verify_solution_two_step(
 
     return {
         "ok": (r1 == 1.0 and r2 == 1.0),
-        "r1": r1,
-        "r2": r2,
+        "final_vs_clues": r1,
+        "final_vs_reasoning": r2,
         "reward": final_reward,
         "step1": {
             "n_clues": len(clue_constraints),
