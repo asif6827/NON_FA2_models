@@ -392,16 +392,41 @@ def _validate_pa(
             continue
 
         seen: Set[str] = set()
+
         for row_idx, row in enumerate(rows, start=1):
             cell = row[col_idx]
+
             if cell == "?":
                 continue
+
             if cell in seen:
                 return (
                     f"{key} column '{attr}' contains duplicate resolved value "
                     f"'{cell}' (duplicate encountered at house {row_idx})."
                 )
+
             seen.add(cell)
+
+    # ------------------------------------------------------------------
+    # Every PA must contain at least one resolved attribute cell.
+    # An all-'?' PA is invalid, regardless of whether it is PA1, PA2, ...
+    # ------------------------------------------------------------------
+
+    resolved_count = 0
+
+    for row in rows:
+        for col_idx, attr in enumerate(expected_header):
+            if attr == "House":
+                continue
+
+            if row[col_idx] != "?":
+                resolved_count += 1
+
+    if resolved_count == 0:
+        return (
+            f"{key} must contain at least one resolved non-'?' "
+            "attribute cell."
+        )
 
     return None
 
@@ -662,6 +687,12 @@ def check_interleaved_reasoning(
         return _failure(
             f"NL/S count mismatch: found {n_nl} NL steps and {n_s} S steps."
         )
+    if n_pa == 0:
+        return _failure(
+            "At least one PA checkpoint is mandatory. "
+            "Insert PA1 after a completed NL_i/S_i pair."
+        )
+
 
     return _success(n_nl=n_nl, n_s=n_s, n_pa=n_pa)
 
@@ -711,7 +742,7 @@ if __name__ == "__main__":
     }
 
     # 2) VALID: PA is optional.
-    valid_without_pa = {
+    invalid_without_pa = {
         "NL1": "Arnold occupies house 2.",
         "S1": "Arnold == 2.",
         "NL2": "Eric is not in house 1.",
@@ -763,6 +794,20 @@ if __name__ == "__main__":
         "S1": "John == 2.",
     }
 
+    invalid_empty_pa = {
+        "NL1": "Arnold occupies house 2.",
+        "S1": "Arnold == 2.",
+
+        "PA1": {
+            "header": ["House", "Name", "Color", "Children"],
+            "rows": [
+                ["1", "?", "?", "?"],
+                ["2", "?", "?", "?"],
+                ["3", "?", "?", "?"]
+            ]
+        }
+    }
+
     # 9) INVALID: duplicate resolved value in a PA attribute column.
     invalid_pa_uniqueness = {
         "NL1": "Arnold occupies house 2.",
@@ -783,13 +828,14 @@ if __name__ == "__main__":
 
     tests = [
         ("1_valid_full", valid_full, 1.0),
-        ("2_valid_without_pa", valid_without_pa, 1.0),
+        ("2_invalid_without_pa", invalid_without_pa, 0.0),
         ("3_invalid_key", invalid_key, 0.0),
         ("4_invalid_pairing", invalid_pairing, 0.0),
         ("5_invalid_pa_placement", invalid_pa_placement, 0.0),
         ("6_invalid_nl_format", invalid_nl_format, 0.0),
         ("7_invalid_s_grammar", invalid_s_grammar, 0.0),
         ("8_invalid_s_domain", invalid_s_domain, 0.0),
+        ("8b_invalid_empty_pa", invalid_empty_pa, 0.0),
         ("9_invalid_pa_uniqueness", invalid_pa_uniqueness, 0.0),
         ("10_invalid_pa_monotonicity", invalid_pa_monotonicity, 0.0),
     ]

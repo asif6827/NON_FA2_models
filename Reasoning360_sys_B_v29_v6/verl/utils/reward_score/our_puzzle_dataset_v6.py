@@ -1326,6 +1326,18 @@ def compute_score(
                 PA_out.get("pa_reward", 0.0)
             )
 
+            pa_present_score = float(PA_out.get("pa_present", 0.0))
+
+            # Safer: presence bonus only if the PA is structurally usable/non-empty.
+            pa_presence_valid = (
+                    pa_present_score
+                    * float(PA_out.get("pa_base_check", 0.0))
+            )
+
+            pa_reward_score = float(
+                PA_out.get("pa_reward", 0.0)
+            )
+
             if format_ok:
                 format_reward = 1.0
             else:
@@ -1352,7 +1364,10 @@ def compute_score(
 
                 reward = (base_quality + float(puzzle_acc_score) * process_bonus)
 
-                # NEW: very small PA shaping
+                # ---------------------------------------------------------
+                # PA shaping
+                # ---------------------------------------------------------
+                reward += 0.02 * pa_presence_valid
                 reward += 0.05 * pa_reward_score
         
         else:
