@@ -27,16 +27,10 @@ from verl.utils.reward_score.check_interleved_format_nspa_v1 import check_interl
 from verl.utils.reward_score.z3_reasoning_vs_solution_verifier_v2 import verify_solution_two_step
 
 try:
-    from verl.utils.reward_score.reward_PA_v3 import (
-        reward_PA,
-        MISSING_PA_DEFAULTS,
-    )
+    from verl.utils.reward_score.reward_PA_v4 import (reward_PA, MISSING_PA_DEFAULTS,)
 except Exception:
     try:
-        from reward_PA_v3 import (
-            reward_PA,
-            MISSING_PA_DEFAULTS,
-        )
+        from reward_PA_v4 import (reward_PA, MISSING_PA_DEFAULTS,)
     except Exception:
         reward_PA = None
         MISSING_PA_DEFAULTS = {

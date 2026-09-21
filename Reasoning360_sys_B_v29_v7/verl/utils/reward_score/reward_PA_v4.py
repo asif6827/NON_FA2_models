@@ -35,8 +35,9 @@ MISSING_PA_DEFAULTS = {
     "PA_n_consistent_cells": 0,
     "PA_n_inconsistent_cells": 0,
 
-    # Coverage diagnostics
+    # Coverage / dense-reward diagnostics
     "PA_n_newly_filled_cells": 0,
+    "PA_n_rewarded_cells": 0,
     "PA_total_solution_cells": 0,
 
     # Debugging
@@ -666,44 +667,47 @@ def reward_PA(
     timeout_s: float = 5.0,
 ) -> Dict[str, Any]:
     """
-    Compute PA reward using exactly four quantities.
+    Dense PA reward supporting one or many PA checkpoints.
 
-    A. BASE_CHECK [binary]
-       The last PA must contain at least one resolved non-'?' entry.
+    For every PA_i:
 
-    B. ACCURACY [binary]
-       All resolved cells across all PAs must match GT.
+      Accuracy_i
+          = (# filled cells matching GT) / (# filled cells)
 
-    C. CONSISTENCY [binary]
-       For PA_i, construct:
-           Zebra structural BASE + every S_j appearing before PA_i.
+      Consistency_i
+          = (# filled cells strongly implied by the prior S-prefix)
+            / (# filled cells)
 
-       For every resolved PA_i cell c, require:
-           SAT(prefix_i AND c)
-           UNSAT(prefix_i AND NOT(c))
+          If PA_i appears before any S-step, Consistency_i = 0.0.
 
-       All resolved PA cells must pass.
+      Coverage_i
+          = (# filled cells in PA_i) / (# total non-House solution cells)
 
-    D. COVERAGE [continuous]
-       For each PA_i -> PA_{i+1}, count positions changing:
-           ? -> resolved
+    Reward aggregation across multiple PAs:
+      - PA0 is the implicit all-"?" state.
+      - A cell position can earn reward only when it is BOTH:
+            (a) GT-correct, and
+            (b) consistent / strongly implied by the prior S-prefix.
+      - A position earns credit at most once over the whole PA trajectory.
+      - Repeating an already rewarded PA state gives no extra reward.
+      - A cell that was previously filled but unsupported may earn credit later
+        once additional S-steps make it implied.
 
-       Each position earns credit at most once.
+        pa_reward =
+            # unique cell positions ever observed as correct AND consistent
+            ---------------------------------------------------------------
+                         # total solution cells
 
-       coverage =
-           unique newly-filled cells after PA_1
-           ------------------------------------
-           n_houses * number_of_attributes
-
-    FINAL:
-        gate = BASE_CHECK * ACCURACY * CONSISTENCY
-
-        pa_reward = coverage if gate == 1 else 0.0
+    Structural safety:
+      - At least one PA must exist.
+      - Every PA must be evaluable and contain at least one resolved cell.
+        If not, pa_base_check = 0 and pa_reward = 0.
 
     Notes:
       - syntactic_clues are not added directly to the PA consistency solver;
+      - the consistency premise is Zebra structural BASE + preceding S-steps;
       - z3_out is not used by this PA reward;
-      - there is no monotonicity reward and no backup/alternative reward.
+      - accuracy/consistency are now continuous diagnostics, not binary gates.
     """
 
     out = copy.deepcopy(MISSING_PA_DEFAULTS)
@@ -801,16 +805,12 @@ def reward_PA(
         return out
 
     # -------------------------------------------------------------------------
-    # Walk the emitted reasoning trajectory in insertion order
+    # Running diagnostics / reward state
     # -------------------------------------------------------------------------
 
     parsed_pa_sequence: List[
         Tuple[str, Dict[Tuple[int, str], str]]
     ] = []
-
-    accuracy_ok = True
-    consistency_ok = True
-    prefix_healthy = True
 
     total_resolved = 0
     total_gt_correct = 0
@@ -820,7 +820,16 @@ def reward_PA(
     total_consistent = 0
     total_inconsistent = 0
 
+    # Positions that have ever appeared filled, for coverage-transition logging.
+    seen_filled_positions: Set[Tuple[int, str]] = set()
+
+    # Positions that have already earned PA reward.
+    rewarded_positions: Set[Tuple[int, str]] = set()
+
     last_s_seen = 0
+    n_s_seen = 0
+    prefix_healthy = True
+    every_pa_nonempty_and_evaluable = True
 
     for key, value in reasoning.items():
         key_str = str(key)
@@ -833,10 +842,10 @@ def reward_PA(
 
         if sm:
             last_s_seen = int(sm.group(1))
+            n_s_seen += 1
 
             if not isinstance(value, str):
                 prefix_healthy = False
-                consistency_ok = False
 
                 out["list_s_prefix_errors"].append({
                     "S": key_str,
@@ -851,11 +860,9 @@ def reward_PA(
                 tmp.add(phi_s)
                 status = tmp.check()
 
-                # A contradictory/unknown prefix cannot be used to prove PA
-                # cells. Fail the consistency gate safely.
+                # A contradictory/unknown prefix cannot prove PA cells.
                 if status != z3.sat:
                     prefix_healthy = False
-                    consistency_ok = False
 
                     out["list_s_prefix_errors"].append({
                         "S": key_str,
@@ -871,7 +878,6 @@ def reward_PA(
 
             except Exception as exc:
                 prefix_healthy = False
-                consistency_ok = False
 
                 out["list_s_prefix_errors"].append({
                     "S": key_str,
@@ -896,29 +902,44 @@ def reward_PA(
         )
 
         if pa_errors:
-            accuracy_ok = False
-            consistency_ok = False
-
+            every_pa_nonempty_and_evaluable = False
             out["list_pa_errors"].extend(pa_errors)
 
             out["pa_details"].append({
                 "pa": key_str,
                 "after_s": last_s_seen,
+                "n_prior_s": n_s_seen,
                 "evaluated": False,
                 "errors": pa_errors,
+                "accuracy": 0.0,
+                "consistency": 0.0,
+                "coverage": 0.0,
+                "reward_increment": 0.0,
             })
 
-            # Preserve the actual PA position in the chain.
             parsed_pa_sequence.append((key_str, {}))
             continue
 
         out["PA_n_evaluated"] += 1
         parsed_pa_sequence.append((key_str, resolved_cells))
 
+        n_filled = len(resolved_cells)
+
+        # Every PA must contain at least one resolved non-"?" cell.
+        if n_filled == 0:
+            every_pa_nonempty_and_evaluable = False
+            out["list_pa_errors"].append(
+                f"{key_str} contains no resolved non-'?' cells."
+            )
+
         pa_gt_correct = 0
         pa_gt_wrong = 0
         pa_consistent = 0
         pa_inconsistent = 0
+
+        # Positions that are simultaneously GT-correct and prefix-supported
+        # at THIS checkpoint.
+        joint_valid_positions: Set[Tuple[int, str]] = set()
 
         cell_details: List[Dict[str, Any]] = []
 
@@ -945,7 +966,6 @@ def reward_PA(
             else:
                 total_gt_wrong += 1
                 pa_gt_wrong += 1
-                accuracy_ok = False
 
                 out["list_pa_gt_wrong_cells"].append({
                     "pa": key_str,
@@ -960,44 +980,37 @@ def reward_PA(
 
             total_consistency_checked += 1
 
-            try:
-                zvar = _lookup_var(cell_value, var_map)
-                phi_cell = (zvar == house)
+            # Explicit requirement: if no S-step precedes PA_i,
+            # Consistency_i must be 0.0.
+            if n_s_seen == 0:
+                consistency_status = "NO_PRIOR_S"
 
-                if not prefix_healthy:
-                    consistency_status = "PREFIX_INVALID"
-                else:
+            elif not prefix_healthy:
+                consistency_status = "PREFIX_INVALID"
+
+            else:
+                try:
+                    zvar = _lookup_var(cell_value, var_map)
+                    phi_cell = (zvar == house)
+
                     consistency_status = _cell_consistency_status(
                         prefix_solver,
                         phi_cell,
                         timeout_s,
                     )
 
-            except Exception as exc:
-                consistency_status = "CHECK_ERROR"
+                except Exception as exc:
+                    consistency_status = "CHECK_ERROR"
 
-                out["list_pa_inconsistent_cells"].append({
-                    "pa": key_str,
-                    "after_s": last_s_seen,
-                    "house": house,
-                    "attribute": attr,
-                    "value": cell_value,
-                    "status": consistency_status,
-                    "error": f"{type(exc).__name__}: {exc}",
-                })
-
-                total_inconsistent += 1
-                pa_inconsistent += 1
-                consistency_ok = False
-
-                cell_details.append({
-                    "house": house,
-                    "attribute": attr,
-                    "value": cell_value,
-                    "gt_match": gt_match,
-                    "consistency_status": consistency_status,
-                })
-                continue
+                    out["list_pa_inconsistent_cells"].append({
+                        "pa": key_str,
+                        "after_s": last_s_seen,
+                        "house": house,
+                        "attribute": attr,
+                        "value": cell_value,
+                        "status": consistency_status,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    })
 
             if consistency_status == "CONSISTENT":
                 total_consistent += 1
@@ -1005,16 +1018,21 @@ def reward_PA(
             else:
                 total_inconsistent += 1
                 pa_inconsistent += 1
-                consistency_ok = False
 
-                out["list_pa_inconsistent_cells"].append({
-                    "pa": key_str,
-                    "after_s": last_s_seen,
-                    "house": house,
-                    "attribute": attr,
-                    "value": cell_value,
-                    "status": consistency_status,
-                })
+                # Avoid duplicating CHECK_ERROR, already logged above.
+                if consistency_status != "CHECK_ERROR":
+                    out["list_pa_inconsistent_cells"].append({
+                        "pa": key_str,
+                        "after_s": last_s_seen,
+                        "house": house,
+                        "attribute": attr,
+                        "value": cell_value,
+                        "status": consistency_status,
+                    })
+
+            # Joint reward criterion.
+            if gt_match and consistency_status == "CONSISTENT":
+                joint_valid_positions.add((house, attr))
 
             cell_details.append({
                 "house": house,
@@ -1024,110 +1042,162 @@ def reward_PA(
                 "consistency_status": consistency_status,
             })
 
+        # ---------------------------------------------------------------------
+        # Per-PA metrics
+        # ---------------------------------------------------------------------
+
+        pa_accuracy_i = (
+            pa_gt_correct / n_filled
+            if n_filled > 0
+            else 0.0
+        )
+
+        pa_consistency_i = (
+            pa_consistent / n_filled
+            if n_filled > 0 and n_s_seen > 0
+            else 0.0
+        )
+
+        pa_coverage_i = (
+            n_filled / total_solution_cells
+            if total_solution_cells > 0
+            else 0.0
+        )
+
+        pa_accuracy_i = float(max(0.0, min(1.0, pa_accuracy_i)))
+        pa_consistency_i = float(max(0.0, min(1.0, pa_consistency_i)))
+        pa_coverage_i = float(max(0.0, min(1.0, pa_coverage_i)))
+
+        # ---------------------------------------------------------------------
+        # Incremental / non-duplicative reward across PA checkpoints
+        # ---------------------------------------------------------------------
+
+        current_positions = set(resolved_cells.keys())
+
+        newly_filled_positions = (
+            current_positions - seen_filled_positions
+        )
+        seen_filled_positions.update(current_positions)
+
+        newly_rewarded_positions = (
+            joint_valid_positions - rewarded_positions
+        )
+        rewarded_positions.update(newly_rewarded_positions)
+
+        reward_increment = (
+            len(newly_rewarded_positions) / total_solution_cells
+            if total_solution_cells > 0
+            else 0.0
+        )
+
+        out["list_pa_coverage_transitions"].append({
+            "from_pa": (
+                "PA0"
+                if len(parsed_pa_sequence) == 1
+                else parsed_pa_sequence[-2][0]
+            ),
+            "to_pa": key_str,
+            "resolved_cells": n_filled,
+            "coverage": pa_coverage_i,
+            "newly_filled_cells": len(newly_filled_positions),
+            "newly_filled_positions": [
+                {"house": h, "attribute": a}
+                for h, a in sorted(newly_filled_positions)
+            ],
+            "joint_valid_cells": len(joint_valid_positions),
+            "newly_rewarded_cells": len(newly_rewarded_positions),
+            "newly_rewarded_positions": [
+                {"house": h, "attribute": a}
+                for h, a in sorted(newly_rewarded_positions)
+            ],
+            "reward_increment": reward_increment,
+        })
+
         out["pa_details"].append({
             "pa": key_str,
             "after_s": last_s_seen,
+            "n_prior_s": n_s_seen,
             "evaluated": True,
-            "resolved_cells": len(resolved_cells),
+            "resolved_cells": n_filled,
+
+            "accuracy": pa_accuracy_i,
+            "consistency": pa_consistency_i,
+            "coverage": pa_coverage_i,
+
             "gt_correct_cells": pa_gt_correct,
             "gt_wrong_cells": pa_gt_wrong,
             "consistent_cells": pa_consistent,
             "inconsistent_cells": pa_inconsistent,
+
+            "joint_valid_cells": len(joint_valid_positions),
+            "newly_rewarded_cells": len(newly_rewarded_positions),
+            "reward_increment": reward_increment,
+
             "cell_details": cell_details,
         })
 
     # =========================================================================
-    # A. BASE_CHECK
+    # Aggregate diagnostics
     # =========================================================================
-
-    final_pa_resolved_count = (
-        len(parsed_pa_sequence[-1][1])
-        if parsed_pa_sequence
-        else 0
-    )
 
     pa_base_check = (
         1.0
-        if final_pa_resolved_count > 0
-        else 0.0
-    )
-
-    # =========================================================================
-    # B. ACCURACY
-    # =========================================================================
-
-    pa_accuracy = (1.0 if accuracy_ok else 0.0)
-
-    # =========================================================================
-    # C. CONSISTENCY
-    # =========================================================================
-
-    pa_consistency = (1.0 if consistency_ok else 0.0)
-
-    # =========================================================================
-    # D. COVERAGE
-    # =========================================================================
-
-    unique_newly_filled: Set[Tuple[int, str]] = set()
-
-    for idx in range(len(parsed_pa_sequence) - 1):
-        pa_i_key, pa_i_cells = parsed_pa_sequence[idx]
-        pa_next_key, pa_next_cells = parsed_pa_sequence[idx + 1]
-
-        previous_positions = set(pa_i_cells.keys())
-        next_positions = set(pa_next_cells.keys())
-
-        newly_filled = next_positions - previous_positions
-
-        # A position can receive reward only once over the entire chain.
-        newly_rewarded = newly_filled - unique_newly_filled
-        unique_newly_filled.update(newly_rewarded)
-
-        out["list_pa_coverage_transitions"].append({
-            "from_pa": pa_i_key,
-            "to_pa": pa_next_key,
-            "previous_resolved_cells": len(previous_positions),
-            "next_resolved_cells": len(next_positions),
-            "newly_filled_cells": len(newly_filled),
-            "newly_rewarded_unique_cells": len(newly_rewarded),
-            "newly_rewarded_positions": [
-                {
-                    "house": house,
-                    "attribute": attr,
-                }
-                for house, attr in sorted(newly_rewarded)
-            ],
-        })
-
-    n_newly_filled = len(unique_newly_filled)
-
-    pa_coverage = (
-        n_newly_filled / total_solution_cells
-        if total_solution_cells > 0
-        else 0.0
-    )
-
-    pa_coverage = float(
-        max(0.0, min(1.0, pa_coverage))
-    )
-
-    # =========================================================================
-    # Combined gate and final reward
-    # =========================================================================
-
-    pa_gate_pass = (
-        1.0
         if (
-            pa_base_check == 1.0
-            and pa_accuracy == 1.0
-            and pa_consistency == 1.0
+            out["PA_n_total"] > 0
+            and out["PA_n_evaluated"] == out["PA_n_total"]
+            and every_pa_nonempty_and_evaluable
         )
         else 0.0
     )
 
+    # Micro-average over all filled PA-cell occurrences.
+    pa_accuracy = (
+        total_gt_correct / total_resolved
+        if total_resolved > 0
+        else 0.0
+    )
+
+    pa_consistency = (
+        total_consistent / total_consistency_checked
+        if total_consistency_checked > 0
+        else 0.0
+    )
+
+    # State coverage of the final evaluable PA. With monotonic PA format this
+    # is also the maximum coverage reached by the trajectory.
+    final_pa_cells = (
+        parsed_pa_sequence[-1][1]
+        if parsed_pa_sequence
+        else {}
+    )
+
+    pa_coverage = (
+        len(final_pa_cells) / total_solution_cells
+        if total_solution_cells > 0
+        else 0.0
+    )
+
+    pa_accuracy = float(max(0.0, min(1.0, pa_accuracy)))
+    pa_consistency = float(max(0.0, min(1.0, pa_consistency)))
+    pa_coverage = float(max(0.0, min(1.0, pa_coverage)))
+
+    # Dense PA reward:
+    # unique positions that have, at some checkpoint, been BOTH
+    # GT-correct and strongly implied by the preceding S-prefix.
+    dense_reward = (
+        len(rewarded_positions) / total_solution_cells
+        if total_solution_cells > 0
+        else 0.0
+    )
+    dense_reward = float(max(0.0, min(1.0, dense_reward)))
+
+    # Structural gate only. Accuracy/consistency are no longer all-or-nothing
+    # gates; they contribute through the cell-level dense reward above.
+    pa_gate_pass = pa_base_check
+
     pa_reward = (
-        pa_coverage
-        if pa_gate_pass == 1.0
+        dense_reward
+        if pa_base_check == 1.0
         else 0.0
     )
 
@@ -1153,29 +1223,21 @@ def reward_PA(
     out["PA_n_consistent_cells"] = int(total_consistent)
     out["PA_n_inconsistent_cells"] = int(total_inconsistent)
 
-    out["PA_n_newly_filled_cells"] = int(n_newly_filled)
+    out["PA_n_newly_filled_cells"] = int(
+        len(seen_filled_positions)
+    )
+    out["PA_n_rewarded_cells"] = int(
+        len(rewarded_positions)
+    )
 
     if out["PA_n_evaluated"] == 0:
         out["reward_status"] = "no_evaluable_pa"
 
-    elif pa_gate_pass == 1.0:
-        out["reward_status"] = "success"
+    elif pa_base_check == 0.0:
+        out["reward_status"] = "base_check_failed"
 
     else:
-        failed_gates: List[str] = []
-
-        if pa_base_check == 0.0:
-            failed_gates.append("BASE_CHECK")
-
-        if pa_accuracy == 0.0:
-            failed_gates.append("ACCURACY")
-
-        if pa_consistency == 0.0:
-            failed_gates.append("CONSISTENCY")
-
-        out["reward_status"] = (
-            "gate_failed:" + ",".join(failed_gates)
-        )
+        out["reward_status"] = "success"
 
     return out
 
@@ -1201,7 +1263,6 @@ def _print_test_result(
         "pa_accuracy",
         "pa_consistency",
         "pa_coverage",
-        "pa_gate_pass",
         "pa_reward",
         "PA_n_resolved_cells",
         "PA_n_gt_correct_cells",
@@ -1210,29 +1271,20 @@ def _print_test_result(
         "PA_n_consistent_cells",
         "PA_n_inconsistent_cells",
         "PA_n_newly_filled_cells",
+        "PA_n_rewarded_cells",
         "PA_total_solution_cells",
     ]:
         print(f"{key:36s}: {result.get(key)}")
 
-    if result.get("list_pa_gt_wrong_cells"):
-        print("\nGT-wrong PA cells:")
-        for item in result["list_pa_gt_wrong_cells"]:
-            print("  ", item)
-
-    if result.get("list_pa_inconsistent_cells"):
-        print("\nInconsistent / unsupported PA cells:")
-        for item in result["list_pa_inconsistent_cells"]:
-            print("  ", item)
-
-    if result.get("list_pa_coverage_transitions"):
-        print("\nCoverage transitions:")
-        for item in result["list_pa_coverage_transitions"]:
-            print("  ", item)
-
-    if result.get("list_s_prefix_errors"):
-        print("\nS-prefix errors:")
-        for item in result["list_s_prefix_errors"]:
-            print("  ", item)
+    print("\nPer-PA details:")
+    for item in result.get("pa_details", []):
+        print(
+            f"  {item.get('pa')}: "
+            f"acc={item.get('accuracy')} "
+            f"cons={item.get('consistency')} "
+            f"cov={item.get('coverage')} "
+            f"inc={item.get('reward_increment')}"
+        )
 
 
 def _base_test_payload() -> Dict[str, Any]:
@@ -1260,8 +1312,6 @@ def _base_test_payload() -> Dict[str, Any]:
                 ["2", "Eric", "blue"],
             ],
         },
-        # z3_out may still be supplied by the unchanged caller, but reward_PA()
-        # intentionally does not use it.
         "z3_out": {},
     }
 
@@ -1269,26 +1319,244 @@ def _base_test_payload() -> Dict[str, Any]:
 if __name__ == "__main__":
 
     # -------------------------------------------------------------------------
-    # TEST 1: clean trajectory
+    # TEST 1: ONE useful PA.
     #
-    # PA1 resolves Arnold/red in House 1.
-    # PA2 fills Eric/blue in House 2.
-    #
-    # Newly filled after PA1 = 2 cells
-    # Total solution cells      = 4
-    # Expected coverage/reward  = 2/4 = 0.5
+    # 2/4 cells are filled; both are GT-correct and supported by prior S.
+    # Accuracy    = 1.0
+    # Consistency = 1.0
+    # Coverage    = 2/4 = 0.50
+    # Reward      = 2/4 = 0.50
     # -------------------------------------------------------------------------
 
     p1 = _base_test_payload()
-
     p1["reasoning"] = {
         "NL1": "Arnold is in house 1.",
         "S1": "Arnold == 1.",
+        "NL2": "Red is in house 1.",
+        "S2": "red == 1.",
+        "PA1": {
+            "header": ["House", "Name", "Color"],
+            "rows": [
+                ["1", "Arnold", "red"],
+                ["2", "?", "?"],
+            ],
+        },
+    }
+
+    r1 = reward_PA(p1)
+    _print_test_result("TEST 1 - Single useful PA", r1)
+
+    assert abs(r1["pa_accuracy"] - 1.0) < 1e-9
+    assert abs(r1["pa_consistency"] - 1.0) < 1e-9
+    assert abs(r1["pa_coverage"] - 0.50) < 1e-9
+    assert abs(r1["pa_reward"] - 0.50) < 1e-9
+
+    # -------------------------------------------------------------------------
+    # TEST 2: PA before any S-step.
+    #
+    # Accuracy    = 1.0
+    # Consistency = 0.0 by definition
+    # Coverage    = 1/4 = 0.25
+    # Reward      = 0.0
+    # -------------------------------------------------------------------------
+
+    p2 = _base_test_payload()
+    p2["reasoning"] = {
+        "PA1": {
+            "header": ["House", "Name", "Color"],
+            "rows": [
+                ["1", "Arnold", "?"],
+                ["2", "?", "?"],
+            ],
+        },
+        "NL1": "Arnold is in house 1.",
+        "S1": "Arnold == 1.",
+    }
+
+    r2 = reward_PA(p2)
+    _print_test_result("TEST 2 - PA before any S-step", r2)
+
+    assert abs(r2["pa_accuracy"] - 1.0) < 1e-9
+    assert abs(r2["pa_consistency"] - 0.0) < 1e-9
+    assert abs(r2["pa_coverage"] - 0.25) < 1e-9
+    assert abs(r2["pa_reward"] - 0.0) < 1e-9
+
+    # -------------------------------------------------------------------------
+    # TEST 3: Multiple progressive PAs.
+    #
+    # PA1 earns Arnold=1                  -> +1/4
+    # PA2 adds red=1                      -> +1/4
+    # PA3 repeats the same state          -> +0
+    #
+    # Total reward = 2/4 = 0.50, NOT 0.75.
+    # -------------------------------------------------------------------------
+
+    p3 = _base_test_payload()
+    p3["reasoning"] = {
+        "NL1": "Arnold is in house 1.",
+        "S1": "Arnold == 1.",
+        "PA1": {
+            "header": ["House", "Name", "Color"],
+            "rows": [
+                ["1", "Arnold", "?"],
+                ["2", "?", "?"],
+            ],
+        },
+
+        "NL2": "Red is in house 1.",
+        "S2": "red == 1.",
+        "PA2": {
+            "header": ["House", "Name", "Color"],
+            "rows": [
+                ["1", "Arnold", "red"],
+                ["2", "?", "?"],
+            ],
+        },
+
+        "PA3": {
+            "header": ["House", "Name", "Color"],
+            "rows": [
+                ["1", "Arnold", "red"],
+                ["2", "?", "?"],
+            ],
+        },
+    }
+
+    r3 = reward_PA(p3)
+    _print_test_result("TEST 3 - Multiple PAs; repeated state gets no extra credit", r3)
+
+    assert abs(r3["pa_reward"] - 0.50) < 1e-9
+    assert r3["PA_n_rewarded_cells"] == 2
+    assert abs(r3["pa_details"][0]["reward_increment"] - 0.25) < 1e-9
+    assert abs(r3["pa_details"][1]["reward_increment"] - 0.25) < 1e-9
+    assert abs(r3["pa_details"][2]["reward_increment"] - 0.00) < 1e-9
+
+    # -------------------------------------------------------------------------
+    # TEST 4: A filled cell can become rewardable later.
+    #
+    # PA1 contains:
+    #   Arnold=1 -> supported
+    #   red=1    -> GT-correct but NOT yet implied
+    #
+    # After S2 establishes red=1, PA2 repeats the same state.
+    # red=1 then earns its first reward.
+    #
+    # Total reward = 2/4 = 0.50.
+    # -------------------------------------------------------------------------
+
+    p4 = _base_test_payload()
+    p4["reasoning"] = {
+        "NL1": "Arnold is in house 1.",
+        "S1": "Arnold == 1.",
+        "PA1": {
+            "header": ["House", "Name", "Color"],
+            "rows": [
+                ["1", "Arnold", "red"],
+                ["2", "?", "?"],
+            ],
+        },
+
+        "NL2": "Red is in house 1.",
+        "S2": "red == 1.",
+        "PA2": {
+            "header": ["House", "Name", "Color"],
+            "rows": [
+                ["1", "Arnold", "red"],
+                ["2", "?", "?"],
+            ],
+        },
+    }
+
+    r4 = reward_PA(p4)
+    _print_test_result("TEST 4 - Previously unsupported cell becomes supported later", r4)
+
+    assert abs(r4["pa_reward"] - 0.50) < 1e-9
+    assert abs(r4["pa_details"][0]["accuracy"] - 1.0) < 1e-9
+    assert abs(r4["pa_details"][0]["consistency"] - 0.5) < 1e-9
+    assert abs(r4["pa_details"][0]["coverage"] - 0.50) < 1e-9
+    assert abs(r4["pa_details"][0]["reward_increment"] - 0.25) < 1e-9
+    assert abs(r4["pa_details"][1]["consistency"] - 1.0) < 1e-9
+    assert abs(r4["pa_details"][1]["reward_increment"] - 0.25) < 1e-9
+
+    print("\nAll dense PA reward tests passed.")
+
+    # -------------------------------------------------------------------------
+    # TEST 5: Single PA with partial accuracy.
+    #
+    # Arnold=1 is GT-correct and supported.
+    # blue=1 is GT-wrong but supported by S2.
+    #
+    # Filled cells = 2/4
+    #
+    # Accuracy    = 1/2 = 0.50
+    # Consistency = 2/2 = 1.00
+    # Coverage    = 2/4 = 0.50
+    #
+    # Only Arnold=1 is BOTH correct and supported.
+    # Reward      = 1/4 = 0.25
+    # -------------------------------------------------------------------------
+
+    p5 = _base_test_payload()
+
+    p5["reasoning"] = {
+        "NL1": "Arnold is in house 1.",
+        "S1": "Arnold == 1.",
+
+        "NL2": "Blue is in house 1.",
+        "S2": "blue == 1.",
+
+        "PA1": {
+            "header": ["House", "Name", "Color"],
+            "rows": [
+                ["1", "Arnold", "blue"],
+                ["2", "?", "?"],
+            ],
+        },
+    }
+
+    r5 = reward_PA(p5)
+
+    _print_test_result(
+        "TEST 5 - Single PA with partial accuracy",
+        r5,
+    )
+
+    assert abs(r5["pa_accuracy"] - 0.50) < 1e-9
+    assert abs(r5["pa_consistency"] - 1.00) < 1e-9
+    assert abs(r5["pa_coverage"] - 0.50) < 1e-9
+    assert abs(r5["pa_reward"] - 0.25) < 1e-9
+    assert r5["PA_n_rewarded_cells"] == 1
+
+    # -------------------------------------------------------------------------
+    # TEST 6: Multiple progressive PAs reaching full coverage.
+    #
+    # PA1: Arnold=1                     -> reward 1/4
+    # PA2: + red=1                      -> reward +1/4
+    # PA3: + Eric=2                     -> reward +1/4
+    # PA4: + blue=2                     -> reward +1/4
+    #
+    # Final Coverage = 4/4 = 1.0
+    # Total PA reward = 1.0
+    # -------------------------------------------------------------------------
+
+    p6 = _base_test_payload()
+
+    p6["reasoning"] = {
+        "NL1": "Arnold is in house 1.",
+        "S1": "Arnold == 1.",
+
+        "PA1": {
+            "header": ["House", "Name", "Color"],
+            "rows": [
+                ["1", "Arnold", "?"],
+                ["2", "?", "?"],
+            ],
+        },
 
         "NL2": "Red is in house 1.",
         "S2": "red == 1.",
 
-        "PA1": {
+        "PA2": {
             "header": ["House", "Name", "Color"],
             "rows": [
                 ["1", "Arnold", "red"],
@@ -1299,235 +1567,7 @@ if __name__ == "__main__":
         "NL3": "Eric must occupy the remaining house.",
         "S3": "Eric == 2.",
 
-        "NL4": "Blue must occupy the remaining house.",
-        "S4": "blue == 2.",
-
-        "PA2": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "Eric", "blue"],
-            ],
-        },
-    }
-
-    r1 = reward_PA(p1)
-    _print_test_result(
-        "TEST 1 - Clean trajectory: expected reward = 0.5",
-        r1,
-    )
-
-    assert r1["pa_base_check"] == 1.0
-    assert r1["pa_accuracy"] == 1.0
-    assert r1["pa_consistency"] == 1.0
-    assert abs(r1["pa_coverage"] - 0.5) < 1e-9
-    assert abs(r1["pa_reward"] - 0.5) < 1e-9
-
-    # -------------------------------------------------------------------------
-    # TEST 2: GT-correct but NOT supported by prior S-prefix
-    #
-    # red=1 is correct in GT, but before PA1 the S-prefix only says Arnold=1.
-    # Therefore Accuracy passes, Consistency fails, reward = 0.
-    # -------------------------------------------------------------------------
-
-    p2 = _base_test_payload()
-
-    p2["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "NL2": "Eric is in house 2.",
-        "S2": "Eric == 2.",
-
-        "NL3": "Blue is in house 2.",
-        "S3": "blue == 2.",
-
-        "PA2": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "Eric", "blue"],
-            ],
-        },
-    }
-
-    r2 = reward_PA(p2)
-    _print_test_result(
-        "TEST 2 - Accurate but unsupported PA cell: expected reward = 0",
-        r2,
-    )
-
-    assert r2["pa_base_check"] == 1.0
-    assert r2["pa_accuracy"] == 1.0
-    assert r2["pa_consistency"] == 0.0
-    assert r2["pa_reward"] == 0.0
-
-    # -------------------------------------------------------------------------
-    # TEST 3: PA contains GT-wrong cells
-    #
-    # PA2 swaps the names. Accuracy must fail, therefore reward = 0.
-    # -------------------------------------------------------------------------
-
-    p3 = _base_test_payload()
-
-    p3["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-
-        "NL2": "Red is in house 1.",
-        "S2": "red == 1.",
-
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "PA2": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Eric", "red"],
-                ["2", "Arnold", "?"],
-            ],
-        },
-    }
-
-    r3 = reward_PA(p3)
-    _print_test_result(
-        "TEST 3 - GT-wrong PA cells: expected reward = 0",
-        r3,
-    )
-
-    assert r3["pa_base_check"] == 1.0
-    assert r3["pa_accuracy"] == 0.0
-    assert r3["pa_reward"] == 0.0
-
-    # -------------------------------------------------------------------------
-    # TEST 4: final PA is completely unknown
-    #
-    # BASE_CHECK must fail even if an earlier PA contained valid assignments.
-    # -------------------------------------------------------------------------
-
-    p4 = _base_test_payload()
-
-    p4["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "?"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "PA2": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "?", "?"],
-                ["2", "?", "?"],
-            ],
-        },
-    }
-
-    r4 = reward_PA(p4)
-    _print_test_result(
-        "TEST 4 - Last PA all '?': expected BASE_CHECK=0 and reward=0",
-        r4,
-    )
-
-    assert r4["pa_base_check"] == 0.0
-    assert r4["pa_reward"] == 0.0
-
-    # -------------------------------------------------------------------------
-    # TEST 5: Coverage = 0.00
-    #
-    # PA2 adds nothing beyond PA1.
-    #
-    # Total solution cells = 4
-    # Newly filled cells    = 0
-    #
-    # Expected:
-    #   BASE_CHECK  = 1
-    #   ACCURACY    = 1
-    #   CONSISTENCY = 1
-    #   COVERAGE    = 0.00
-    #   REWARD      = 0.00
-    # -------------------------------------------------------------------------
-
-    p5 = _base_test_payload()
-
-    p5["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "?"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "PA2": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "?"],
-                ["2", "?", "?"],
-            ],
-        },
-    }
-
-    r5 = reward_PA(p5)
-
-    _print_test_result(
-        "TEST 5 - No incremental progress: expected coverage = 0.00",
-        r5,
-    )
-
-    assert r5["pa_base_check"] == 1.0
-    assert r5["pa_accuracy"] == 1.0
-    assert r5["pa_consistency"] == 1.0
-    assert abs(r5["pa_coverage"] - 0.00) < 1e-9
-    assert abs(r5["pa_reward"] - 0.00) < 1e-9
-
-
-    # -------------------------------------------------------------------------
-    # TEST 6: Coverage = 0.25
-    #
-    # PA1 already contains 3/4 cells.
-    # PA2 adds exactly one new cell.
-    #
-    # Newly filled cells = 1
-    # Total cells        = 4
-    #
-    # Coverage = 1/4 = 0.25
-    # -------------------------------------------------------------------------
-
-    p6 = _base_test_payload()
-
-    p6["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-
-        "NL2": "Red is in house 1.",
-        "S2": "red == 1.",
-
-        "NL3": "Eric is therefore in house 2.",
-        "S3": "Eric == 2.",
-
-        "PA1": {
+        "PA3": {
             "header": ["House", "Name", "Color"],
             "rows": [
                 ["1", "Arnold", "red"],
@@ -1535,10 +1575,10 @@ if __name__ == "__main__":
             ],
         },
 
-        "NL4": "Blue is in the remaining house.",
+        "NL4": "Blue must occupy the remaining color position.",
         "S4": "blue == 2.",
 
-        "PA2": {
+        "PA4": {
             "header": ["House", "Name", "Color"],
             "rows": [
                 ["1", "Arnold", "red"],
@@ -1550,25 +1590,29 @@ if __name__ == "__main__":
     r6 = reward_PA(p6)
 
     _print_test_result(
-        "TEST 6 - One newly filled cell: expected coverage = 0.25",
+        "TEST 6 - Multiple progressive PAs to full coverage",
         r6,
     )
 
-    assert r6["pa_base_check"] == 1.0
-    assert r6["pa_accuracy"] == 1.0
-    assert r6["pa_consistency"] == 1.0
-    assert r6["PA_n_newly_filled_cells"] == 1
-    assert abs(r6["pa_coverage"] - 0.25) < 1e-9
-    assert abs(r6["pa_reward"] - 0.25) < 1e-9
+    assert r6["PA_n_total"] == 4
+    assert r6["PA_n_rewarded_cells"] == 4
 
+    assert abs(r6["pa_coverage"] - 1.0) < 1e-9
+    assert abs(r6["pa_reward"] - 1.0) < 1e-9
+
+    assert abs(r6["pa_details"][0]["reward_increment"] - 0.25) < 1e-9
+    assert abs(r6["pa_details"][1]["reward_increment"] - 0.25) < 1e-9
+    assert abs(r6["pa_details"][2]["reward_increment"] - 0.25) < 1e-9
+    assert abs(r6["pa_details"][3]["reward_increment"] - 0.25) < 1e-9
 
     # -------------------------------------------------------------------------
-    # TEST 7: Coverage = 0.50
+    # TEST 7: Empty PA is invalid.
     #
-    # PA1 contains 2/4 cells.
-    # PA2 adds the remaining 2 cells.
+    # PA1 exists structurally but has zero resolved cells.
     #
-    # Coverage = 2/4 = 0.50
+    # Expected:
+    #   pa_base_check = 0
+    #   pa_reward     = 0
     # -------------------------------------------------------------------------
 
     p7 = _base_test_payload()
@@ -1577,132 +1621,6 @@ if __name__ == "__main__":
         "NL1": "Arnold is in house 1.",
         "S1": "Arnold == 1.",
 
-        "NL2": "Red is in house 1.",
-        "S2": "red == 1.",
-
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "NL3": "Eric occupies the remaining house.",
-        "S3": "Eric == 2.",
-
-        "NL4": "Blue occupies the remaining house.",
-        "S4": "blue == 2.",
-
-        "PA2": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "Eric", "blue"],
-            ],
-        },
-    }
-
-    r7 = reward_PA(p7)
-
-    _print_test_result(
-        "TEST 7 - Two newly filled cells: expected coverage = 0.50",
-        r7,
-    )
-
-    assert r7["pa_base_check"] == 1.0
-    assert r7["pa_accuracy"] == 1.0
-    assert r7["pa_consistency"] == 1.0
-    assert r7["PA_n_newly_filled_cells"] == 2
-    assert abs(r7["pa_coverage"] - 0.50) < 1e-9
-    assert abs(r7["pa_reward"] - 0.50) < 1e-9
-
-
-    # -------------------------------------------------------------------------
-    # TEST 8: Coverage = 0.75
-    #
-    # PA1 contains only Arnold=1.
-    # PA2 adds red=1.
-    # PA3 adds Eric=2 and blue=2.
-    #
-    # Total new cells = 3
-    # Coverage        = 3/4 = 0.75
-    #
-    # This also checks accumulation across MULTIPLE PA transitions.
-    # -------------------------------------------------------------------------
-
-    p8 = _base_test_payload()
-
-    p8["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "?"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "NL2": "Red is in house 1.",
-        "S2": "red == 1.",
-
-        "PA2": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "NL3": "Eric occupies house 2.",
-        "S3": "Eric == 2.",
-
-        "NL4": "Blue occupies house 2.",
-        "S4": "blue == 2.",
-
-        "PA3": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "Eric", "blue"],
-            ],
-        },
-    }
-
-    r8 = reward_PA(p8)
-
-    _print_test_result(
-        "TEST 8 - Multi-PA accumulation: expected coverage = 0.75",
-        r8,
-    )
-
-    assert r8["pa_base_check"] == 1.0
-    assert r8["pa_accuracy"] == 1.0
-    assert r8["pa_consistency"] == 1.0
-    assert r8["PA_n_newly_filled_cells"] == 3
-    assert abs(r8["pa_coverage"] - 0.75) < 1e-9
-    assert abs(r8["pa_reward"] - 0.75) < 1e-9
-
-
-    # -------------------------------------------------------------------------
-    # TEST 9: Coverage = 1.00
-    #
-    # PA1 is completely empty.
-    # All four cells are established by S-steps before PA2.
-    # PA2 then fills all four cells.
-    #
-    # Newly filled = 4
-    # Coverage     = 4/4 = 1.00
-    #
-    # NOTE:
-    # BASE_CHECK only applies to the LAST PA, so an empty PA1 is allowed.
-    # -------------------------------------------------------------------------
-
-    p9 = _base_test_payload()
-
-    p9["reasoning"] = {
         "PA1": {
             "header": ["House", "Name", "Color"],
             "rows": [
@@ -1710,122 +1628,18 @@ if __name__ == "__main__":
                 ["2", "?", "?"],
             ],
         },
-
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-
-        "NL2": "Eric is in house 2.",
-        "S2": "Eric == 2.",
-
-        "NL3": "Red is in house 1.",
-        "S3": "red == 1.",
-
-        "NL4": "Blue is in house 2.",
-        "S4": "blue == 2.",
-
-        "PA2": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "Eric", "blue"],
-            ],
-        },
     }
 
-    r9 = reward_PA(p9)
+    r7 = reward_PA(p7)
 
     _print_test_result(
-        "TEST 9 - Full incremental coverage: expected coverage = 1.00",
-        r9,
+        "TEST 7 - Empty PA must fail BASE_CHECK",
+        r7,
     )
 
-    assert r9["pa_base_check"] == 1.0
-    assert r9["pa_accuracy"] == 1.0
-    assert r9["pa_consistency"] == 1.0
-    assert r9["PA_n_newly_filled_cells"] == 4
-    assert abs(r9["pa_coverage"] - 1.00) < 1e-9
-    assert abs(r9["pa_reward"] - 1.00) < 1e-9
+    assert r7["pa_present"] == 1.0
+    assert r7["PA_n_total"] == 1
+    assert r7["pa_base_check"] == 0.0
+    assert r7["pa_reward"] == 0.0
+    assert r7["reward_status"] == "base_check_failed"
 
-
-    # -------------------------------------------------------------------------
-    # TEST 10: Forget + refill should NOT increase coverage twice.
-    #
-    # PA1:
-    #   Arnold known
-    #
-    # PA2:
-    #   adds red              -> +1 coverage cell
-    #
-    # PA3:
-    #   red becomes '?'
-    #
-    # PA4:
-    #   red is filled again
-    #
-    # red must NOT receive coverage for a second time.
-    #
-    # Expected:
-    #   unique newly-filled cells = 1
-    #   coverage = 1/4 = 0.25
-    # -------------------------------------------------------------------------
-
-    p10 = _base_test_payload()
-
-    p10["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "?"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "NL2": "Red is in house 1.",
-        "S2": "red == 1.",
-
-        "PA2": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "PA3": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "?"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "PA4": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "?", "?"],
-            ],
-        },
-    }
-
-    r10 = reward_PA(p10)
-
-    _print_test_result(
-        "TEST 10 - Refill does not double-count: expected coverage = 0.25",
-        r10,
-    )
-
-    assert r10["pa_base_check"] == 1.0
-    assert r10["pa_accuracy"] == 1.0
-    assert r10["pa_consistency"] == 1.0
-    assert r10["PA_n_newly_filled_cells"] == 1
-    assert abs(r10["pa_coverage"] - 0.25) < 1e-9
-    assert abs(r10["pa_reward"] - 0.25) < 1e-9
-
-
-    print("\nAll extended PA reward tests passed.")
-
-    print("\nAll PA reward tests passed.")

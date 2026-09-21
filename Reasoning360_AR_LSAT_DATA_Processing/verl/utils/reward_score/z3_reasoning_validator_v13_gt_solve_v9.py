@@ -922,9 +922,9 @@ def normalize_header(data_sample):
       data_sample["ground_truth"]["header"]
     """
     header = data_sample.get("header", [])
-    sports_aliases = {"FavoriteSports", "Sports", "FavoriteSport"}
+    sports_aliases = {"FavoriteSports", "Sports", "Sport", "FavoriteSport"}
 
-    data_sample["header"] = ["Sport" if h in sports_aliases else h for h in header]
+    data_sample["header"] = ["FavoriteSport" if h in sports_aliases else h for h in header]
     return data_sample
 
 def validate_solution_against_ground_truth(
