@@ -918,14 +918,44 @@ def _model_to_solution_table(model, n: int, attribute_values: Dict[str, List[str
 
 def normalize_header(data_sample):
     """
-    Replaces sport-related header names with 'Sport' in:
-      data_sample["ground_truth"]["header"]
+    Canonicalize sport-related header aliases to 'FavoriteSport'
+    in data_sample["header"].
     """
-    header = data_sample.get("header", [])
-    sports_aliases = {"FavoriteSports", "Sports", "Sport", "FavoriteSport"}
+    if not isinstance(data_sample, dict):
+        return data_sample
 
-    data_sample["header"] = ["FavoriteSport" if h in sports_aliases else h for h in header]
+    header = data_sample.get("header", [])
+
+    if not isinstance(header, list):
+        return data_sample
+
+    normalized_header = []
+
+    sport_aliases = {
+        "sport",
+        "sports",
+        "favoritesport",
+        "favoritesports",
+    }
+
+    for h in header:
+        h_str = str(h).strip()
+
+        h_key = (
+            h_str.lower()
+            .replace(" ", "")
+            .replace("_", "")
+            .replace("-", "")
+        )
+
+        if h_key in sport_aliases:
+            normalized_header.append("FavoriteSport")
+        else:
+            normalized_header.append(h_str)
+
+    data_sample["header"] = normalized_header
     return data_sample
+
 
 def validate_solution_against_ground_truth(
     z3_solution: Optional[Dict[str, Any]],

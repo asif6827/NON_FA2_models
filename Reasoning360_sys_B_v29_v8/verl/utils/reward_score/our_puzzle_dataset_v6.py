@@ -27,10 +27,10 @@ from verl.utils.reward_score.check_interleved_format_nspa_v1 import check_interl
 from verl.utils.reward_score.z3_reasoning_vs_solution_verifier_v2 import verify_solution_two_step
 
 try:
-    from verl.utils.reward_score.reward_PA_v4 import (reward_PA, MISSING_PA_DEFAULTS,)
+    from verl.utils.reward_score.reward_PA_v5 import (reward_PA, MISSING_PA_DEFAULTS,)
 except Exception:
     try:
-        from reward_PA_v4 import (reward_PA, MISSING_PA_DEFAULTS,)
+        from reward_PA_v5 import (reward_PA, MISSING_PA_DEFAULTS,)
     except Exception:
         reward_PA = None
         MISSING_PA_DEFAULTS = {
@@ -850,7 +850,19 @@ def normalize_table(t: Any) -> Optional[Dict[str, Any]]:
     }
 
 
+def normalize_pa_headers(reasoning):
+    """
+    Normalize headers of every PA_i in the reasoning trajectory.
+    """
+    if not isinstance(reasoning, dict):
+        return reasoning
 
+    for key, value in reasoning.items():
+        if re.fullmatch(r"PA\d+", str(key), flags=re.IGNORECASE):
+            if isinstance(value, dict):
+                normalize_header(value)
+
+    return reasoning
 
 def compute_score(
         solution_str,
@@ -993,8 +1005,8 @@ def compute_score(
         )
 
 
-        ground_truth = normalize_ground_truth(ground_truth)
-        ground_truth = normalize_header(ground_truth)
+        #ground_truth = normalize_ground_truth(ground_truth)
+        #ground_truth = normalize_header(ground_truth)
         #ground_truth = normalize_months_in_rows(ground_truth)
         norm_pred = None
         cell_acc_score = 0.0
@@ -1068,6 +1080,18 @@ def compute_score(
             parsing_reward = 1.0
         # meta selection
         meta_used = meta
+
+        # ------------------------------------------------------------
+        # Normalize schemas ONCE before scoring
+        # ------------------------------------------------------------
+
+        ground_truth = normalize_ground_truth(ground_truth)
+        ground_truth = normalize_header(ground_truth)
+        parsed_reasoning = normalize_pa_headers(parsed_reasoning)
+
+        if isinstance(predicted_arrangement, dict):
+            predicted_arrangement = normalize_header(predicted_arrangement)
+
 
         if meta_used is None and isinstance(extra_info, dict):
             meta_used = extra_info.get("meta") or extra_info

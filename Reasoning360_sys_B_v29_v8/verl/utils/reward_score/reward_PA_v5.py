@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import re
+import z3
 import ast
 import copy
-import re
 from typing import Any, Dict, List, Optional, Set, Tuple
+from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import normalize_header
 
-import z3
+
 
 
 # =============================================================================
@@ -644,7 +646,7 @@ def _cell_consistency_status(
         positive_status == z3.sat
         and negative_status == z3.unsat
     ):
-        return "CONSISTENT"
+        return "IMPLIED"
 
     if positive_status == z3.unsat:
         return "CONTRADICTION"
@@ -657,25 +659,6 @@ def _cell_consistency_status(
 
     return "NOT_IMPLIED"
 
-def _extract_clue_expr(clue: str) -> str:
-    """
-    Convert:
-        C1: Arnold == red.
-    into:
-        Arnold == red
-    """
-    raw = str(clue).strip()
-
-    m = re.match(
-        r"^\s*C\d+\s*:\s*(.*?)\s*\.?\s*$",
-        raw,
-        flags=re.IGNORECASE,
-    )
-
-    if m:
-        return m.group(1).strip().rstrip(".").strip()
-
-    return raw.rstrip(".").strip()
 
 # =============================================================================
 # Main PA reward
@@ -752,6 +735,8 @@ def reward_PA(
     attribute_values = payload.get("attribute_values") or {}
     reasoning = payload.get("reasoning") or {}
     ground_truth = payload.get("ground_truth") or {}
+    if isinstance(ground_truth, dict):
+        ground_truth = normalize_header(ground_truth)
 
     syntactic_clues = payload.get("syntactic_clues") or []
 
@@ -767,11 +752,7 @@ def reward_PA(
         out["reward_status"] = "invalid_ground_truth"
         return out
 
-    pa_keys = [
-        str(key)
-        for key in reasoning.keys()
-        if _PA_KEY_RE.fullmatch(str(key))
-    ]
+    pa_keys = [str(key)  for key in reasoning.keys() if _PA_KEY_RE.fullmatch(str(key))]
 
     out["PA_n_total"] = len(pa_keys)
     out["pa_present"] = 1.0 if pa_keys else 0.0
@@ -787,11 +768,8 @@ def reward_PA(
     # GT map for PA accuracy
     # -------------------------------------------------------------------------
 
-    gt_cells, gt_errors = _build_gt_cell_map(
-        ground_truth,
-        n_houses=n_houses,
-        attribute_values=attribute_values,
-    )
+    gt_cells, gt_errors = _build_gt_cell_map(ground_truth, n_houses=n_houses,
+        attribute_values=attribute_values,)
 
     if gt_errors:
         out["list_pa_errors"].extend(gt_errors)
@@ -799,7 +777,12 @@ def reward_PA(
         return out
 
     # -------------------------------------------------------------------------
-    # Base-only Z3 solver for PA consistency
+    # Build PA consistency solver:
+    #
+    #     BASE + ALL SYNTACTIC CLUES
+    #
+    # Preceding S_i steps will then be added incrementally while walking
+    # through the reasoning trajectory.
     # -------------------------------------------------------------------------
 
     try:
@@ -808,12 +791,17 @@ def reward_PA(
             attribute_values,
             timeout_s,
         )
+
     except Exception as exc:
         out["list_pa_errors"].append(
             f"{type(exc).__name__}: {exc}"
         )
         out["reward_status"] = "base_solver_build_error"
         return out
+
+    # -------------------------------------------------------------------------
+    # First verify structural BASE itself.
+    # -------------------------------------------------------------------------
 
     base_status = prefix_solver.check()
 
@@ -823,6 +811,127 @@ def reward_PA(
 
     if base_status == z3.unknown:
         out["reward_status"] = "base_unknown"
+        return out
+
+    # -------------------------------------------------------------------------
+    # Parse and add ALL syntactic clues.
+    #
+    # Input examples:
+    #
+    #     "C1: Arnold == 2."
+    #     "C2: Fred < Eric."
+    #     "C3: Or(Alice + 1 == Bob, Bob + 1 == Alice)."
+    #
+    # _expr_to_z3() expects only the expression, so remove "Ck:" first.
+    # -------------------------------------------------------------------------
+
+    clue_parse_errors = []
+    parsed_clues = []
+
+    def _extract_clue_expr(clue):
+        raw = str(clue).strip()
+
+        # Remove trailing period.
+        raw = raw.rstrip(".").strip()
+
+        # Remove optional C<number>: prefix.
+        m = re.match(
+            r"^\s*C\d+\s*:\s*(.+?)\s*$",
+            raw,
+            flags=re.IGNORECASE,
+        )
+
+        if m:
+            raw = m.group(1).strip()
+
+        return raw
+
+    # Support either:
+    #
+    #   syntactic_clues = ["C1: ...", "C2: ..."]
+    #
+    # or:
+    #
+    #   syntactic_clues = {"C1": "...", "C2": "..."}
+    #
+    if isinstance(syntactic_clues, dict):
+        clue_items = list(syntactic_clues.items())
+
+    elif isinstance(syntactic_clues, list):
+        clue_items = [
+            (f"C{i}", clue)
+            for i, clue in enumerate(syntactic_clues, start=1)
+        ]
+
+    else:
+        out["list_pa_errors"].append(
+            "syntactic_clues must be a list or dictionary."
+        )
+        out["reward_status"] = "invalid_syntactic_clues"
+        return out
+
+    for clue_id, clue in clue_items:
+
+        try:
+            clue_expr = _extract_clue_expr(clue)
+
+            if not clue_expr:
+                raise ValueError("Empty syntactic clue.")
+
+            phi_clue = _expr_to_z3(
+                clue_expr,
+                var_map,
+            )
+
+            parsed_clues.append(phi_clue)
+
+        except Exception as exc:
+
+            clue_parse_errors.append({
+                "clue": str(clue_id),
+                "expr": str(clue),
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+
+    # Do NOT silently discard an unparseable clue.
+    #
+    # Otherwise PA support would be evaluated against an incomplete
+    # clue set and could incorrectly receive reward.
+    if clue_parse_errors:
+        out["list_clue_parse_errors"] = clue_parse_errors
+
+        out["list_pa_errors"].append(
+            f"Failed to parse {len(clue_parse_errors)} syntactic clue(s)."
+        )
+
+        out["reward_status"] = "clue_parse_error"
+
+        return out
+
+    # -------------------------------------------------------------------------
+    # Add all syntactic clues to the PA premise.
+    # -------------------------------------------------------------------------
+
+    if parsed_clues:
+        prefix_solver.add(*parsed_clues)
+
+    # -------------------------------------------------------------------------
+    # Verify BASE + CLUES before adding any S-steps.
+    #
+    # This is essential for non-vacuous implication:
+    #
+    #     if BASE + clues is already UNSAT,
+    #     we must NOT claim that it entails every PA cell.
+    # -------------------------------------------------------------------------
+
+    base_clues_status = prefix_solver.check()
+
+    if base_clues_status == z3.unsat:
+        out["reward_status"] = "base_clues_unsat"
+        return out
+
+    if base_clues_status == z3.unknown:
+        out["reward_status"] = "base_clues_unknown"
         return out
 
     # -------------------------------------------------------------------------
@@ -875,27 +984,52 @@ def reward_PA(
                 continue
 
             try:
-                phi_s = _expr_to_z3(value, var_map)
+                phi_s = _expr_to_z3(
+                    value,
+                    var_map,
+                )
 
-                tmp = _clone_solver(prefix_solver, timeout_s)
-                tmp.add(phi_s)
-                status = tmp.check()
+                # -------------------------------------------------------------
+                # Strong implication check for S_i
+                #
+                # Current prefix_solver contains:
+                #
+                #     BASE + all syntactic clues + previously accepted S-steps
+                #
+                # Accept S_i only if:
+                #
+                #     SAT(prefix ∧ S_i)
+                #     UNSAT(prefix ∧ ¬S_i)
+                #
+                # i.e. prefix strongly implies S_i.
+                # -------------------------------------------------------------
 
-                # A contradictory/unknown prefix cannot prove PA cells.
-                if status != z3.sat:
+                s_status = _cell_consistency_status(
+                    prefix_solver,
+                    phi_s,
+                    timeout_s,
+                )
+
+                if s_status == "IMPLIED":
+                    # S_i is strongly implied by the existing prefix.
+                    # Only now is it safe to add S_i to the prefix used
+                    # for evaluating later PA checkpoints.
+                    prefix_solver.add(phi_s)
+
+                else:
                     prefix_healthy = False
 
                     out["list_s_prefix_errors"].append({
                         "S": key_str,
                         "expr": value,
+                        "status": s_status,
                         "error": (
-                            "Adding this S-step to the reasoning prefix "
-                            f"produced {status}."
+                            "S-step is not strongly implied by "
+                            "BASE + clues + preceding accepted S-steps."
                         ),
                     })
-                    continue
 
-                prefix_solver.add(phi_s)
+                    continue
 
             except Exception as exc:
                 prefix_healthy = False
@@ -903,6 +1037,7 @@ def reward_PA(
                 out["list_s_prefix_errors"].append({
                     "S": key_str,
                     "expr": value,
+                    "status": "CHECK_ERROR",
                     "error": f"{type(exc).__name__}: {exc}",
                 })
 
@@ -914,6 +1049,9 @@ def reward_PA(
 
         if not _PA_KEY_RE.fullmatch(key_str):
             continue
+
+        if isinstance(value, dict):
+            value = normalize_header(value)
 
         resolved_cells, pa_errors = _resolve_pa_cells(
             key_str,
@@ -1033,7 +1171,7 @@ def reward_PA(
                         "error": f"{type(exc).__name__}: {exc}",
                     })
 
-            if consistency_status == "CONSISTENT":
+            if consistency_status == "IMPLIED":
                 total_consistent += 1
                 pa_consistent += 1
             else:
@@ -1052,7 +1190,7 @@ def reward_PA(
                     })
 
             # Joint reward criterion.
-            if gt_match and consistency_status == "CONSISTENT":
+            if gt_match and consistency_status == "IMPLIED":
                 joint_valid_positions.add((house, attr))
 
             cell_details.append({
@@ -1453,22 +1591,31 @@ if __name__ == "__main__":
     assert abs(r3["pa_details"][2]["reward_increment"] - 0.00) < 1e-9
 
     # -------------------------------------------------------------------------
-    # TEST 4: A filled cell can become rewardable later.
+    # TEST 4: PA cell may be implied directly by syntactic clues.
     #
-    # PA1 contains:
-    #   Arnold=1 -> supported
-    #   red=1    -> GT-correct but NOT yet implied
+    # C1 already establishes Arnold=1.
+    # C2 already establishes red=1.
     #
-    # After S2 establishes red=1, PA2 repeats the same state.
-    # red=1 then earns its first reward.
+    # Therefore after any preceding S-step:
     #
-    # Total reward = 2/4 = 0.50.
+    #   Arnold=1 -> IMPLIED
+    #   red=1    -> IMPLIED
+    #
+    # PA1:
+    #   Accuracy    = 1.0
+    #   Consistency = 1.0
+    #   Coverage    = 2/4 = 0.50
+    #   Reward      = 2/4 = 0.50
+    #
+    # PA2 repeats exactly the same state, so it earns no extra reward.
     # -------------------------------------------------------------------------
 
     p4 = _base_test_payload()
+
     p4["reasoning"] = {
         "NL1": "Arnold is in house 1.",
         "S1": "Arnold == 1.",
+
         "PA1": {
             "header": ["House", "Name", "Color"],
             "rows": [
@@ -1479,6 +1626,7 @@ if __name__ == "__main__":
 
         "NL2": "Red is in house 1.",
         "S2": "red == 1.",
+
         "PA2": {
             "header": ["House", "Name", "Color"],
             "rows": [
@@ -1489,31 +1637,43 @@ if __name__ == "__main__":
     }
 
     r4 = reward_PA(p4)
-    _print_test_result("TEST 4 - Previously unsupported cell becomes supported later", r4)
+
+    _print_test_result(
+        "TEST 4 - PA cells implied directly by clues",
+        r4,
+    )
 
     assert abs(r4["pa_reward"] - 0.50) < 1e-9
+
     assert abs(r4["pa_details"][0]["accuracy"] - 1.0) < 1e-9
-    assert abs(r4["pa_details"][0]["consistency"] - 0.5) < 1e-9
+    assert abs(r4["pa_details"][0]["consistency"] - 1.0) < 1e-9
     assert abs(r4["pa_details"][0]["coverage"] - 0.50) < 1e-9
-    assert abs(r4["pa_details"][0]["reward_increment"] - 0.25) < 1e-9
+    assert abs(r4["pa_details"][0]["reward_increment"] - 0.50) < 1e-9
+
+    assert abs(r4["pa_details"][1]["accuracy"] - 1.0) < 1e-9
     assert abs(r4["pa_details"][1]["consistency"] - 1.0) < 1e-9
-    assert abs(r4["pa_details"][1]["reward_increment"] - 0.25) < 1e-9
+    assert abs(r4["pa_details"][1]["coverage"] - 0.50) < 1e-9
+    assert abs(r4["pa_details"][1]["reward_increment"] - 0.00) < 1e-9
 
     print("\nAll dense PA reward tests passed.")
 
     # -------------------------------------------------------------------------
-    # TEST 5: Single PA with partial accuracy.
+    # TEST 5: Single PA with partial accuracy / implication.
     #
-    # Arnold=1 is GT-correct and supported.
-    # blue=1 is GT-wrong but supported by S2.
+    # C1: Arnold == 1
+    # C2: red == 1
+    #
+    # After S1:
+    #   Arnold=1 -> GT-correct and IMPLIED
+    #   blue=1   -> GT-wrong and CONTRADICTION
     #
     # Filled cells = 2/4
     #
     # Accuracy    = 1/2 = 0.50
-    # Consistency = 2/2 = 1.00
+    # Consistency = 1/2 = 0.50
     # Coverage    = 2/4 = 0.50
     #
-    # Only Arnold=1 is BOTH correct and supported.
+    # Only Arnold=1 is both correct and implied.
     # Reward      = 1/4 = 0.25
     # -------------------------------------------------------------------------
 
@@ -1522,9 +1682,6 @@ if __name__ == "__main__":
     p5["reasoning"] = {
         "NL1": "Arnold is in house 1.",
         "S1": "Arnold == 1.",
-
-        "NL2": "Blue is in house 1.",
-        "S2": "blue == 1.",
 
         "PA1": {
             "header": ["House", "Name", "Color"],
@@ -1543,7 +1700,7 @@ if __name__ == "__main__":
     )
 
     assert abs(r5["pa_accuracy"] - 0.50) < 1e-9
-    assert abs(r5["pa_consistency"] - 1.00) < 1e-9
+    assert abs(r5["pa_consistency"] - 0.50) < 1e-9
     assert abs(r5["pa_coverage"] - 0.50) < 1e-9
     assert abs(r5["pa_reward"] - 0.25) < 1e-9
     assert r5["PA_n_rewarded_cells"] == 1
