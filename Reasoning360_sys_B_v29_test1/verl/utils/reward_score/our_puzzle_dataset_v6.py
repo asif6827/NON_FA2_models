@@ -874,6 +874,8 @@ def compute_score(
         clue_weight: float = 1.0,
         z3_weight: float = 0.2,
         meta: Optional[Dict[str, Any]] = None,
+        pa_reward_constant: float = 0.4,
+        format_weight: float = 0.10,
 ) -> float:
     """
     Scoring with:
@@ -995,15 +997,20 @@ def compute_score(
             "PA_n_total",
             "PA_n_evaluated",
             "PA_n_resolved_cells",
-            "PA_n_supported_cells",
-            "PA_n_unsupported_cells",
-            "pa_prefix_support_score",
-            "pa_monotonicity_score",
-            "pa_monotonicity_applicable",
-            "pa_supported_progress_score",
+            "pa_base_check",
+            "pa_accuracy",
+            "pa_consistency",
+            "pa_coverage",
+            "pa_gate_pass",
             "pa_reward",
+            "PA_n_gt_correct_cells",
+            "PA_n_gt_wrong_cells",
+            "PA_n_consistency_checked_cells",
+            "PA_n_consistent_cells",
+            "PA_n_inconsistent_cells",
+            "PA_n_rewarded_cells",
+            "PA_total_solution_cells",
         )
-
 
         #ground_truth = normalize_ground_truth(ground_truth)
         #ground_truth = normalize_header(ground_truth)
@@ -1219,7 +1226,12 @@ def compute_score(
 
         if (reward_PA is not None and isinstance(parsed_reasoning, dict)):
             try:
-                PA_out = reward_PA(PA_payload, timeout_s=max(float(timeout), 0.1), )
+                PA_out = reward_PA(
+                    PA_payload,
+                    timeout_s=max(float(timeout), 0.1),
+                    setting="test1",
+                    reward_constant=pa_reward_constant,
+                )
 
                 logger.debug(
                     "PA reward_status=%s pa_reward=%s",
@@ -1356,37 +1368,17 @@ def compute_score(
                 PA_out.get("pa_reward", 0.0)
             )
 
-            if format_ok:
-                format_reward = 1.0
-            else:
-                format_reward = 0.0
-            #print("Format reward = {}".format(format_reward))
+            pa_reward_score = float(PA_out.get("pa_reward", 0.0))
 
-            if sat_ok == 0.0:
-                reward = (
-                        0.15 * parsing_reward
-                        + 0.10 * format_reward
-                        + 0.60 * float(puzzle_acc_score)
-                        - 0.20 * contradiction_ratio)
+            pa_available = (
+                    float(PA_out.get("pa_present", 0.0)) > 0.0
+            )
 
-            else:
-                base_quality = (
-                        0.60 * float(puzzle_acc_score)
-                        + 0.20 * parsing_reward
-                        + 0.20 * format_reward)
+            format_reward = 1.0 if format_ok else 0.0
 
-                process_bonus = (
-                        0.40 * novel_step_score
-                        + 0.30 * consistency_score
-                        - 0.15 * contradiction_ratio)
+            format_contribution = float(format_weight) * format_reward
 
-                reward = (base_quality + float(puzzle_acc_score) * process_bonus)
-
-                # ---------------------------------------------------------
-                # PA shaping
-                # ---------------------------------------------------------
-                reward += 0.02 * pa_presence_valid
-                reward += 0.05 * pa_reward_score
+            reward = pa_reward_score + format_contribution
         
         else:
             reward = -0.5

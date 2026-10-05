@@ -4,8 +4,17 @@ import re
 import z3
 import ast
 import copy
+import math
 from typing import Any, Dict, List, Optional, Set, Tuple
-from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import normalize_header
+try:
+    from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import normalize_header
+except ModuleNotFoundError:
+    # This helper is deliberately self-contained for standalone quick tests.
+    def normalize_header(table):
+        table = copy.deepcopy(table)
+        aliases = {"FavoriteSports", "Sports", "FavoriteSport"}
+        table["header"] = ["Sport" if h in aliases else h for h in table.get("header", [])]
+        return table
 
 
 
@@ -664,7 +673,7 @@ def _cell_consistency_status(
 # Main PA reward
 # =============================================================================
 
-def reward_PA(
+def _reward_PA_dense(
     payload: Dict[str, Any],
     timeout_s: float = 5.0,
 ) -> Dict[str, Any]:
@@ -736,7 +745,7 @@ def reward_PA(
     reasoning = payload.get("reasoning") or {}
     ground_truth = payload.get("ground_truth") or {}
     if isinstance(ground_truth, dict):
-        ground_truth = normalize_header(ground_truth)
+        ground_truth = normalize_header(copy.deepcopy(ground_truth))
 
     syntactic_clues = payload.get("syntactic_clues") or []
 
@@ -1475,349 +1484,276 @@ def _base_test_payload() -> Dict[str, Any]:
     }
 
 
+
+def _strict_table_errors(table, expected_header, n_houses, attribute_values, *, allow_unknown):
+    """Validate exact schema and complete columns before resolving any cells."""
+    errors = []
+    if not isinstance(table, dict) or set(table) != {"header", "rows"}:
+        return ["Table must have exactly header and rows."]
+    if table["header"] != expected_header:
+        errors.append("Table header must exactly match the normalized GT header.")
+    rows = table["rows"]
+    if not isinstance(rows, list) or len(rows) != n_houses:
+        return errors + ["Incorrect number of rows."]
+    if not isinstance(expected_header, list) or len(expected_header) != len(attribute_values) + 1:
+        return errors + ["Incorrect number of attribute columns."]
+    keys = [_header_key(h) for h in expected_header]
+    attr_keys = {_header_key(a): a for a in attribute_values}
+    if not keys or keys[0] != "house" or len(set(keys)) != len(keys) or set(keys[1:]) != set(attr_keys):
+        return errors + ["Missing, duplicate, or unknown header column."]
+    seen = {a: set() for a in attribute_values}
+    for house, row in enumerate(rows, 1):
+        if not isinstance(row, list) or len(row) != len(expected_header) or not all(isinstance(v, str) for v in row):
+            errors.append(f"House {house}: rows must contain the expected number of string cells.")
+            continue
+        if row[0] != str(house):
+            errors.append(f"House {house}: invalid house cell/order.")
+        for j, key in enumerate(keys[1:], 1):
+            attr = attr_keys[key]
+            value = row[j]
+            if value == "?" and allow_unknown:
+                continue
+            canonical = _domain_value_lookup(value, attribute_values[attr])
+            if canonical is None:
+                errors.append(f"House {house}, {attr}: invalid value {value!r}.")
+                continue
+            token = _sanitize_token(canonical)
+            if token in seen[attr]:
+                errors.append(f"Duplicate value in {attr}: {value!r}.")
+            seen[attr].add(token)
+    return errors
+
+
+def reward_PA(payload, timeout_s=5.0, *, setting="test1", reward_constant=0.4):
+    """First-PA test1 reward (default); setting='dense' retains the legacy mode.
+
+    test1 first requires SAT(domain + clues) and
+    UNSAT(domain + clues + NOT(AND(all preceding S steps))).
+    PA support uses only domain axioms + those preceding S steps, never clues
+    or future steps. Require a SAT prefix and
+    UNSAT(prefix AND NOT(AND(filled PA equalities))). Every filled cell must
+    match GT. Unknowns and House are excluded. Passing reward is
+    reward_constant + 0.6 * coverage; every failure receives zero.
+    Clue-based S validity and PA support form one combined consistency gate.
+    Whole-trajectory validity remains a separate diagnostic. Input payload is never mutated.
+    """
+    if setting == "dense":
+        return _reward_PA_dense(payload, timeout_s)
+    if setting != "test1":
+        raise ValueError("setting must be 'test1' or 'dense'")
+    if isinstance(reward_constant, bool) or not math.isfinite(float(reward_constant)) or float(reward_constant) < 0:
+        raise ValueError("reward_constant must be finite and nonnegative")
+    if not math.isfinite(float(timeout_s)) or float(timeout_s) <= 0:
+        raise ValueError("timeout_s must be finite and positive")
+    out = copy.deepcopy(MISSING_PA_DEFAULTS)
+    out.update(s_validity_pass=0.0, pa_support_pass=0.0,
+               clue_status="NOT_CHECKED", s_negation_status="NOT_CHECKED",
+               setting=setting, selected_pa_key=None, n_prior_s_steps=0,
+               prefix_status="NOT_CHECKED", reward_constant=float(reward_constant))
+    def fail(status, message=None):
+        out["reward_status"] = status
+        if message:
+            out["list_pa_errors"].append(message)
+        return out
+    if not isinstance(payload, dict):
+        return fail("invalid_payload")
+    n = payload.get("n_houses")
+    if isinstance(n, bool) or not isinstance(n, int) or n <= 0:
+        return fail("invalid_n_houses")
+    attrs = payload.get("attribute_values")
+    if not isinstance(attrs, dict) or not attrs or any(
+        not isinstance(a, str) or not isinstance(v, list) or len(v) != n
+        or not all(isinstance(x, str) and x.strip() for x in v)
+        or len({_sanitize_token(x) for x in v}) != n for a, v in attrs.items()
+    ):
+        return fail("invalid_attribute_values")
+    gt = payload.get("ground_truth")
+    if not isinstance(gt, dict):
+        return fail("invalid_ground_truth")
+    gt = normalize_header(copy.deepcopy(gt))
+    header = gt.get("header")
+    errors = _strict_table_errors(gt, header, n, attrs, allow_unknown=False)
+    if errors:
+        return fail("ground_truth_structure_error", "; ".join(errors))
+    gt_cells, errors = _build_gt_cell_map(gt, n_houses=n, attribute_values=attrs)
+    if errors:
+        return fail("ground_truth_structure_error", "; ".join(errors))
+    reasoning = payload.get("reasoning")
+    if not isinstance(reasoning, dict):
+        return fail("reasoning_not_dict")
+    pa_keys = [k for k in reasoning if _PA_KEY_RE.fullmatch(str(k))]
+    out.update(PA_n_total=len(pa_keys), pa_present=float(bool(pa_keys)), PA_total_solution_cells=len(gt_cells))
+    if not pa_keys:
+        return fail("no_pa")
+    prior = []
+    pending = None
+    index = 1
+    pa = None
+    for key, value in reasoning.items():
+        if _PA_KEY_RE.fullmatch(str(key)):
+            if pending or key != "PA1" or not prior:
+                return fail("invalid_prefix_format", "PA1 must follow a complete NL/S pair.")
+            out["selected_pa_key"] = key
+            pa = value
+            break
+        if key == f"NL{index}" and pending is None:
+            if not isinstance(value, str) or not value.strip().endswith("."):
+                return fail("invalid_prefix_format", "Invalid NL value.")
+            pending = key
+        elif key == f"S{index}" and pending:
+            prior.append((key, value))
+            pending = None
+            index += 1
+        else:
+            return fail("invalid_prefix_format", f"Unexpected prefix key {key!r}.")
+    out["n_prior_s_steps"] = len(prior)
+    errors = _strict_table_errors(pa, header, n, attrs, allow_unknown=True)
+    if errors:
+        return fail("invalid_pa", "; ".join(errors))
+    cells, errors = _resolve_pa_cells("PA1", pa, n_houses=n, attribute_values=attrs)
+    if errors:
+        return fail("invalid_pa", "; ".join(errors))
+    if not cells:
+        return fail("empty_pa")
+    correct = sum(_sanitize_token(v) == gt_cells.get(pos) for pos, v in cells.items())
+    out.update(pa_base_check=1.0, PA_n_evaluated=1, PA_n_resolved_cells=len(cells),
+               PA_n_gt_correct_cells=correct, PA_n_gt_wrong_cells=len(cells)-correct,
+               pa_accuracy=correct/len(cells), pa_coverage=len(cells)/len(gt_cells),
+               PA_n_newly_filled_cells=len(cells))
+    for pos, value in cells.items():
+        if _sanitize_token(value) != gt_cells.get(pos):
+            out["list_pa_gt_wrong_cells"].append({"position": pos, "value": value, "expected": gt_cells.get(pos)})
+    try:
+        solver, var_map = _new_base_solver(n, attrs, timeout_s)
+        step_constraints = []
+        for key, expr in prior:
+            try:
+                if not isinstance(expr, str):
+                    raise ValueError("S expression must be a string")
+                phi_s = _expr_to_z3(expr, var_map)
+                step_constraints.append(phi_s)
+                solver.add(phi_s)
+            except Exception as exc:
+                out["list_s_prefix_errors"].append({"S": key, "error": str(exc)})
+                return fail("prefix_parse_error")
+        # Separate context: validate ALL preceding S steps against the clues.
+        # The PA-support solver above intentionally contains no clues.
+        clues = payload.get("syntactic_clues")
+        if not isinstance(clues, (list, dict)) or not clues:
+            return fail("invalid_syntactic_clues", "Nonempty syntactic clues are required.")
+        clue_solver, _ = _new_base_solver(n, attrs, timeout_s)
+        clue_items = clues.items() if isinstance(clues, dict) else enumerate(clues, 1)
+        for clue_key, raw in clue_items:
+            try:
+                if not isinstance(raw, str):
+                    raise ValueError("Clue must be a string")
+                expr = re.sub(r"^\s*C\d+\s*:\s*", "", raw, flags=re.IGNORECASE)
+                clue_solver.add(_expr_to_z3(expr, var_map))
+            except Exception as exc:
+                out.setdefault("list_clue_parse_errors", []).append(
+                    {"clue": str(clue_key), "error": str(exc)})
+                return fail("clue_parse_error")
+        clue_status = clue_solver.check()
+        out["clue_status"] = str(clue_status)
+        if clue_status != z3.sat:
+            return fail("clues_unsat" if clue_status == z3.unsat else "clues_unknown")
+        s_negative = _clone_solver(clue_solver, timeout_s)
+        s_negative.add(z3.Not(z3.And(*step_constraints)))
+        s_status = s_negative.check()
+        out["s_negation_status"] = str(s_status)
+        out["s_validity_pass"] = float(s_status == z3.unsat)
+        if s_status != z3.unsat:
+            return fail("s_validity_unknown" if s_status == z3.unknown else "s_validity_failed")
+        status = solver.check()
+        out["prefix_status"] = str(status)
+        if status != z3.sat:
+            return fail("prefix_unsat" if status == z3.unsat else "prefix_unknown")
+        constraints = [_lookup_var(value, var_map) == house for (house, attr), value in cells.items()]
+        neg = _clone_solver(solver, timeout_s)
+        neg.add(z3.Not(z3.And(*constraints)))
+        status = neg.check()
+        out["pa_negation_status"] = str(status)
+        out["pa_support_pass"] = float(status == z3.unsat)
+        out["pa_consistency"] = float(
+            out["s_validity_pass"] == 1.0 and out["pa_support_pass"] == 1.0
+        )
+        for (pos, value), phi in zip(cells.items(), constraints):
+            cell_status = _cell_consistency_status(solver, phi, timeout_s)
+            out["PA_n_consistency_checked_cells"] += 1
+            if cell_status == "IMPLIED":
+                out["PA_n_consistent_cells"] += 1
+            else:
+                out["PA_n_inconsistent_cells"] += 1
+                out["list_pa_inconsistent_cells"].append({"position": pos, "value": value, "status": cell_status})
+    except Exception as exc:
+        return fail("consistency_check_error", str(exc))
+    out["pa_details"] = [{"PA": "PA1", "accuracy": out["pa_accuracy"],
+                          "consistency": out["pa_consistency"], "coverage": out["pa_coverage"]}]
+    if correct != len(cells):
+        return fail("accuracy_failed")
+    if not out["pa_consistency"]:
+        return fail("consistency_unknown" if status == z3.unknown else "consistency_failed")
+    out.update(pa_gate_pass=1.0, PA_n_rewarded_cells=len(cells),
+               pa_reward=float(reward_constant) + 0.6*out["pa_coverage"], reward_status="success")
+    return out
+
+
 if __name__ == "__main__":
-
-    # -------------------------------------------------------------------------
-    # TEST 1: ONE useful PA.
-    #
-    # 2/4 cells are filled; both are GT-correct and supported by prior S.
-    # Accuracy    = 1.0
-    # Consistency = 1.0
-    # Coverage    = 2/4 = 0.50
-    # Reward      = 2/4 = 0.50
-    # -------------------------------------------------------------------------
-
-    p1 = _base_test_payload()
-    p1["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-        "NL2": "Red is in house 1.",
-        "S2": "red == 1.",
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "?", "?"],
-            ],
-        },
-    }
-
-    r1 = reward_PA(p1)
-    _print_test_result("TEST 1 - Single useful PA", r1)
-
-    assert abs(r1["pa_accuracy"] - 1.0) < 1e-9
-    assert abs(r1["pa_consistency"] - 1.0) < 1e-9
-    assert abs(r1["pa_coverage"] - 0.50) < 1e-9
-    assert abs(r1["pa_reward"] - 0.50) < 1e-9
-
-    # -------------------------------------------------------------------------
-    # TEST 2: PA before any S-step.
-    #
-    # Accuracy    = 1.0
-    # Consistency = 0.0 by definition
-    # Coverage    = 1/4 = 0.25
-    # Reward      = 0.0
-    # -------------------------------------------------------------------------
-
-    p2 = _base_test_payload()
-    p2["reasoning"] = {
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "?"],
-                ["2", "?", "?"],
-            ],
-        },
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-    }
-
-    r2 = reward_PA(p2)
-    _print_test_result("TEST 2 - PA before any S-step", r2)
-
-    assert abs(r2["pa_accuracy"] - 1.0) < 1e-9
-    assert abs(r2["pa_consistency"] - 0.0) < 1e-9
-    assert abs(r2["pa_coverage"] - 0.25) < 1e-9
-    assert abs(r2["pa_reward"] - 0.0) < 1e-9
-
-    # -------------------------------------------------------------------------
-    # TEST 3: Multiple progressive PAs.
-    #
-    # PA1 earns Arnold=1                  -> +1/4
-    # PA2 adds red=1                      -> +1/4
-    # PA3 repeats the same state          -> +0
-    #
-    # Total reward = 2/4 = 0.50, NOT 0.75.
-    # -------------------------------------------------------------------------
-
-    p3 = _base_test_payload()
-    p3["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "?"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "NL2": "Red is in house 1.",
-        "S2": "red == 1.",
-        "PA2": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "PA3": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "?", "?"],
-            ],
-        },
-    }
-
-    r3 = reward_PA(p3)
-    _print_test_result("TEST 3 - Multiple PAs; repeated state gets no extra credit", r3)
-
-    assert abs(r3["pa_reward"] - 0.50) < 1e-9
-    assert r3["PA_n_rewarded_cells"] == 2
-    assert abs(r3["pa_details"][0]["reward_increment"] - 0.25) < 1e-9
-    assert abs(r3["pa_details"][1]["reward_increment"] - 0.25) < 1e-9
-    assert abs(r3["pa_details"][2]["reward_increment"] - 0.00) < 1e-9
-
-    # -------------------------------------------------------------------------
-    # TEST 4: PA cell may be implied directly by syntactic clues.
-    #
-    # C1 already establishes Arnold=1.
-    # C2 already establishes red=1.
-    #
-    # Therefore after any preceding S-step:
-    #
-    #   Arnold=1 -> IMPLIED
-    #   red=1    -> IMPLIED
-    #
-    # PA1:
-    #   Accuracy    = 1.0
-    #   Consistency = 1.0
-    #   Coverage    = 2/4 = 0.50
-    #   Reward      = 2/4 = 0.50
-    #
-    # PA2 repeats exactly the same state, so it earns no extra reward.
-    # -------------------------------------------------------------------------
-
-    p4 = _base_test_payload()
-
-    p4["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "NL2": "Red is in house 1.",
-        "S2": "red == 1.",
-
-        "PA2": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "?", "?"],
-            ],
-        },
-    }
-
-    r4 = reward_PA(p4)
-
-    _print_test_result(
-        "TEST 4 - PA cells implied directly by clues",
-        r4,
-    )
-
-    assert abs(r4["pa_reward"] - 0.50) < 1e-9
-
-    assert abs(r4["pa_details"][0]["accuracy"] - 1.0) < 1e-9
-    assert abs(r4["pa_details"][0]["consistency"] - 1.0) < 1e-9
-    assert abs(r4["pa_details"][0]["coverage"] - 0.50) < 1e-9
-    assert abs(r4["pa_details"][0]["reward_increment"] - 0.50) < 1e-9
-
-    assert abs(r4["pa_details"][1]["accuracy"] - 1.0) < 1e-9
-    assert abs(r4["pa_details"][1]["consistency"] - 1.0) < 1e-9
-    assert abs(r4["pa_details"][1]["coverage"] - 0.50) < 1e-9
-    assert abs(r4["pa_details"][1]["reward_increment"] - 0.00) < 1e-9
-
-    print("\nAll dense PA reward tests passed.")
-
-    # -------------------------------------------------------------------------
-    # TEST 5: Single PA with partial accuracy / implication.
-    #
-    # C1: Arnold == 1
-    # C2: red == 1
-    #
-    # After S1:
-    #   Arnold=1 -> GT-correct and IMPLIED
-    #   blue=1   -> GT-wrong and CONTRADICTION
-    #
-    # Filled cells = 2/4
-    #
-    # Accuracy    = 1/2 = 0.50
-    # Consistency = 1/2 = 0.50
-    # Coverage    = 2/4 = 0.50
-    #
-    # Only Arnold=1 is both correct and implied.
-    # Reward      = 1/4 = 0.25
-    # -------------------------------------------------------------------------
-
-    p5 = _base_test_payload()
-
-    p5["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "blue"],
-                ["2", "?", "?"],
-            ],
-        },
-    }
-
-    r5 = reward_PA(p5)
-
-    _print_test_result(
-        "TEST 5 - Single PA with partial accuracy",
-        r5,
-    )
-
-    assert abs(r5["pa_accuracy"] - 0.50) < 1e-9
-    assert abs(r5["pa_consistency"] - 0.50) < 1e-9
-    assert abs(r5["pa_coverage"] - 0.50) < 1e-9
-    assert abs(r5["pa_reward"] - 0.25) < 1e-9
-    assert r5["PA_n_rewarded_cells"] == 1
-
-    # -------------------------------------------------------------------------
-    # TEST 6: Multiple progressive PAs reaching full coverage.
-    #
-    # PA1: Arnold=1                     -> reward 1/4
-    # PA2: + red=1                      -> reward +1/4
-    # PA3: + Eric=2                     -> reward +1/4
-    # PA4: + blue=2                     -> reward +1/4
-    #
-    # Final Coverage = 4/4 = 1.0
-    # Total PA reward = 1.0
-    # -------------------------------------------------------------------------
-
-    p6 = _base_test_payload()
-
-    p6["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "?"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "NL2": "Red is in house 1.",
-        "S2": "red == 1.",
-
-        "PA2": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "?", "?"],
-            ],
-        },
-
-        "NL3": "Eric must occupy the remaining house.",
-        "S3": "Eric == 2.",
-
-        "PA3": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "Eric", "?"],
-            ],
-        },
-
-        "NL4": "Blue must occupy the remaining color position.",
-        "S4": "blue == 2.",
-
-        "PA4": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "Arnold", "red"],
-                ["2", "Eric", "blue"],
-            ],
-        },
-    }
-
-    r6 = reward_PA(p6)
-
-    _print_test_result(
-        "TEST 6 - Multiple progressive PAs to full coverage",
-        r6,
-    )
-
-    assert r6["PA_n_total"] == 4
-    assert r6["PA_n_rewarded_cells"] == 4
-
-    assert abs(r6["pa_coverage"] - 1.0) < 1e-9
-    assert abs(r6["pa_reward"] - 1.0) < 1e-9
-
-    assert abs(r6["pa_details"][0]["reward_increment"] - 0.25) < 1e-9
-    assert abs(r6["pa_details"][1]["reward_increment"] - 0.25) < 1e-9
-    assert abs(r6["pa_details"][2]["reward_increment"] - 0.25) < 1e-9
-    assert abs(r6["pa_details"][3]["reward_increment"] - 0.25) < 1e-9
-
-    # -------------------------------------------------------------------------
-    # TEST 7: Empty PA is invalid.
-    #
-    # PA1 exists structurally but has zero resolved cells.
-    #
-    # Expected:
-    #   pa_base_check = 0
-    #   pa_reward     = 0
-    # -------------------------------------------------------------------------
-
-    p7 = _base_test_payload()
-
-    p7["reasoning"] = {
-        "NL1": "Arnold is in house 1.",
-        "S1": "Arnold == 1.",
-
-        "PA1": {
-            "header": ["House", "Name", "Color"],
-            "rows": [
-                ["1", "?", "?"],
-                ["2", "?", "?"],
-            ],
-        },
-    }
-
-    r7 = reward_PA(p7)
-
-    _print_test_result(
-        "TEST 7 - Empty PA must fail BASE_CHECK",
-        r7,
-    )
-
-    assert r7["pa_present"] == 1.0
-    assert r7["PA_n_total"] == 1
-    assert r7["pa_base_check"] == 0.0
-    assert r7["pa_reward"] == 0.0
-    assert r7["reward_status"] == "base_check_failed"
-
+    def run_case(name, steps, rows, expected, tail=None, constant=0.4, clues=None):
+        payload = _base_test_payload()
+        if clues is not None:
+            payload["syntactic_clues"] = clues
+        trajectory = {}
+        for i, expression in enumerate(steps, 1):
+            trajectory[f"NL{i}"] = "A deduction is established."
+            trajectory[f"S{i}"] = expression
+        trajectory["PA1"] = {"header": ["House", "Name", "Color"], "rows": rows}
+        if tail:
+            trajectory.update(tail)
+        payload["reasoning"] = trajectory
+        original = copy.deepcopy(payload)
+        result = reward_PA(payload, reward_constant=constant)
+        assert payload == original, "Input was mutated"
+        assert abs(result["pa_reward"]-expected) < 1e-9, (name, result)
+        print(f"PASS {name}: reward={result['pa_reward']:.3f}, status={result['reward_status']}")
+        return result
+    half = [["1", "Arnold", "red"], ["2", "?", "?"]]
+    full = [["1", "Arnold", "red"], ["2", "Eric", "blue"]]
+    run_case("valid half coverage", ["Arnold == 1.", "red == 1."], half, 0.7)
+    run_case("correct but unsupported; clues cannot help", ["Arnold == 1."], half, 0)
+    run_case("supported but inaccurate", ["Arnold == 2."], [["1", "?", "?"], ["2", "Arnold", "?"]], 0)
+    run_case("contradictory prefix", ["Arnold == 1.", "Arnold == 2."], half, 0)
+    run_case("empty PA", ["Arnold == 1."], [["1", "?", "?"], ["2", "?", "?"]], 0)
+    tail = {"NL2": "Red is in house one.", "S2": "red == 1."}
+    run_case("future reasoning cannot support PA1", ["Arnold == 1."], half, 0, tail)
+    run_case("later PA does not increase reward", ["Arnold == 1.", "red == 1."], half, 0.7,
+             {"NL3": "The remaining assignments follow.", "S3": "Eric == 2.",
+              "PA2": {"header": ["House", "Name", "Color"], "rows": full}})
+    run_case("full coverage through uniqueness", ["Arnold == 1.", "red == 1."], full, 1)
+    run_case("malformed expression", ["Arnold == ."], half, 0)
+    run_case("duplicate column value", ["Arnold == 1."], [["1", "Arnold", "?"], ["2", "Arnold", "?"]], 0)
+    run_case("configurable constant", ["Arnold == 1.", "red == 1."], half, 0.5, constant=0.2)
+    run_case("malformed later PA is ignored", ["Arnold == 1.", "red == 1."], half, 0.7, {"PA2": "bad"})
+    missing = _base_test_payload(); missing["reasoning"] = {}
+    assert reward_PA(missing)["reward_status"] == "no_pa"
+    for invalid in (-1, float("nan"), float("inf")):
+        try:
+            reward_PA(missing, reward_constant=invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Invalid constant accepted")
+    r = run_case("unsupported S even though PA is correct", ["Arnold == 1.", "red == 1."], half, 0,
+                 clues=["C1: Arnold == 1."])
+    assert r["reward_status"] == "s_validity_failed"
+    r = run_case("inconsistent clue theory", ["Arnold == 1."], half, 0,
+                 clues=["C1: Arnold == 1.", "C2: Arnold == 2."])
+    assert r["reward_status"] == "clues_unsat"
+    r = run_case("malformed clue", ["Arnold == 1."], half, 0, clues=["C1: Arnold == ."])
+    assert r["reward_status"] == "clue_parse_error"
+    r = run_case("missing clues", ["Arnold == 1."], half, 0, clues=[])
+    assert r["reward_status"] == "invalid_syntactic_clues"
+    r = run_case("dictionary clues", ["Arnold == 1.", "red == 1."], half, 0.7,
+                 clues={"C1": "Arnold == 1.", "C2": "red == 1."})
+    assert r["s_validity_pass"] == r["pa_support_pass"] == r["pa_consistency"] == 1.0
+    print("All combined-validity test1 quick tests passed.")
