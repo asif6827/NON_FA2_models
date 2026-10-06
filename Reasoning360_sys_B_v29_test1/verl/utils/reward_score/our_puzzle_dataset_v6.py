@@ -885,7 +885,7 @@ def compute_score(
 
     import logging
     import time
-
+    final_result = {}
     DEFAULT_RESULT = {
         # Final reward
         "acc": 0.0,
@@ -936,6 +936,17 @@ def compute_score(
         "total_epochs": 0.0,
     }
     final_result = copy.deepcopy(DEFAULT_RESULT)
+
+    for key, value in MISSING_PA_DEFAULTS.items():
+        if isinstance(value, (int, float, bool)):
+            final_result[key] = float(value)
+
+    # Added by the combined consistency formulation:
+    final_result["s_validity_pass"] = 0.0
+    final_result["pa_support_pass"] = 0.0
+    final_result["format_contribution"] = 0.0
+    final_result["format_weight"] = float(format_weight)
+    final_result["pa_reward_constant"] = float(pa_reward_constant)
 
     # Parsed objects
     syntactic_clues = None
@@ -1051,7 +1062,7 @@ def compute_score(
     except Exception as e:
         #logger.exception(f"Failed to get puzzle id from extra_info: {e}")
         logger.error(f"Failed to get puzzle id from extra_info: {e}")
-        final_result = {}
+
         payload = {}
         z3_out = {}
         final_result["BASE_sat_full_GT"] = 0.0
@@ -1494,7 +1505,21 @@ def compute_score(
 
     #os.environ["VALID_STATUS"] = "0"
     #sorted_result = dict(sorted(final_result.items(), key=lambda x: x[0]))
+
+    # Ensure every sample returns all PA metric keys.
+    for key, value in MISSING_PA_DEFAULTS.items():
+        if isinstance(value, (int, float, bool)):
+            final_result.setdefault(key, float(value))
+
+    final_result.setdefault("s_validity_pass", 0.0)
+    final_result.setdefault("pa_support_pass", 0.0)
+    final_result.setdefault("format_contribution", 0.0)
+    final_result.setdefault("format_weight", float(format_weight))
+    final_result.setdefault("pa_reward_constant", float(pa_reward_constant))
+
     return final_result
+
+
 
 
 def pretty(x):
