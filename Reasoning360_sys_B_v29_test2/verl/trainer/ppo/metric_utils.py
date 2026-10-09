@@ -130,6 +130,13 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     total_epochs = torch.from_numpy(batch.non_tensor_batch["total_epochs"])
     reward_logged = torch.from_numpy(batch.non_tensor_batch["reward_logged"])
 
+    ## New metrics from PA reward Computation...!
+    PA_accuracy = torch.from_numpy(batch.non_tensor_batch["pa_accuracy"])
+    PA_accuracy_pass_rate = torch.from_numpy(batch.non_tensor_batch["pa_accuracy_pass"])
+    PA_consistency_pass_rate = torch.from_numpy(batch.non_tensor_batch["pa_consistency"])
+    PA_coverage = torch.from_numpy(batch.non_tensor_batch["coverage"])
+    PA_coverage_reward = torch.from_numpy(batch.non_tensor_batch["coverage_reward"])
+
 
     sequence_score = batch.batch["token_level_scores"].sum(-1)
     sequence_reward = batch.batch["token_level_rewards"].sum(-1)
@@ -165,7 +172,15 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
         data_source_scores[data_source].append(sequence_score[i].item())
 
 
+
     metrics = {
+        # PA Metrics:
+        "TRAIN/PA/PA_accuracy/mean": torch.mean(PA_accuracy.float()).detach().item(),
+        "TRAIN/PA/PA_accuracy_pass_rate/mean": torch.mean(PA_accuracy_pass_rate.float()).detach().item(),
+        "TRAIN/PA/PA_consistency_pass_rate/mean": torch.mean(PA_consistency_pass_rate.float()).detach().item(),
+        "TRAIN/PA/PA_coverage/mean": torch.mean(PA_coverage.float()).detach().item(),
+        "TRAIN/PA/PA_coverage_reward/mean": torch.mean(PA_coverage_reward.float()).detach().item(),
+
         # Z3 and Acc Metrics:
         "TRAIN/Z3-solver/BASE_sat_full_GT/mean": torch.mean(base_sat_full_GT.float()).detach().item(),
         "TRAIN/Z3-solver/missed_data/mean": torch.mean(missed_data.float()).detach().item(),

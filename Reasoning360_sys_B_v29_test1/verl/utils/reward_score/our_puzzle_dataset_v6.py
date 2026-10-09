@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 
 
 #pid_to_puzzle_dic_file = '/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json'
-pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/home/asif/data3/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
+pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/Users/asif/Desktop/Codes_QCRI/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
 
 with open(pid_to_puzzle_dic_file, "r", encoding="utf-8") as f:
     pid_to_puzzle_dic = json.load(f)   # this is a dict (if JSON root is an object)
@@ -1506,86 +1506,211 @@ def pretty(x):
 
 
 
+
 if __name__ == "__main__":
-    sol_str = """<answer>
-    {
-        "n_houses": 3,
-        "attribute_values": {
-            "Name": ["Peter", "Eric", "Arnold"],
-            "Color": ["red", "white", "yellow"],
-            "Children": ["Fred", "Meredith", "Bella"]
-        },
-        "syntactic_clues": [
-            "C1: Arnold == red.",
-            "C2: red == 2.",
-            "C3: Bella == 1.",
-            "C4: Fred < Eric.",
-            "C5: white == Meredith."
-        ],
-        "reasoning": {
-            "NL1": "Clues 1 and 2 show that Arnold, who has the red favorite color, must occupy house 2.",
-            "S1": "Arnold == 2.",
+    from copy import deepcopy
+    import math
 
-            "NL2": "Because Fred is somewhere to the left of Eric, Eric cannot occupy house 1.",
-            "S2": "Eric != 1.",
-
-            "NL3": "Arnold already occupies house 2, so Eric cannot occupy house 2 and therefore must occupy house 3.",
-            "S3": "Eric == 3.",
-
-            "PA1": {
-                "header": ["House", "Name", "Color", "Children"],
-                "rows": [
-                    ["1", "?", "?", "Bella"],
-                    ["2", "Arnold", "red", "?"],
-                    ["3", "Eric", "?", "?"]
-                ]
-            },
-
-            "NL4": "With Arnold in house 2 and Eric in house 3, the remaining person Peter must occupy house 1.",
-            "S4": "Peter == 1.",
-
-            "NL5": "Since Eric occupies house 3 and Fred must be somewhere to the left of Eric, Fred can only occupy house 1 or house 2.",
-            "S5": "Or(Fred == 1, Fred == 2).",
-
-            "NL6": "Bella already occupies house 1, so child uniqueness forces Fred to occupy house 2.",
-            "S6": "Fred == 2.",
-
-            "NL7": "With Bella in house 1 and Fred in house 2, the remaining child Meredith must occupy house 3.",
-            "S7": "Meredith == 3.",
-
-            "PA2": {
-                "header": ["House", "Name", "Color", "Children"],
-                "rows": [
-                    ["1", "Peter", "?", "Bella"],
-                    ["2", "Arnold", "red", "Fred"],
-                    ["3", "Eric", "?", "Meredith"]
-                ]
-            },
-
-            "NL8": "Clue 5 places white in the same house as Meredith, so white must occupy house 3.",
-            "S8": "white == 3.",
-
-            "NL9": "Red occupies house 2 and white occupies house 3, so color uniqueness forces yellow to occupy house 1.",
-            "S9": "yellow == 1."
-        },
-        "solution": {
-            "header": ["House", "Name", "Color", "Children"],
-            "rows": [
-                ["1", "Peter", "yellow", "Bella"],
-                ["2", "Arnold", "red", "Fred"],
-                ["3", "Eric", "white", "Meredith"]
-            ]
-        }
-    }
-    </answer>"""
+    # Disable feedback-file writing for these standalone tests.
+    os.environ["VALID_STATUS"] = "0"
 
     ground_truth = {
         "header": ["House", "Name", "Color", "Children"],
         "rows": [
             ["1", "Peter", "yellow", "Bella"],
             ["2", "Arnold", "red", "Fred"],
-            ["3", "Eric", "white", "Meredith"]
-        ]
+            ["3", "Eric", "white", "Meredith"],
+        ],
     }
-    res = compute_score(sol_str, ground_truth)
-    print(f"Result = {json.dumps (res, indent=2, ensure_ascii=False)}")
+
+    def make_reasoning(pairs):
+        result = []
+        for i, (explanation, constraint) in enumerate(pairs, 1):
+            result.extend([explanation, f"S{i}: {constraint}."])
+        return result
+
+    partial_pairs = [
+        ("Red occupies house two.", "red == 2"),
+        ("Arnold occupies the red house.", "Arnold == red"),
+        ("Bella belongs to house one.", "Bella == 1"),
+        ("Fred lives somewhere left of Eric.", "Fred < Eric"),
+        ("Eric occupies house two or house three.",
+         "Or(Eric == 2, Eric == 3)"),
+        ("Eric does not occupy house two.", "Not(Eric == 2)"),
+        ("Fred occupies house one or house two.",
+         "Or(Fred == 1, Fred == 2)"),
+        ("Fred does not occupy house one.", "Fred != 1"),
+        ("Peter occupies house one.", "Peter == 1"),
+        ("Meredith belongs to house three.", "Meredith == 3"),
+    ]
+
+    complete_pairs = partial_pairs + [
+        ("White occupies Meredith's house.", "white == Meredith"),
+        ("Yellow occupies house one.", "yellow == 1"),
+    ]
+
+    partial = {
+        "n_houses": 3,
+        "attribute_values": {
+            "Name": ["Peter", "Eric", "Arnold"],
+            "Color": ["red", "white", "yellow"],
+            "Children": ["Fred", "Meredith", "Bella"],
+        },
+        "syntactic_clues": [
+            "C1: Arnold == red.",
+            "C2: Fred < Eric.",
+            "C3: red == 2.",
+            "C4: Bella == 1.",
+            "C5: white == Meredith.",
+        ],
+        "reasoning": make_reasoning(partial_pairs),
+        "solution": {
+            "header": ["House", "Name", "Color", "Children"],
+            "rows": [
+                ["1", "Peter", "?", "Bella"],
+                ["2", "Arnold", "red", "Fred"],
+                ["3", "Eric", "?", "Meredith"],
+            ],
+        },
+    }
+
+    complete = deepcopy(partial)
+    complete["reasoning"] = make_reasoning(complete_pairs)
+    complete["solution"] = deepcopy(ground_truth)
+
+    # Expected tuple:
+    # (pa_accuracy, pa_accuracy_pass, pa_consistency, coverage)
+    tests = []
+
+    tests.append((
+        "Supported partial solution: 7/9 cells",
+        deepcopy(partial),
+        (1.0, 1.0, 1.0, 7 / 9),
+    ))
+
+    tests.append((
+        "Supported complete solution",
+        deepcopy(complete),
+        (1.0, 1.0, 1.0, 1.0),
+    ))
+
+    prediction = deepcopy(partial)
+    prediction["solution"]["rows"][2][2] = "white"
+    tests.append((
+        "One correct but unsupported cell",
+        prediction,
+        (1.0, 1.0, 0.0, 0.0),
+    ))
+
+    prediction = deepcopy(partial)
+    prediction["solution"] = deepcopy(ground_truth)
+    tests.append((
+        "Correct complete table with incomplete reasoning",
+        prediction,
+        (1.0, 1.0, 0.0, 0.0),
+    ))
+
+    prediction = deepcopy(complete)
+    prediction["solution"]["rows"][0][2] = "white"
+    prediction["solution"]["rows"][2][2] = "yellow"
+    tests.append((
+        "Two incorrect colors",
+        prediction,
+        (7 / 9, 0.0, 0.0, 0.0),
+    ))
+
+    prediction = deepcopy(complete)
+    prediction["reasoning"] = make_reasoning(
+        complete_pairs + [
+            ("Arnold does not occupy house two.", "Arnold != 2"),
+        ]
+    )
+    tests.append((
+        "Contradictory reasoning",
+        prediction,
+        (1.0, 1.0, 0.0, 0.0),
+    ))
+
+    prediction = deepcopy(partial)
+    for row in prediction["solution"]["rows"]:
+        row[1:] = ["?", "?", "?"]
+    tests.append((
+        "All attribute cells unknown",
+        prediction,
+        (0.0, 0.0, 0.0, 0.0),
+    ))
+
+    prediction = deepcopy(partial)
+    for row in prediction["solution"]["rows"]:
+        row[1:] = ["?", "?", "?"]
+    prediction["solution"]["rows"][1][1] = "Arnold"
+    tests.append((
+        "One cell supported through Arnold == red == 2",
+        prediction,
+        (1.0, 1.0, 1.0, 1 / 9),
+    ))
+
+    metric_keys = [
+        "pa_accuracy",
+        "pa_accuracy_pass",
+        "pa_consistency",
+        "coverage",
+    ]
+    failures = []
+
+    for label, prediction, expected in tests:
+        print(f"\n{'=' * 60}\n{label}")
+
+        solution_str = (
+            "<answer>"
+            + json.dumps(prediction, ensure_ascii=False)
+            + "</answer>"
+        )
+
+        try:
+            result = compute_score(
+                solution_str=solution_str,
+                ground_truth=deepcopy(ground_truth),
+            )
+
+            print(json.dumps(
+                {
+                    key: result.get(key)
+                    for key in metric_keys + [
+                        "PUZZLE_ACCURACY",
+                        "CELL_ACCURACY",
+                        "BASE_sat_full_GT",
+                        "BASE_n_steps_novel_inc_clues",
+                        "score",
+                    ]
+                },
+                indent=2,
+            ))
+
+            errors = []
+            for key, target in zip(metric_keys, expected):
+                actual = result.get(key)
+                if actual is None or not math.isclose(
+                    float(actual), target,
+                    rel_tol=1e-9, abs_tol=1e-12,
+                ):
+                    errors.append(
+                        f"{key}: expected {target}, got {actual}"
+                    )
+
+            if errors:
+                failures.append((label, "; ".join(errors)))
+                print("FAIL:", "; ".join(errors))
+            else:
+                print("PASS")
+
+        except Exception as error:
+            failures.append((label, repr(error)))
+            logger.exception("Test failed: %s", label)
+
+    print(f"\nPassed {len(tests) - len(failures)}/{len(tests)} tests.")
+
+    if failures:
+        raise AssertionError(
+            "\n".join(f"{label}: {error}" for label, error in failures)
+        )

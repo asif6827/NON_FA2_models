@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 
 #pid_to_puzzle_dic_file = '/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json'
-pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/home/asif/data3/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
+pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/Users/asif/Desktop/Codes_QCRI/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
 
 with open(pid_to_puzzle_dic_file, "r", encoding="utf-8") as f:
     pid_to_puzzle_dic = json.load(f)   # this is a dict (if JSON root is an object)
@@ -797,6 +797,7 @@ def compute_score(
         final_result["pa_accuracy_pass"] = 0.0
         final_result["pa_consistency"] = 0.0
         final_result["coverage"] = 0.0
+        final_result["coverage_reward"] = 0.0
 
     except Exception as e:
         #logger.exception(f"Failed to get puzzle id from extra_info: {e}")
@@ -827,6 +828,7 @@ def compute_score(
         final_result["pa_accuracy_pass"] = 0.0
         final_result["pa_consistency"] = 0.0
         final_result["coverage"] = 0.0
+        final_result["coverage_reward"] = 0.0
 
     parsing_reward = 0.0
     try:
@@ -993,6 +995,7 @@ def compute_score(
     final_result["pa_accuracy_pass"] = 0.0
     final_result["pa_consistency"] = 0.0
     final_result["coverage"] = 0.0
+    final_result["coverage_reward"] = 0.0
 
     try:
         # Final solution serves as the partial answer; clues are not passed.
@@ -1012,6 +1015,7 @@ def compute_score(
             "pa_accuracy_pass": float(pa_result["accuracy"]),
             "pa_consistency": float(pa_result["consistency"]),
             "coverage": float(pa_result["coverage"]),
+            "coverage_reward":coverage_reward,
         }
 
         final_result.update(pa_metrics)
@@ -1088,10 +1092,6 @@ def compute_score(
             reward = -0.5
 
 
-
-
-        #reward = 0.6 * float(puzzle_acc_score)
-        #normalizer = 0.0
 
         # -----------------------
         # Log / persist to final_result
@@ -1183,50 +1183,227 @@ def pretty(x):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 if __name__ == "__main__":
+    from copy import deepcopy
+    import math
 
-    sol_str = """```json
-    {
-        "n_houses": 3,
-        "attribute_values": {
-            "Name": ["Peter", "Eric", "Arnold"],
-            "Color": ["red", "white", "yellow"],
-            "Children": ["Fred", "Meredith", "Bella"]
-        },
-        "syntactic_clues": [
-            "C1: Arnold == red.",
-            "C2: red == 2.",
-            "C3: Bella == 1.",
-            "C4: Fred < Eric.",
-            "C5: white == Meredith."
-        ],
-        "reasoning": [
-            "I am NL",
-            "S1: Or(eric ==1, Eric ==2, Eric == 3).",
-            "I am NL.",
-            "S2: Not(Eric == 1).",
-            "I am NL",
-            "S3: Arnold == 2."
-        ],
-      "solution": {
-        "header": ["House", "Name", "Color", "Children"],
-        "rows": [
-          ["1", "Peter", "yellow", "Bella"],
-          ["2", "Arnold", "red", "Fred"],
-          ["3", "Eric", "white", "Meredith"]
-        ]
-      }
-    }
-    ```"""
+    # Disable feedback-file writing for these standalone tests.
+    os.environ["VALID_STATUS"] = "0"
 
-    ground_truth =  {
+    ground_truth = {
         "header": ["House", "Name", "Color", "Children"],
         "rows": [
             ["1", "Peter", "yellow", "Bella"],
             ["2", "Arnold", "red", "Fred"],
             ["3", "Eric", "white", "Meredith"],
-        ]
+        ],
     }
 
-    res = compute_score(sol_str, ground_truth)
-    print(f"Result = {json.dumps (res, indent=2, ensure_ascii=False)}")
+    def make_reasoning(pairs):
+        result = []
+        for i, (explanation, constraint) in enumerate(pairs, 1):
+            result.extend([explanation, f"S{i}: {constraint}."])
+        return result
+
+    partial_pairs = [
+        ("Red occupies house two.", "red == 2"),
+        ("Arnold occupies the red house.", "Arnold == red"),
+        ("Bella belongs to house one.", "Bella == 1"),
+        ("Fred lives somewhere left of Eric.", "Fred < Eric"),
+        ("Eric occupies house two or house three.",
+         "Or(Eric == 2, Eric == 3)"),
+        ("Eric does not occupy house two.", "Not(Eric == 2)"),
+        ("Fred occupies house one or house two.",
+         "Or(Fred == 1, Fred == 2)"),
+        ("Fred does not occupy house one.", "Fred != 1"),
+        ("Peter occupies house one.", "Peter == 1"),
+        ("Meredith belongs to house three.", "Meredith == 3"),
+    ]
+
+    complete_pairs = partial_pairs + [
+        ("White occupies Meredith's house.", "white == Meredith"),
+        ("Yellow occupies house one.", "yellow == 1"),
+    ]
+
+    partial = {
+        "n_houses": 3,
+        "attribute_values": {
+            "Name": ["Peter", "Eric", "Arnold"],
+            "Color": ["red", "white", "yellow"],
+            "Children": ["Fred", "Meredith", "Bella"],
+        },
+        "syntactic_clues": [
+            "C1: Arnold == red.",
+            "C2: Fred < Eric.",
+            "C3: red == 2.",
+            "C4: Bella == 1.",
+            "C5: white == Meredith.",
+        ],
+        "reasoning": make_reasoning(partial_pairs),
+        "solution": {
+            "header": ["House", "Name", "Color", "Children"],
+            "rows": [
+                ["1", "Peter", "?", "Bella"],
+                ["2", "Arnold", "red", "Fred"],
+                ["3", "Eric", "?", "Meredith"],
+            ],
+        },
+    }
+
+    complete = deepcopy(partial)
+    complete["reasoning"] = make_reasoning(complete_pairs)
+    complete["solution"] = deepcopy(ground_truth)
+
+    # Expected tuple:
+    # (pa_accuracy, pa_accuracy_pass, pa_consistency, coverage)
+    tests = []
+
+    tests.append((
+        "Supported partial solution: 7/9 cells",
+        deepcopy(partial),
+        (1.0, 1.0, 1.0, 7 / 9),
+    ))
+
+    tests.append((
+        "Supported complete solution",
+        deepcopy(complete),
+        (1.0, 1.0, 1.0, 1.0),
+    ))
+
+    prediction = deepcopy(partial)
+    prediction["solution"]["rows"][2][2] = "white"
+    tests.append((
+        "One correct but unsupported cell",
+        prediction,
+        (1.0, 1.0, 0.0, 0.0),
+    ))
+
+    prediction = deepcopy(partial)
+    prediction["solution"] = deepcopy(ground_truth)
+    tests.append((
+        "Correct complete table with incomplete reasoning",
+        prediction,
+        (1.0, 1.0, 0.0, 0.0),
+    ))
+
+    prediction = deepcopy(complete)
+    prediction["solution"]["rows"][0][2] = "white"
+    prediction["solution"]["rows"][2][2] = "yellow"
+    tests.append((
+        "Two incorrect colors",
+        prediction,
+        (7 / 9, 0.0, 0.0, 0.0),
+    ))
+
+    prediction = deepcopy(complete)
+    prediction["reasoning"] = make_reasoning(
+        complete_pairs + [
+            ("Arnold does not occupy house two.", "Arnold != 2"),
+        ]
+    )
+    tests.append((
+        "Contradictory reasoning",
+        prediction,
+        (1.0, 1.0, 0.0, 0.0),
+    ))
+
+    prediction = deepcopy(partial)
+    for row in prediction["solution"]["rows"]:
+        row[1:] = ["?", "?", "?"]
+    tests.append((
+        "All attribute cells unknown",
+        prediction,
+        (0.0, 0.0, 0.0, 0.0),
+    ))
+
+    prediction = deepcopy(partial)
+    for row in prediction["solution"]["rows"]:
+        row[1:] = ["?", "?", "?"]
+    prediction["solution"]["rows"][1][1] = "Arnold"
+    tests.append((
+        "One cell supported through Arnold == red == 2",
+        prediction,
+        (1.0, 1.0, 1.0, 1 / 9),
+    ))
+
+    metric_keys = [
+        "pa_accuracy",
+        "pa_accuracy_pass",
+        "pa_consistency",
+        "coverage",
+    ]
+    failures = []
+
+    for label, prediction, expected in tests:
+        print(f"\n{'=' * 60}\n{label}")
+
+        solution_str = (
+            "<answer>"
+            + json.dumps(prediction, ensure_ascii=False)
+            + "</answer>"
+        )
+
+        try:
+            result = compute_score(
+                solution_str=solution_str,
+                ground_truth=deepcopy(ground_truth),
+            )
+
+            print(json.dumps(
+                {
+                    key: result.get(key)
+                    for key in metric_keys + [
+                        "PUZZLE_ACCURACY",
+                        "CELL_ACCURACY",
+                        "BASE_sat_full_GT",
+                        "BASE_n_steps_novel_inc_clues",
+                        "score",
+                    ]
+                },
+                indent=2,
+            ))
+
+            errors = []
+            for key, target in zip(metric_keys, expected):
+                actual = result.get(key)
+                if actual is None or not math.isclose(
+                    float(actual), target,
+                    rel_tol=1e-9, abs_tol=1e-12,
+                ):
+                    errors.append(
+                        f"{key}: expected {target}, got {actual}"
+                    )
+
+            if errors:
+                failures.append((label, "; ".join(errors)))
+                print("FAIL:", "; ".join(errors))
+            else:
+                print("PASS")
+
+        except Exception as error:
+            failures.append((label, repr(error)))
+            logger.exception("Test failed: %s", label)
+
+    print(f"\nPassed {len(tests) - len(failures)}/{len(tests)} tests.")
+
+    if failures:
+        raise AssertionError(
+            "\n".join(f"{label}: {error}" for label, error in failures)
+        )
