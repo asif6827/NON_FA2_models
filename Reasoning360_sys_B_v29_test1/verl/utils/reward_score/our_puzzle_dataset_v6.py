@@ -1358,37 +1358,16 @@ def compute_score(
             n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
             novel_step_score = float(min(n_novel_steps / normalizer, 1.0))
             contradiction_ratio = float(min(n_contradictions / normalizer, 1.0))
-            sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))  # expected 1.0 or 0.0
-            pa_available = (
-                    float(PA_out.get("pa_present", 0.0)) > 0.0
-                    and float(PA_out.get("PA_n_evaluated", 0.0)) > 0.0
-            )
-            pa_reward_score = clamp01(
-                PA_out.get("pa_reward", 0.0)
-            )
 
             pa_present_score = float(PA_out.get("pa_present", 0.0))
 
             # Safer: presence bonus only if the PA is structurally usable/non-empty.
-            pa_presence_valid = (
-                    pa_present_score
-                    * float(PA_out.get("pa_base_check", 0.0))
-            )
-
-            pa_reward_score = float(
-                PA_out.get("pa_reward", 0.0)
-            )
-
+            pa_presence_valid = (pa_present_score * float(PA_out.get("pa_base_check", 0.0)))
             pa_reward_score = float(PA_out.get("pa_reward", 0.0))
 
-            pa_available = (
-                    float(PA_out.get("pa_present", 0.0)) > 0.0
-            )
-
+            pa_available = (float(PA_out.get("pa_present", 0.0)) > 0.0)
             format_reward = 1.0 if format_ok else 0.0
-
             format_contribution = float(format_weight) * format_reward
-
             reward = pa_reward_score + format_contribution
         
         else:
