@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J MLXL-B-v29-H200-Qwen3-test2 #job name
+#SBATCH -J MLXL-B-v29-H200-Qwen3-test3-from-chkpoint #job name
 #SBATCH -p gpu-H200 # queue used
 #SBATCH --exclude=crirdchpxd001,crirdchpxd003,crirdchpxd005
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
@@ -90,6 +90,7 @@ gpu_memory_utilization=0.8
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
 WANDB_PROJECT="Sys_B_v1_Qwen3_4B_MLXL_1_1shot_H200" # Your wandb project name
+RESUME_FROM_PATH="/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29/checkpoints/Sys_B_v1_Qwen3_4B_MLXL_1_1shot_H200/job-id-276924-time-20260420-144810-Qwen3-4B-Thinking-2507/global_step_84"
 
 # --- External Services ---
 export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as-judge hosted URL for 'STEM' domain evaluation
@@ -347,5 +348,8 @@ python -m recipe.dapo.main_dapo \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.total_epochs=${EPOCH} \
     trainer.log_val_generations=127 \
-    trainer.resume_mode=auto \
+    trainer.resume_mode=resume_path \
+    trainer.resume_from_path="$RESUME_FROM_PATH" \
+    trainer.default_hdfs_dir=null \
+    trainer.del_local_ckpt_after_load=False \
     trainer.validation_data_dir=${VALID_GENERATION_PATH}
