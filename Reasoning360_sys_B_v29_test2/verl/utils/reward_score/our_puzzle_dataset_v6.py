@@ -24,6 +24,7 @@ from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import solve
 from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import normalize_header, normalize_months_in_rows
 from verl.utils.reward_score.check_interleved_format import check_interleaved_reasoning
 from verl.utils.reward_score.z3_reasoning_vs_solution_verifier_v2 import verify_solution_two_step
+from verl.utils.reward_score.reward_PA_solution import compute_pa_solution
 
 
 os.environ.setdefault("CLUE_TIMEOUT_S", "3.0")
@@ -792,6 +793,11 @@ def compute_score(
         final_result["total_epochs"] = total_epochs
         final_result["reward_logged"] = 0.0
 
+        final_result["pa_accuracy"] = 0.0
+        final_result["pa_accuracy_pass"] = 0.0
+        final_result["pa_consistency"] = 0.0
+        final_result["coverage"] = 0.0
+
     except Exception as e:
         #logger.exception(f"Failed to get puzzle id from extra_info: {e}")
         logger.error(f"Failed to get puzzle id from extra_info: {e}")
@@ -815,6 +821,12 @@ def compute_score(
         final_result["epoch"] = epoch
         final_result["total_epochs"] = total_epochs
         final_result["reward_logged"] = 0.0
+
+
+        final_result["pa_accuracy"] = 0.0
+        final_result["pa_accuracy_pass"] = 0.0
+        final_result["pa_consistency"] = 0.0
+        final_result["coverage"] = 0.0
 
     parsing_reward = 0.0
     try:
@@ -975,6 +987,40 @@ def compute_score(
 
 
 
+    # Safe defaults if partial-answer scoring fails.
+    coverage_reward = 1.0
+    final_result["pa_accuracy"] = 0.0
+    final_result["pa_accuracy_pass"] = 0.0
+    final_result["pa_consistency"] = 0.0
+    final_result["coverage"] = 0.0
+
+    try:
+        # Final solution serves as the partial answer; clues are not passed.
+        pa_payload = {
+            "ground_truth": ground_truth,
+            "reasoning": parsed_reasoning,
+            "solution": predicted_arrangement,
+            "n_houses": n_houses,
+            "attribute_values": attribute_values,
+            "z3_out": z3_out,
+        }
+
+        pa_result = compute_pa_solution(pa_payload)
+
+        pa_metrics = {
+            "pa_accuracy": float(pa_result["pa_accuracy"]),
+            "pa_accuracy_pass": float(pa_result["accuracy"]),
+            "pa_consistency": float(pa_result["consistency"]),
+            "coverage": float(pa_result["coverage"]),
+        }
+
+        final_result.update(pa_metrics)
+        coverage_reward = 1.0 + pa_metrics["coverage"]
+
+    except Exception:
+        logger.exception("Error computing partial-answer coverage")
+
+
 
     # -----------------------
     # Reward components (safe defaults)
@@ -1009,12 +1055,12 @@ def compute_score(
                 reward = (
                         0.15 * parsing_reward
                         + 0.10 * format_reward
-                        + 0.60 * float(puzzle_acc_score)
+                        + 0.60 * coverage_reward
                         - 0.20 * contradiction_ratio
                 )
             else:
                 base_quality = (
-                        0.60 * float(puzzle_acc_score)
+                        0.60 * coverage_reward
                         + 0.20 * parsing_reward
                         + 0.20 * format_reward
                 )
@@ -1026,7 +1072,7 @@ def compute_score(
                 )
 
                 # gate process reward by solution quality
-                reward = base_quality + float(puzzle_acc_score) * process_bonus
+                reward = base_quality + coverage_reward * process_bonus
 
             #if sat_ok == 0.0:
             #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)

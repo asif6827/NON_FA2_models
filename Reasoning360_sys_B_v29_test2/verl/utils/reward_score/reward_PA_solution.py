@@ -161,3 +161,75 @@ def compute_pa_solution(payload, timeout_s=5.0):
 def compute_coverage(payload, timeout_s=5.0):
     """Convenience API returning gated coverage only."""
     return compute_pa_solution(payload, timeout_s=timeout_s)['coverage']
+
+
+if __name__ == '__main__':
+    from copy import deepcopy
+
+    base_payload = {
+        'n_houses': 2,
+        'attribute_values': {'Name': ['Alice', 'Bob']},
+        'ground_truth': {
+            'header': ['House', 'Name'],
+            'rows': [['1', 'Alice'], ['2', 'Bob']],
+        },
+        'solution': {
+            'header': ['House', 'Name'],
+            'rows': [['1', 'Alice'], ['2', '?']],
+        },
+        'reasoning': ['Alice occupies house 1.', 'S1: Alice == 1.'],
+        'z3_out': {},
+    }
+    cases = []
+
+    cases.append(('Supported partial answer', deepcopy(base_payload),
+                  (1.0, True, True, 0.5)))
+
+    full = deepcopy(base_payload)
+    full['solution']['rows'][1][1] = 'Bob'
+    full['reasoning'] += ['Bob occupies house 2.', 'S2: Bob == 2.']
+    cases.append(('Supported complete answer', full, (1.0, True, True, 1.0)))
+
+    wrong = deepcopy(base_payload)
+    wrong['solution']['rows'][0][1] = 'Bob'
+    wrong['reasoning'] = ['Bob occupies house 1.', 'S1: Bob == 1.']
+    cases.append(('Incorrect but supported answer', wrong, (0.0, False, True, 0.0)))
+
+    unsupported = deepcopy(base_payload)
+    unsupported['solution']['rows'][1][1] = 'Bob'
+    # One supported cell must not hide another unsupported cell.
+    cases.append(('Correct but partly unsupported answer', unsupported,
+                  (1.0, True, False, 0.0)))
+
+    contradictory = deepcopy(base_payload)
+    contradictory['reasoning'] += ['Alice is not in house 1.', 'S2: Alice != 1.']
+    cases.append(('Contradictory reasoning', contradictory,
+                  (1.0, True, False, 0.0)))
+
+    empty = deepcopy(base_payload)
+    empty['solution']['rows'][0][1] = '?'
+    cases.append(('All cells unknown', empty, (0.0, False, False, 0.0)))
+
+    mixed = deepcopy(full)
+    mixed['solution']['rows'][1][1] = 'Alice'
+    cases.append(('One correct and one incorrect cell', mixed,
+                  (0.5, False, False, 0.0)))
+
+    clues_only = deepcopy(base_payload)
+    clues_only['reasoning'] = ['Alice may occupy either house.',
+                              'S1: Or(Alice == 1, Alice == 2).']
+    clues_only['syntactic_clues'] = ['C1: Alice == 1.']
+    clues_only['z3_out'] = {'list_novel_steps_inc_clues': ['Alice == 1']}
+    cases.append(('Clues and z3_out do not establish support', clues_only,
+                  (1.0, True, False, 0.0)))
+
+    for label, payload, expected in cases:
+        result = compute_pa_solution(payload)
+        actual = (result['pa_accuracy'], result['accuracy'],
+                  result['consistency'], result['coverage'])
+        if actual != expected:
+            raise AssertionError(f'{label}: expected {expected}, got {result}')
+        print(f'PASS: {label}: pa_accuracy={actual[0]}, '
+              f'accuracy={actual[1]}, consistency={actual[2]}, coverage={actual[3]}')
+
+    print(f'All {len(cases)} quick tests passed.')
