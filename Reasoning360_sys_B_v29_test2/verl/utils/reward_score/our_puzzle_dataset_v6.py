@@ -987,15 +987,15 @@ def compute_score(
             consistency_score = 0
     #print("Consistency score:", consistency_score)
 
-
-
-    # Safe defaults if partial-answer scoring fails.
+    # Safe defaults.
     coverage_reward = 1.0
-    final_result["pa_accuracy"] = 0.0
-    final_result["pa_accuracy_pass"] = 0.0
-    final_result["pa_consistency"] = 0.0
-    final_result["coverage"] = 0.0
-    final_result["coverage_reward"] = 0.0
+    final_result.update({
+        "pa_accuracy": 0.0,
+        "pa_accuracy_pass": 0.0,
+        "pa_consistency": 0.0,
+        "coverage": 0.0,
+        "coverage_reward": 1.0,
+    })
 
     try:
         # Final solution serves as the partial answer; clues are not passed.
@@ -1009,21 +1009,21 @@ def compute_score(
         }
 
         pa_result = compute_pa_solution(pa_payload)
+        coverage = float(pa_result["coverage"])
 
         pa_metrics = {
             "pa_accuracy": float(pa_result["pa_accuracy"]),
             "pa_accuracy_pass": float(pa_result["accuracy"]),
             "pa_consistency": float(pa_result["consistency"]),
-            "coverage": float(pa_result["coverage"]),
-            "coverage_reward":coverage_reward,
+            "coverage": coverage,
+            "coverage_reward": 1.0 + coverage,
         }
 
         final_result.update(pa_metrics)
-        coverage_reward = 1.0 + pa_metrics["coverage"]
+        coverage_reward = pa_metrics["coverage_reward"]
 
     except Exception:
         logger.exception("Error computing partial-answer coverage")
-
 
 
     # -----------------------
