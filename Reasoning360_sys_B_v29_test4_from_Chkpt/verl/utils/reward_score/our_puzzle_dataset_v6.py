@@ -794,10 +794,10 @@ def compute_score(
         final_result["reward_logged"] = 0.0
 
         final_result["pa_accuracy"] = 0.0
-        final_result["pa_accuracy_pass"] = 0.0
-        final_result["pa_consistency"] = 0.0
+        final_result["pa_accuracy_binary_pass"] = 0.0
+        final_result["pa_consistency_binary_pass"] = 0.0
         final_result["coverage"] = 0.0
-        final_result["coverage_reward"] = 0.0
+        final_result["pa_reward"] = 0.0
 
     except Exception as e:
         #logger.exception(f"Failed to get puzzle id from extra_info: {e}")
@@ -825,10 +825,10 @@ def compute_score(
 
 
         final_result["pa_accuracy"] = 0.0
-        final_result["pa_accuracy_pass"] = 0.0
-        final_result["pa_consistency"] = 0.0
+        final_result["pa_accuracy_binary_pass"] = 0.0
+        final_result["pa_consistency_binary_pass"] = 0.0
         final_result["coverage"] = 0.0
-        final_result["coverage_reward"] = 0.0
+        final_result["pa_reward"] = 0.0
 
     parsing_reward = 0.0
     try:
@@ -988,17 +988,24 @@ def compute_score(
     #print("Consistency score:", consistency_score)
 
     # Safe defaults.
-    coverage_reward = 1.0
+    pa_accuracy = 0.0
+    pa_accuracy_binary_pass = 0
+    pa_consistency_binary_pass = 0
+    coverage = 0.0
+    pa_reward = 0.0
+
     final_result.update({
-        "pa_accuracy": 0.0,
-        "pa_accuracy_pass": 0.0,
-        "pa_consistency": 0.0,
-        "coverage": 0.0,
-        "coverage_reward": 1.0,
+        "pa_accuracy": pa_accuracy,
+        "pa_accuracy_binary_pass": pa_accuracy_binary_pass,
+        "pa_consistency_binary_pass": pa_consistency_binary_pass,
+        "coverage": coverage,
+        "pa_reward": pa_reward,
     })
 
+
     try:
-        # Final solution serves as the partial answer; clues are not passed.
+        # Final solution serves as the partial answer.
+        # Clues are not passed; z3_out supplies no solver constraints.
         pa_payload = {
             "ground_truth": ground_truth,
             "reasoning": parsed_reasoning,
@@ -1009,22 +1016,33 @@ def compute_score(
         }
 
         pa_result = compute_pa_solution(pa_payload)
-        coverage = float(pa_result["coverage"])
 
         pa_metrics = {
-            "pa_accuracy": float(pa_result["pa_accuracy"]), # Degree of PA Accuracy
-            "pa_accuracy_binary_pass": float(pa_result["accuracy"]), # Binary PA check (All NON-empty equal GT)_
-            "pa_consistency_binary_pass": float(pa_result["consistency"]), # Using new def of SAT (Resaoning steps + NON-EMPTY Cell Assignemnets are SAT)
-            "coverage": coverage, # Proportioon of Non-Empty cells
-            "pa_reward": 1.0 + coverage, #(if accuracy and consistency) else ZERO.
+            # Correct populated cells / total attribute cells.
+            "pa_accuracy": float(pa_result["pa_accuracy"]),
+
+            # All populated cells match GT; at least one is populated.
+            "pa_accuracy_binary_pass": float(
+                pa_result["pa_accuracy_binary_pass"]
+            ),
+
+            # Reasoning AND populated-cell assignments is SAT.
+            "pa_consistency_binary_pass": float(
+                pa_result["pa_consistency_binary_pass"]
+            ),
+
+            # Populated cells / total attribute cells; ungated.
+            "coverage": float(pa_result["coverage"]),
+
+            # Already gated inside compute_pa_solution().
+            "pa_reward": float(pa_result["pa_reward"]),
         }
 
         final_result.update(pa_metrics)
-        coverage_reward = pa_metrics["coverage_reward"]
+        pa_reward = pa_metrics["pa_reward"]
 
     except Exception:
-        logger.exception("Error computing partial-answer coverage")
-
+        logger.exception("Error computing partial-answer reward")
 
     # -----------------------
     # Reward components (safe defaults)
@@ -1059,12 +1077,12 @@ def compute_score(
                 reward = (
                         0.15 * parsing_reward
                         + 0.10 * format_reward
-                        + 0.60 * coverage_reward
+                        + 0.60 * pa_reward
                         - 0.20 * contradiction_ratio
                 )
             else:
                 base_quality = (
-                        0.60 * coverage_reward
+                        0.60 * pa_reward
                         + 0.20 * parsing_reward
                         + 0.20 * format_reward
                 )
@@ -1076,7 +1094,7 @@ def compute_score(
                 )
 
                 # gate process reward by solution quality
-                reward = base_quality + coverage_reward * process_bonus
+                reward = base_quality + pa_reward * process_bonus
 
             #if sat_ok == 0.0:
             #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)

@@ -1,11 +1,16 @@
-"""Evidence-grounded final-table partial-answer reward.
+"""Final-table partial-answer reward using joint satisfiability.
 
-compute_pa_solution(payload) returns flags, diagnostic accuracy, and gated coverage.
-compute_coverage(payload) returns only the gated coverage float.
-Payload keys: ground_truth, reasoning, solution, n_houses, attribute_values,
-z3_out. z3_out is accepted for compatibility but never supplies constraints.
-House/Position columns are identifiers, excluded from all cell metrics.
-No clues, bounds, or uniqueness constraints are added to the reasoning solver.
+Outputs: pa_accuracy_binary_pass, coverage, pa_consistency_binary_pass,
+pa_accuracy, pa_reward. pa_accuracy is correct populated cells / ALL attribute
+cells, not correct populated cells / populated cells.
+Consistency checks SAT(reasoning AND all populated cell assignments).
+No clues, bounds, uniqueness, or constraints from z3_out are added.
+House/Position identifiers are excluded from cell counts. Empty attribute cells
+are ?, blank strings, or None. An all-empty answer fails accuracy and earns zero
+reward; its consistency still reflects the joint SAT check.
+Reasoning is an interleaved list of natural-language / S<k>: constraint. pairs;
+an empty list supplies no constraints. Malformed reasoning fails consistency.
+Requires z3-solver. Payload fields are unchanged.
 """
 import ast
 import re
@@ -32,7 +37,8 @@ def _table(table, n):
         house = int(str(row[hi]))
         if house in rows or not 1 <= house <= n:
             raise ValueError('Duplicate/out-of-range house')
-        rows[house] = {c: _norm(row[header.index(c)]) for c in columns}
+        rows[house] = {c: ('' if row[header.index(c)] is None else _norm(row[header.index(c)]))
+                       for c in columns}
     if set(rows) != set(range(1, n + 1)):
         raise ValueError('Missing houses')
     return columns, rows
@@ -83,50 +89,66 @@ def _constraint(text, tokens):
 
 
 def compute_pa_solution(payload, timeout_s=5.0):
-    """Return zero coverage on inaccurate, unsupported, malformed, or unknown cases.
+    """Compute ungated coverage, two binary gates, and the gated PA reward.
 
-    Accuracy: all populated attribute cells match GT and at least one exists.
-    Consistency: reasoning is SAT and reasoning AND NOT(all populated cells)
-    is UNSAT. Every numbered syntactic step is used, not just novel steps.
+    SAT means compatibility, not entailment: an assignment absent from reasoning
+    can pass consistency as long as it does not contradict the reasoning.
+    Unknown/timeout results fail consistency. Invalid tables give zero metrics;
+    after valid table scoring, reasoning errors preserve accuracy and coverage.
     """
-    out = dict(accuracy=False, consistency=False, pa_accuracy=0.0,
-               coverage=0.0, raw_coverage=0.0, populated_cells=0,
-               total_cells=0, status='invalid_payload')
+    out = {
+        'pa_accuracy_binary_pass': 0,
+        'pa_accuracy': 0.0,
+        'coverage': 0.0,
+        'pa_consistency_binary_pass': 0,
+        'pa_reward': 0.0,
+    }
     try:
+        if not isinstance(payload, dict):
+            raise ValueError('Payload must be a dictionary')
         n = payload['n_houses']
         if isinstance(n, bool) or int(n) != n or int(n) <= 0:
             raise ValueError('Invalid n_houses')
         n = int(n)
-        attrs = {_norm(k): [_norm(v) for v in vals]
-                 for k, vals in payload['attribute_values'].items()}
-        if not attrs or any(len(v) != n or len(set(v)) != n for v in attrs.values()):
+        domains = payload['attribute_values']
+        if not isinstance(domains, dict) or not domains:
+            raise ValueError('attribute_values must be a nonempty dictionary')
+        attrs = {}
+        for key, values in domains.items():
+            if not isinstance(values, (list, tuple)):
+                raise ValueError('Attribute values must be lists')
+            name = _norm(key)
+            if name in attrs:
+                raise ValueError('Duplicate normalized attribute name')
+            attrs[name] = [_norm(value) for value in values]
+        if any(len(values) != n or len(set(values)) != n for values in attrs.values()):
             raise ValueError('Invalid attribute domain')
         columns, pred = _table(payload['solution'], n)
         gt_columns, gt = _table(payload['ground_truth'], n)
         if set(columns) != set(gt_columns) or set(columns) != set(attrs):
             raise ValueError('Attribute headers differ')
-        cells = [(h, c, pred[h][c]) for h in pred for c in columns if pred[h][c] != '?']
+        cells = [(house, column, pred[house][column])
+                 for house in pred for column in columns
+                 if pred[house][column] not in ('?', '')]
         if any(gt[h][c] not in attrs[c] for h in gt for c in columns):
             raise ValueError('GT outside domain')
-        if any(v not in attrs[c] for h, c, v in cells):
+        if any(value not in attrs[column] for h, column, value in cells):
             raise ValueError('Solution outside domain')
-        total = n * len(columns)
-        correct = sum(v == gt[h][c] for h, c, v in cells)
-        out.update(total_cells=total, populated_cells=len(cells),
-                   pa_accuracy=correct / len(cells) if cells else 0.0,
-                   raw_coverage=len(cells) / total,
-                   accuracy=bool(cells) and correct == len(cells))
-        if not cells:
-            out['status'] = 'empty_solution'
-            return out
+        total_cells = n * len(columns)
+        correct_cells = sum(value == gt[h][c] for h, c, value in cells)
+        out['coverage'] = len(cells) / total_cells
+        out['pa_accuracy'] = correct_cells / total_cells
+        out['pa_accuracy_binary_pass'] = int(
+            bool(cells) and correct_cells == len(cells)
+        )
         tokens = {}
-        for c, vals in attrs.items():
-            for v in vals:
-                if v in tokens or v in ('?', 'and', 'or', 'not'):
+        for column, values in attrs.items():
+            for value in values:
+                if value in tokens or value in ('?', '', 'and', 'or', 'not'):
                     raise ValueError('Ambiguous/reserved entity token')
-                tokens[v] = z3.Int(f'{c}:{v}')
+                tokens[value] = z3.Int(f'{column}:{value}')
         reasoning = payload['reasoning']
-        if not isinstance(reasoning, (list, tuple)) or not reasoning or len(reasoning) % 2:
+        if not isinstance(reasoning, (list, tuple)) or len(reasoning) % 2:
             raise ValueError('Expected interleaved reasoning pairs')
         constraints = []
         for index, step in enumerate(reasoning):
@@ -143,95 +165,101 @@ def compute_pa_solution(payload, timeout_s=5.0):
         solver = z3.Solver()
         solver.set(timeout=max(1, int(float(timeout_s) * 1000)))
         solver.add(*constraints)
-        base = solver.check()
-        if base != z3.sat:
-            out['status'] = 'reasoning_unsat' if base == z3.unsat else 'reasoning_unknown'
-            return out
-        assertions = [tokens[v] == h for h, c, v in cells]
-        solver.add(z3.Not(z3.And(*assertions)))
-        result = solver.check()
-        # pa_reward define here...!
-        # Coverage def is wrong here. We need to define pa-reward, coverage seperately.
-        out['consistency'] = result == z3.unsat
-        out['coverage'] = out['raw_coverage'] if out['accuracy'] and out['consistency'] else 0.0
-        out['status'] = 'ok' if result != z3.unknown else 'entailment_unknown'
-    except (KeyError, TypeError, ValueError, SyntaxError, OverflowError, z3.Z3Exception) as error:
-        out.update(coverage=0.0, consistency=False, status='invalid_payload', error=str(error))
+        # Positive assignments: no negation and no separate entailment check.
+        solver.add(*[tokens[value] == h for h, c, value in cells])
+        out['pa_consistency_binary_pass'] = int(solver.check() == z3.sat)
+        if out['pa_accuracy_binary_pass'] and out['pa_consistency_binary_pass']:
+            out['pa_reward'] = 1.0 + out['coverage']
+    except (KeyError, TypeError, ValueError, AttributeError, SyntaxError,
+            OverflowError, RecursionError, z3.Z3Exception):
+        # Invalid input/solver failure must never create a positive PA reward.
+        out['pa_consistency_binary_pass'] = 0
+        out['pa_reward'] = 0.0
     return out
-
-
-def compute_coverage(payload, timeout_s=5.0):
-    """Convenience API returning gated coverage only."""
-    return compute_pa_solution(payload, timeout_s=timeout_s)['coverage']
 
 
 if __name__ == '__main__':
     from copy import deepcopy
+    import math
 
-    base_payload = {
-        'n_houses': 2,
-        'attribute_values': {'Name': ['Alice', 'Bob']},
-        'ground_truth': {
-            'header': ['House', 'Name'],
-            'rows': [['1', 'Alice'], ['2', 'Bob']],
+    gt = {
+        'header': ['House', 'Name', 'Color', 'Children'],
+        'rows': [['1', 'Peter', 'yellow', 'Bella'],
+                 ['2', 'Arnold', 'red', 'Fred'],
+                 ['3', 'Eric', 'white', 'Meredith']],
+    }
+    base = {
+        'n_houses': 3,
+        'attribute_values': {
+            'Name': ['Peter', 'Arnold', 'Eric'],
+            'Color': ['yellow', 'red', 'white'],
+            'Children': ['Bella', 'Fred', 'Meredith'],
         },
-        'solution': {
-            'header': ['House', 'Name'],
-            'rows': [['1', 'Alice'], ['2', '?']],
-        },
-        'reasoning': ['Alice occupies house 1.', 'S1: Alice == 1.'],
+        'ground_truth': deepcopy(gt),
+        'solution': deepcopy(gt),
+        'reasoning': ['Red occupies house two.', 'S1: red == 2.',
+                      'Arnold lives in the red house.', 'S2: Arnold == red.'],
         'z3_out': {},
     }
     cases = []
+    def add(name, payload, accuracy, coverage, consistency, reward, pa_accuracy=None):
+        if pa_accuracy is None:
+            pa_accuracy = coverage
+        cases.append((name, payload, (accuracy, coverage, consistency, pa_accuracy, reward)))
 
-    cases.append(('Supported partial answer', deepcopy(base_payload),
-                  (1.0, True, True, 0.5)))
+    add('Correct complete table compatible with sparse reasoning',
+        deepcopy(base), 1, 1.0, 1, 2.0)
+    p = deepcopy(base)
+    for row in p['solution']['rows']:
+        row[3] = '?'
+    add('Correct partial table: six of nine cells', p, 1, 6/9, 1, 1+6/9)
+    p = deepcopy(base)
+    p['solution']['rows'][0][2], p['solution']['rows'][2][2] = 'white', 'yellow'
+    add('Wrong colors compatible with reasoning', p, 0, 1.0, 1, 0.0, pa_accuracy=7/9)
+    p = deepcopy(base)
+    p['reasoning'] += ['Peter occupies house three.', 'S3: Peter == 3.']
+    add('Correct table contradicts reasoning', p, 1, 1.0, 0, 0.0)
+    p = deepcopy(base)
+    p['solution']['rows'][0][1], p['solution']['rows'][1][1] = 'Arnold', 'Peter'
+    add('Wrong names also contradict reasoning', p, 0, 1.0, 0, 0.0, pa_accuracy=7/9)
+    p = deepcopy(base)
+    p['reasoning'] += ['Red is not in house two.', 'S3: red != 2.']
+    add('Internally contradictory reasoning', p, 1, 1.0, 0, 0.0)
+    p = deepcopy(base)
+    for row in p['solution']['rows']:
+        row[1:] = ['?', '', None]
+    add('All-empty table: no accuracy pass or reward', p, 0, 0.0, 1, 0.0)
+    p = deepcopy(base)
+    for row in p['solution']['rows']:
+        row[1:] = ['?', '?', '?']
+    p['solution']['rows'][0][1] = 'Peter'
+    add('One correct cell absent from reasoning still passes SAT', p, 1, 1/9, 1, 1+1/9)
+    p = deepcopy(base); p['reasoning'] = []
+    add('Empty reasoning is compatible with a correct complete table', p, 1, 1.0, 1, 2.0)
+    p = deepcopy(base); p['reasoning'][1] = 'S8: red == 2.'
+    add('Malformed reasoning preserves ungated table metrics', p, 1, 1.0, 0, 0.0)
+    p = deepcopy(base); p['attribute_values'] = None
+    add('Missing attribute domain safely fails', p, 0, 0.0, 0, 0.0)
+    p = deepcopy(base); p['solution']['rows'].reverse()
+    add('Rows are aligned by house identifier', p, 1, 1.0, 1, 2.0)
+    p = deepcopy(base); p['syntactic_clues'] = ['C1: red != 2.']
+    p['z3_out'] = {'constraints': ['red != 2']}
+    add('Clues and z3_out do not enter the SAT check', p, 1, 1.0, 1, 2.0)
 
-    full = deepcopy(base_payload)
-    full['solution']['rows'][1][1] = 'Bob'
-    full['reasoning'] += ['Bob occupies house 2.', 'S2: Bob == 2.']
-    cases.append(('Supported complete answer', full, (1.0, True, True, 1.0)))
+    p = deepcopy(base)
+    for row in p['solution']['rows']:
+        row[1:] = ['?', '?', '?']
+    p['solution']['rows'][0][1:] = ['Peter', 'white', 'Bella']
+    add('Three populated cells, two correct: accuracy uses total denominator',
+        p, 0, 3/9, 1, 0.0, pa_accuracy=2/9)
 
-    wrong = deepcopy(base_payload)
-    wrong['solution']['rows'][0][1] = 'Bob'
-    wrong['reasoning'] = ['Bob occupies house 1.', 'S1: Bob == 1.']
-    cases.append(('Incorrect but supported answer', wrong, (0.0, False, True, 0.0)))
-
-    unsupported = deepcopy(base_payload)
-    unsupported['solution']['rows'][1][1] = 'Bob'
-    # One supported cell must not hide another unsupported cell.
-    cases.append(('Correct but partly unsupported answer', unsupported,
-                  (1.0, True, False, 0.0)))
-
-    contradictory = deepcopy(base_payload)
-    contradictory['reasoning'] += ['Alice is not in house 1.', 'S2: Alice != 1.']
-    cases.append(('Contradictory reasoning', contradictory,
-                  (1.0, True, False, 0.0)))
-
-    empty = deepcopy(base_payload)
-    empty['solution']['rows'][0][1] = '?'
-    cases.append(('All cells unknown', empty, (0.0, False, False, 0.0)))
-
-    mixed = deepcopy(full)
-    mixed['solution']['rows'][1][1] = 'Alice'
-    cases.append(('One correct and one incorrect cell', mixed,
-                  (0.5, False, False, 0.0)))
-
-    clues_only = deepcopy(base_payload)
-    clues_only['reasoning'] = ['Alice may occupy either house.',
-                              'S1: Or(Alice == 1, Alice == 2).']
-    clues_only['syntactic_clues'] = ['C1: Alice == 1.']
-    clues_only['z3_out'] = {'list_novel_steps_inc_clues': ['Alice == 1']}
-    cases.append(('Clues and z3_out do not establish support', clues_only,
-                  (1.0, True, False, 0.0)))
-
-    for label, payload, expected in cases:
+    keys = ('pa_accuracy_binary_pass', 'coverage',
+            'pa_consistency_binary_pass', 'pa_accuracy', 'pa_reward')
+    for name, payload, expected in cases:
         result = compute_pa_solution(payload)
-        actual = (result['pa_accuracy'], result['accuracy'],
-                  result['consistency'], result['coverage'])
-        if actual != expected:
-            raise AssertionError(f'{label}: expected {expected}, got {result}')
-        print(f'PASS: {label}: pa_accuracy={actual[0]}, '
-              f'accuracy={actual[1]}, consistency={actual[2]}, coverage={actual[3]}')
-
-    print(f'All {len(cases)} quick tests passed.')
+        if set(result) != set(keys) or any(
+                not math.isclose(result[key], target, abs_tol=1e-12)
+                for key, target in zip(keys, expected)):
+            raise AssertionError(f'{name}: expected {expected}, got {result}')
+        print(f'PASS: {name}: {result}')
+    print(f'All {len(cases)} tests passed.')
