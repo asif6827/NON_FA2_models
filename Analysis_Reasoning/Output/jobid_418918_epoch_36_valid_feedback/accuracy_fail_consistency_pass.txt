@@ -1,0 +1,83 @@
+================================================================================
+GROUP: accuracy_fail_consistency_pass
+SOURCE: line 611
+PID: lgp-test-4x2-15
+EPOCH: 36
+METRICS:
+  pa_accuracy: 0.375
+  pa_accuracy_pass: 0.0
+  pa_consistency: 1.0
+  coverage: 0.0
+  coverage_reward: 1.0
+  PUZZLE_ACCURACY: 0.0
+  CELL_ACCURACY: 0.5833333333333334
+  BASE_sat_full_GT: 0.0
+  BASE_n_steps_total: 0
+  BASE_n_steps_parsed_ok: 0
+  BASE_n_steps_valid: 0
+  BASE_n_steps_novel_inc_clues: 0
+  BASE_n_non_valid_contradiction: 0
+  missed_data: 0.0
+  score: -0.5
+FORMAT_CHECK: true
+REWARD: -0.5
+PUZZLE TEXT:
+There are 4 houses, numbered 1 to 4 from left to right, as seen from across the street. Each house is occupied by a different person. Each house has a unique attribute for each of the following characteristics:
+ - Each person has a unique name: `Alice`, `Arnold`, `Peter`, `Eric`
+ - People have unique favorite book genres: `romance`, `science fiction`, `mystery`, `fantasy`
+
+## Clues:
+1. The person who loves romance books is somewhere to the right of Eric.
+2. The person who loves science fiction books is Peter.
+3. Eric is not in the first house.
+4. Eric is not in the third house.
+5. Arnold is somewhere to the right of Alice.
+6. The person who loves mystery books is in the third house.
+GROUND TRUTH:
+  HEADER: ["House", "Name", "BookGenre"]
+  ROW 1: ["1", "Peter", "science fiction"]
+  ROW 2: ["2", "Eric", "fantasy"]
+  ROW 3: ["3", "Alice", "mystery"]
+  ROW 4: ["4", "Arnold", "romance"]
+FINAL SOLUTION:
+  HEADER: ["House", "Name", "BookGenre"]
+  ROW 1: ["1", "Alice", "romance"]
+  ROW 2: ["2", "Eric", "fantasy"]
+  ROW 3: ["3", "Arnold", "mystery"]
+  ROW 4: ["4", "Peter", "science_fiction"]
+ATTRIBUTE VALUES: {"Name": ["Eric", "Arnold", "Alice", "Peter"], "BookGenre": ["fantasy", "science_fiction", "romance", "mystery"]}
+SYNTACTIC CLUES:
+  [001] "C1: romance < Eric."
+  [002] "C2: science_fiction == Peter."
+  [003] "C3: Not(Eric == 1)."
+  [004] "C4: Not(Eric == 3)."
+  [005] "C5: Arnold > Alice."
+  [006] "C6: mystery == 3."
+REASONING:
+  [001] "Clue 6 directly places the mystery book genre in the third house, which is a strong anchor point."
+  [002] "S1: mystery == 3."
+  [003] "Clue 2 ties the science fiction book genre to Peter, so Peter must be in the house with the science fiction genre."
+  [004] "S2: science_fiction == Peter."
+  [005] "Clue 4 states that Eric is not in the third house, so Eric must be in house 1, 2, or 4."
+  [006] "S3: Or(Eric == 1, Eric == 2, Eric == 4)."
+  [007] "Assuming Eric is in house 2, clue 1 requires romance to be in a house left of Eric, so romance must be in house 1."
+  [008] "S4: romance == 1."
+  [009] "House 2 must have fantasy as the book genre since science fiction is tied to Peter and mystery is in house 3."
+  [010] "S5: fantasy == 2."
+  [011] "House 4 must have science fiction as the book genre since it is the only remaining genre."
+  [012] "S6: science_fiction == 4."
+  [013] "House 4 must be Peter since science fiction is tied to Peter."
+  [014] "S7: Peter == 4."
+  [015] "House 1 must be Alice since Arnold must be right of Alice and house 3 is available for Arnold."
+  [016] "S8: Alice == 1."
+  [017] "House 3 must be Arnold since it is the only remaining name."
+  [018] "S9: Arnold == 3."
+  [019] "House 2 must be Eric as it is the only remaining name."
+  [020] "S10: Eric == 2."
+ADDITIONAL RECORD FIELDS:
+  z3_out: {"z3_solution": {"header": ["House", "Name", "BookGenre"], "rows": [["1", "alice", "romance"], ["2", "eric", "fantasy"], ["3", "arnold", "mystery"], ["4", "peter", "science_fiction"]]}, "gt_solution_details": {"header_match": true, "cell_mismatches": [{"house": 1, "col": "Name", "gt": "Peter", "z3": "alice", "gt_norm": "peter", "z3_norm": "alice"}, {"house": 1, "col": "BookGenre", "gt": "science fiction", "z3": "romance", "gt_norm": "science_fiction", "z3_norm": "romance"}, {"house": 3, "col": "Name", "gt": "Alice", "z3": "arnold", "gt_norm": "alice", "z3_norm": "arnold"}, {"house": 4, "col": "Name", "gt": "Arnold", "z3": "peter", "gt_norm": "arnold", "z3_norm": "peter"}, {"house": 4, "col": "BookGenre", "gt": "romance", "z3": "science_fiction", "gt_norm": "romance", "z3_norm": "science_fiction"}], "ok": false}, "base_sat_full_GT": false, "parse_status": "SAT_CHECK_SUCCESS"}
+  payload: {"n_houses": 4, "attribute_values": {"Name": ["Eric", "Arnold", "Alice", "Peter"], "BookGenre": ["fantasy", "science_fiction", "romance", "mystery"]}, "syntactic_clues": ["C1: romance < Eric.", "C2: science_fiction == Peter.", "C3: Not(Eric == 1).", "C4: Not(Eric == 3).", "C5: Arnold > Alice.", "C6: mystery == 3."], "reasoning": ["Clue 6 directly places the mystery book genre in the third house, which is a strong anchor point.", "S1: mystery == 3.", "Clue 2 ties the science fiction book genre to Peter, so Peter must be in the house with the science fiction genre.", "S2: science_fiction == Peter.", "Clue 4 states that Eric is not in the third house, so Eric must be in house 1, 2, or 4.", "S3: Or(Eric == 1, Eric == 2, Eric == 4).", "Assuming Eric is in house 2, clue 1 requires romance to be in a house left of Eric, so romance must be in house 1.", "S4: romance == 1.", "House 2 must have fantasy as the book genre since science fiction is tied to Peter and mystery is in house 3.", "S5: fantasy == 2.", "House 4 must have science fiction as the book genre since it is the only remaining genre.", "S6: science_fiction == 4.", "House 4 must be Peter since science fiction is tied to Peter.", "S7: Peter == 4.", "House 1 must be Alice since Arnold must be right of Alice and house 3 is available for Arnold.", "S8: Alice == 1.", "House 3 must be Arnold since it is the only remaining name.", "S9: Arnold == 3.", "House 2 must be Eric as it is the only remaining name.", "S10: Eric == 2."], "ground_truth": {"header": ["House", "Name", "BookGenre"], "rows": [["1", "Peter", "science fiction"], ["2", "Eric", "fantasy"], ["3", "Alice", "mystery"], ["4", "Arnold", "romance"]]}}
+  processed_prediction: {"header": ["House", "Name", "BookGenre"], "rows": [["1", "Alice", "romance"], ["2", "Eric", "fantasy"], ["3", "Arnold", "mystery"], ["4", "Peter", "science_fiction"]]}
+  reasoning_vs_sol_validate: {"ok": true, "r1": 1.0, "r2": 1.0, "reward": 1.0, "step1": {"n_clues": 6, "errors": []}, "step2": {"n_steps": 0, "errors": []}}
+  final_result: {"BASE_sat_full_GT": 0.0, "missed_data": 0.0, "BASE_n_steps_total": 0, "BASE_n_steps_parsed_ok": 0, "BASE_n_steps_valid": 0, "BASE_n_steps_novel_inc_clues": 0, "BASE_n_non_valid_contradiction": 0, "Normalizer": 1.0, "acc": -0.5, "PUZZLE_ACCURACY": 0.0, "CELL_ACCURACY": 0.5833333333333334, "score": -0.5, "epoch": 36, "total_epochs": 80, "reward_logged": -0.5, "pa_accuracy": 0.375, "pa_accuracy_pass": 0.0, "pa_consistency": 1.0, "coverage": 0.0, "coverage_reward": 1.0}
+

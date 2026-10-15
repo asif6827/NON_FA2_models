@@ -1012,11 +1012,11 @@ def compute_score(
         coverage = float(pa_result["coverage"])
 
         pa_metrics = {
-            "pa_accuracy": float(pa_result["pa_accuracy"]),
-            "pa_accuracy_pass": float(pa_result["accuracy"]),
-            "pa_consistency": float(pa_result["consistency"]),
-            "coverage": coverage,
-            "coverage_reward": 1.0 + coverage,
+            "pa_accuracy": float(pa_result["pa_accuracy"]), # Degree of PA Accuracy
+            "pa_accuracy_binary_pass": float(pa_result["accuracy"]), # Binary PA check (All NON-empty equal GT)_
+            "pa_consistency_binary_pass": float(pa_result["consistency"]), # Using new def of SAT (Resaoning steps + NON-EMPTY Cell Assignemnets are SAT)
+            "coverage": coverage, # Proportioon of Non-Empty cells
+            "pa_reward": 1.0 + coverage, #(if accuracy and consistency) else ZERO.
         }
 
         final_result.update(pa_metrics)

@@ -150,6 +150,8 @@ def compute_pa_solution(payload, timeout_s=5.0):
         assertions = [tokens[v] == h for h, c, v in cells]
         solver.add(z3.Not(z3.And(*assertions)))
         result = solver.check()
+        # pa_reward define here...!
+        # Coverage def is wrong here. We need to define pa-reward, coverage seperately.
         out['consistency'] = result == z3.unsat
         out['coverage'] = out['raw_coverage'] if out['accuracy'] and out['consistency'] else 0.0
         out['status'] = 'ok' if result != z3.unknown else 'entailment_unknown'

@@ -1,0 +1,11 @@
+SUMMARY
+Input: /Users/asif/Desktop/Codes_QCRI/NON_FA2_models/Analysis_Reasoning/Input_Logs/jobid_418918_epoch_36_valid_feedback.jsonl
+Output directory: /Users/asif/Desktop/Codes_QCRI/NON_FA2_models/Analysis_Reasoning/Output/jobid_418918_epoch_36_valid_feedback
+accuracy_pass_consistency_pass: 270
+accuracy_pass_consistency_fail: 194
+accuracy_fail_consistency_pass: 1
+accuracy_fail_consistency_fail: 235
+unclassified: 0
+input_errors: 0
+Total valid objects: 700
+Groups use logged gates; failure reasons are not recomputed.
