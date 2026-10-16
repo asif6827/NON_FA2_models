@@ -136,12 +136,13 @@ def compute_pa_solution(payload, timeout_s=5.0):
             raise ValueError('Solution outside domain')
         total_cells = n * len(columns)
         correct_cells = sum(value == gt[h][c] for h, c, value in cells)
+
         out['coverage'] = len(cells) / total_cells
         out['pa_accuracy'] = correct_cells / total_cells
-        out['pa_accuracy_binary_pass'] = int(
-            bool(cells) and correct_cells == len(cells)
-        )
+        out['pa_accuracy_binary_pass'] = int(bool(cells) and correct_cells == len(cells))
+
         tokens = {}
+
         for column, values in attrs.items():
             for value in values:
                 if value in tokens or value in ('?', '', 'and', 'or', 'not'):
@@ -151,6 +152,7 @@ def compute_pa_solution(payload, timeout_s=5.0):
         if not isinstance(reasoning, (list, tuple)) or len(reasoning) % 2:
             raise ValueError('Expected interleaved reasoning pairs')
         constraints = []
+
         for index, step in enumerate(reasoning):
             if not isinstance(step, str):
                 raise ValueError('Non-string reasoning entry')
@@ -162,6 +164,7 @@ def compute_pa_solution(payload, timeout_s=5.0):
             if not match or int(match[1]) != (index + 1) // 2:
                 raise ValueError('Invalid syntactic step numbering/format')
             constraints.append(_constraint(match[2], tokens))
+
         solver = z3.Solver()
         solver.set(timeout=max(1, int(float(timeout_s) * 1000)))
         solver.add(*constraints)
@@ -170,6 +173,7 @@ def compute_pa_solution(payload, timeout_s=5.0):
         out['pa_consistency_binary_pass'] = int(solver.check() == z3.sat)
         if out['pa_accuracy_binary_pass'] and out['pa_consistency_binary_pass']:
             out['pa_reward'] = 1.0 + out['coverage']
+
     except (KeyError, TypeError, ValueError, AttributeError, SyntaxError,
             OverflowError, RecursionError, z3.Z3Exception):
         # Invalid input/solver failure must never create a positive PA reward.

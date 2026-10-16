@@ -10,14 +10,15 @@ Reward scoring for Zebra/Logic puzzles with triple scoring:
 
 import re
 import os
-import json
-from typing import Dict, List, Any, Optional, Tuple
-import logging
 import sys
+import json
+import logging
 import numpy as np
+from copy import deepcopy
+from typing import Dict, List, Any, Optional, Tuple
+
 # from z3_verifier_v13 import compute_dsl_components
 from typing import Dict, Any, List, Tuple, Optional
-import re
 
 
 from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import solve_and_validate_payload
@@ -772,9 +773,9 @@ def compute_score(
         z3_error = ""
         reward_error = ""
 
-        final_result = {}
         z3_out = {}
         payload = {}
+        final_result = {}
         final_result["BASE_sat_full_GT"] = 0.0
         final_result["missed_data"] = 0.0
         final_result["BASE_n_steps_total"] = 0.0
@@ -1004,17 +1005,53 @@ def compute_score(
 
 
     try:
+
+        # Normalize copies so original predictions remain intact for feedback.
+        pa_solution = normalize_header(
+            deepcopy(convert_numpy_arrays(predicted_arrangement))
+        )
+        pa_ground_truth = normalize_header(
+            deepcopy(convert_numpy_arrays(ground_truth))
+        )
+
+        if not isinstance(attribute_values, dict):
+            raise ValueError("attribute_values must be a dictionary")
+
+        # Apply the same header normalization to the attribute-domain keys.
+        original_keys = list(attribute_values)
+
+        normalized_domain_header = normalize_header({
+            "header": ["House"] + original_keys,
+            "rows": [],
+        })["header"][1:]
+
+        if len(normalized_domain_header) != len(original_keys):
+            raise ValueError("Header normalization changed the attribute count")
+
+        canonical_keys = [
+            str(key).strip().lower().replace(" ", "_")
+            for key in normalized_domain_header
+        ]
+        if len(set(canonical_keys)) != len(canonical_keys):
+            raise ValueError("Attribute names collide after normalization")
+
+        pa_attribute_values = {
+            normalized_key: deepcopy(attribute_values[original_key])
+            for original_key, normalized_key
+            in zip(original_keys, normalized_domain_header)
+        }
+
         # Final solution serves as the partial answer.
         # Clues are not passed; z3_out supplies no solver constraints.
         pa_payload = {
-            "ground_truth": ground_truth,
+            "ground_truth": pa_ground_truth,
             "reasoning": parsed_reasoning,
-            "solution": predicted_arrangement,
+            "solution": pa_solution,
             "n_houses": n_houses,
-            "attribute_values": attribute_values,
+            "attribute_values": pa_attribute_values,
             "z3_out": z3_out,
         }
-
+        
         pa_result = compute_pa_solution(pa_payload)
 
         pa_metrics = {
