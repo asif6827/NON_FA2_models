@@ -1005,44 +1005,48 @@ def compute_score(
 
 
     try:
+        # Normalize only valid dictionary inputs.
+        pa_solution = None
+        if isinstance(predicted_arrangement, dict):
+            pa_solution = normalize_header(
+                deepcopy(convert_numpy_arrays(predicted_arrangement))
+            )
 
-        # Normalize copies so original predictions remain intact for feedback.
-        pa_solution = normalize_header(
-            deepcopy(convert_numpy_arrays(predicted_arrangement))
-        )
-        pa_ground_truth = normalize_header(
-            deepcopy(convert_numpy_arrays(ground_truth))
-        )
+        pa_ground_truth = None
+        if isinstance(ground_truth, dict):
+            pa_ground_truth = normalize_header(
+                deepcopy(convert_numpy_arrays(ground_truth))
+            )
 
-        if not isinstance(attribute_values, dict):
-            raise ValueError("attribute_values must be a dictionary")
+        pa_attribute_values = None
+        if isinstance(attribute_values, dict) and attribute_values:
+            original_keys = list(attribute_values)
 
-        # Apply the same header normalization to the attribute-domain keys.
-        original_keys = list(attribute_values)
+            normalized_domain_header = normalize_header({
+                "header": ["House"] + original_keys,
+                "rows": [],
+            })["header"][1:]
 
-        normalized_domain_header = normalize_header({
-            "header": ["House"] + original_keys,
-            "rows": [],
-        })["header"][1:]
+            if len(normalized_domain_header) != len(original_keys):
+                raise ValueError(
+                    "Header normalization changed the attribute count"
+                )
 
-        if len(normalized_domain_header) != len(original_keys):
-            raise ValueError("Header normalization changed the attribute count")
+            canonical_keys = [
+                str(key).strip().lower().replace(" ", "_")
+                for key in normalized_domain_header
+            ]
+            if len(set(canonical_keys)) != len(canonical_keys):
+                raise ValueError(
+                    "Attribute names collide after normalization"
+                )
 
-        canonical_keys = [
-            str(key).strip().lower().replace(" ", "_")
-            for key in normalized_domain_header
-        ]
-        if len(set(canonical_keys)) != len(canonical_keys):
-            raise ValueError("Attribute names collide after normalization")
+            pa_attribute_values = {
+                normalized_key: deepcopy(attribute_values[original_key])
+                for original_key, normalized_key
+                in zip(original_keys, normalized_domain_header)
+            }
 
-        pa_attribute_values = {
-            normalized_key: deepcopy(attribute_values[original_key])
-            for original_key, normalized_key
-            in zip(original_keys, normalized_domain_header)
-        }
-
-        # Final solution serves as the partial answer.
-        # Clues are not passed; z3_out supplies no solver constraints.
         pa_payload = {
             "ground_truth": pa_ground_truth,
             "reasoning": parsed_reasoning,
@@ -1051,7 +1055,7 @@ def compute_score(
             "attribute_values": pa_attribute_values,
             "z3_out": z3_out,
         }
-        
+
         pa_result = compute_pa_solution(pa_payload)
 
         pa_metrics = {
@@ -1242,24 +1246,10 @@ def pretty(x):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 if __name__ == "__main__":
     from copy import deepcopy
     import math
 
-    # Disable feedback-file writing for these standalone tests.
     os.environ["VALID_STATUS"] = "0"
 
     ground_truth = {
@@ -1272,20 +1262,20 @@ if __name__ == "__main__":
     }
 
     def make_reasoning(pairs):
-        result = []
+        entries = []
         for i, (explanation, constraint) in enumerate(pairs, 1):
-            result.extend([explanation, f"S{i}: {constraint}."])
-        return result
+            entries.extend([explanation, f"S{i}: {constraint}."])
+        return entries
 
     partial_pairs = [
         ("Red occupies house two.", "red == 2"),
         ("Arnold occupies the red house.", "Arnold == red"),
         ("Bella belongs to house one.", "Bella == 1"),
-        ("Fred lives somewhere left of Eric.", "Fred < Eric"),
-        ("Eric occupies house two or house three.",
+        ("Fred lives left of Eric.", "Fred < Eric"),
+        ("Eric occupies house two or three.",
          "Or(Eric == 2, Eric == 3)"),
         ("Eric does not occupy house two.", "Not(Eric == 2)"),
-        ("Fred occupies house one or house two.",
+        ("Fred occupies house one or two.",
          "Or(Fred == 1, Fred == 2)"),
         ("Fred does not occupy house one.", "Fred != 1"),
         ("Peter occupies house one.", "Peter == 1"),
@@ -1326,46 +1316,63 @@ if __name__ == "__main__":
     complete["reasoning"] = make_reasoning(complete_pairs)
     complete["solution"] = deepcopy(ground_truth)
 
-    # Expected tuple:
-    # (pa_accuracy, pa_accuracy_pass, pa_consistency, coverage)
+    # Tuple order:
+    # pa_accuracy, pa_accuracy_binary_pass,
+    # pa_consistency_binary_pass, coverage, pa_reward
     tests = []
 
-    tests.append((
-        "Supported partial solution: 7/9 cells",
-        deepcopy(partial),
-        (1.0, 1.0, 1.0, 7 / 9),
-    ))
+    def add_test(label, prediction, expected):
+        tests.append((label, deepcopy(prediction), expected))
 
-    tests.append((
-        "Supported complete solution",
-        deepcopy(complete),
-        (1.0, 1.0, 1.0, 1.0),
-    ))
+    add_test(
+        "Correct partial answer: seven of nine cells",
+        partial,
+        (7 / 9, 1, 1, 7 / 9, 1 + 7 / 9),
+    )
+
+    add_test(
+        "Correct complete answer",
+        complete,
+        (1, 1, 1, 1, 2),
+    )
 
     prediction = deepcopy(partial)
     prediction["solution"]["rows"][2][2] = "white"
-    tests.append((
-        "One correct but unsupported cell",
+    add_test(
+        "Correct additional cell compatible with reasoning",
         prediction,
-        (1.0, 1.0, 0.0, 0.0),
-    ))
+        (8 / 9, 1, 1, 8 / 9, 1 + 8 / 9),
+    )
 
     prediction = deepcopy(partial)
     prediction["solution"] = deepcopy(ground_truth)
-    tests.append((
-        "Correct complete table with incomplete reasoning",
+    add_test(
+        "Correct full table with incomplete but compatible reasoning",
         prediction,
-        (1.0, 1.0, 0.0, 0.0),
-    ))
+        (1, 1, 1, 1, 2),
+    )
 
+    # The recorded reasoning does not fix yellow or white.
+    # Swapping them is compatible with reasoning, but wrong against GT.
+    prediction = deepcopy(partial)
+    prediction["solution"] = deepcopy(ground_truth)
+    prediction["solution"]["rows"][0][2] = "white"
+    prediction["solution"]["rows"][2][2] = "yellow"
+    add_test(
+        "Accuracy fails; consistency passes",
+        prediction,
+        (7 / 9, 0, 1, 1, 0),
+    )
+
+    # Complete reasoning explicitly fixes white in house three.
     prediction = deepcopy(complete)
     prediction["solution"]["rows"][0][2] = "white"
     prediction["solution"]["rows"][2][2] = "yellow"
-    tests.append((
-        "Two incorrect colors",
+    add_test(
+        "Both gates fail",
         prediction,
-        (7 / 9, 0.0, 0.0, 0.0),
-    ))
+        (7 / 9, 0, 0, 1, 0),
+    )
 
     prediction = deepcopy(complete)
     prediction["reasoning"] = make_reasoning(
@@ -1373,41 +1380,67 @@ if __name__ == "__main__":
             ("Arnold does not occupy house two.", "Arnold != 2"),
         ]
     )
-    tests.append((
-        "Contradictory reasoning",
+    add_test(
+        "Accuracy passes; contradictory reasoning fails consistency",
         prediction,
-        (1.0, 1.0, 0.0, 0.0),
-    ))
+        (1, 1, 0, 1, 0),
+    )
 
     prediction = deepcopy(partial)
     for row in prediction["solution"]["rows"]:
         row[1:] = ["?", "?", "?"]
-    tests.append((
-        "All attribute cells unknown",
+    add_test(
+        "All cells unknown: reasoning SAT but reward zero",
         prediction,
-        (0.0, 0.0, 0.0, 0.0),
-    ))
+        (0, 0, 1, 0, 0),
+    )
 
     prediction = deepcopy(partial)
     for row in prediction["solution"]["rows"]:
         row[1:] = ["?", "?", "?"]
     prediction["solution"]["rows"][1][1] = "Arnold"
-    tests.append((
-        "One cell supported through Arnold == red == 2",
+    add_test(
+        "One correct populated cell",
         prediction,
-        (1.0, 1.0, 1.0, 1 / 9),
-    ))
+        (1 / 9, 1, 1, 1 / 9, 1 + 1 / 9),
+    )
+
+    # Three populated cells, two correct.
+    # White in house one is compatible with the partial reasoning.
+    prediction = deepcopy(partial)
+    for row in prediction["solution"]["rows"]:
+        row[1:] = ["?", "?", "?"]
+    prediction["solution"]["rows"][0][1:] = [
+        "Peter", "white", "Bella"
+    ]
+    add_test(
+        "Partial accuracy uses all nine cells as denominator",
+        prediction,
+        (2 / 9, 0, 1, 3 / 9, 0),
+    )
+
+    # Header-normalization regression test.
+    prediction = deepcopy(complete)
+    prediction["solution"]["header"][2] = " Color "
+    add_test(
+        "Whitespace in attribute header",
+        prediction,
+        (1, 1, 1, 1, 2),
+    )
 
     metric_keys = [
         "pa_accuracy",
-        "pa_accuracy_pass",
-        "pa_consistency",
+        "pa_accuracy_binary_pass",
+        "pa_consistency_binary_pass",
         "coverage",
+        "pa_reward",
     ]
+
     failures = []
 
     for label, prediction, expected in tests:
-        print(f"\n{'=' * 60}\n{label}")
+        print(f"\n{'=' * 70}")
+        print(label)
 
         solution_str = (
             "<answer>"
@@ -1433,12 +1466,15 @@ if __name__ == "__main__":
                     ]
                 },
                 indent=2,
+                ensure_ascii=False,
             ))
 
             errors = []
             for key, target in zip(metric_keys, expected):
                 actual = result.get(key)
-                if actual is None or not math.isclose(
+                if actual is None:
+                    errors.append(f"Missing metric: {key}")
+                elif not math.isclose(
                     float(actual), target,
                     rel_tol=1e-9, abs_tol=1e-12,
                 ):
@@ -1456,9 +1492,15 @@ if __name__ == "__main__":
             failures.append((label, repr(error)))
             logger.exception("Test failed: %s", label)
 
-    print(f"\nPassed {len(tests) - len(failures)}/{len(tests)} tests.")
+    print(
+        f"\nPassed {len(tests) - len(failures)}/{len(tests)} tests."
+    )
 
     if failures:
         raise AssertionError(
-            "\n".join(f"{label}: {error}" for label, error in failures)
+            "\n".join(
+                f"{label}: {error}"
+                for label, error in failures
+            )
         )
+
