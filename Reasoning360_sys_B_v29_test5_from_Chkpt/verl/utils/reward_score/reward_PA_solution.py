@@ -204,6 +204,8 @@ def compute_pa_solution(payload, timeout_s=5.0):
         out['pa_consistency_binary_pass'] = int(solver.check() == z3.sat)
         if out['pa_accuracy_binary_pass'] and out['pa_consistency_binary_pass']:
             out['pa_reward'] = 1.0 + out['coverage']
+        else:
+            out['pa_reward'] = 0.0
 
     except (KeyError, TypeError, ValueError, AttributeError, SyntaxError,
             OverflowError, RecursionError, z3.Z3Exception):
