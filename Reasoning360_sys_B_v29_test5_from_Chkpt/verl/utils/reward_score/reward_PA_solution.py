@@ -265,7 +265,7 @@ if __name__ == '__main__':
     p = deepcopy(base)
     for row in p['solution']['rows']:
         row[1:] = ['?', '', None]
-    add('All-empty table: no accuracy pass or reward', p, 0, 0.0, 1, 0.0)
+    add('All-empty table: both gates fail', p, 0, 0.0, 0, 0.0)
     p = deepcopy(base)
     for row in p['solution']['rows']:
         row[1:] = ['?', '?', '?']
@@ -274,7 +274,8 @@ if __name__ == '__main__':
     p = deepcopy(base); p['reasoning'] = []
     add('Empty reasoning is compatible with a correct complete table', p, 1, 1.0, 1, 2.0)
     p = deepcopy(base); p['reasoning'][1] = 'S8: red == 2.'
-    add('Malformed reasoning preserves ungated table metrics', p, 1, 1.0, 0, 0.0)
+    add(        "Nonsequential numbering does not affect SAT consistency",
+        p, 1, 1.0, 1, 2.0,)
     p = deepcopy(base); p['attribute_values'] = None
     add('Missing attribute domain safely fails', p, 0, 0.0, 0, 0.0)
     p = deepcopy(base); p['solution']['rows'].reverse()
