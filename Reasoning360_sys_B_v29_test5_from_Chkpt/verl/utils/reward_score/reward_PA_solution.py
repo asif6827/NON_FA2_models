@@ -141,6 +141,17 @@ def compute_pa_solution(payload, timeout_s=5.0):
         out['pa_accuracy'] = correct_cells / total_cells
         out['pa_accuracy_binary_pass'] = int(bool(cells) and correct_cells == len(cells))
 
+        # All-empty answers return all five required fields.
+        if not cells:
+            return {
+                "pa_accuracy": 0.0,
+                "pa_accuracy_binary_pass": 0,
+                "pa_consistency_binary_pass": 0,
+                "coverage": 0.0,
+                "pa_reward": 0.0,
+            }
+
+
         tokens = {}
 
         for column, values in attrs.items():
@@ -148,22 +159,42 @@ def compute_pa_solution(payload, timeout_s=5.0):
                 if value in tokens or value in ('?', '', 'and', 'or', 'not'):
                     raise ValueError('Ambiguous/reserved entity token')
                 tokens[value] = z3.Int(f'{column}:{value}')
-        reasoning = payload['reasoning']
-        if not isinstance(reasoning, (list, tuple)) or len(reasoning) % 2:
-            raise ValueError('Expected interleaved reasoning pairs')
+
+
+        reasoning = payload["reasoning"]
+
+        if not isinstance(reasoning, (list, tuple)):
+            raise ValueError("Reasoning must be a list or tuple")
+
         constraints = []
 
-        for index, step in enumerate(reasoning):
+        for step in reasoning:
             if not isinstance(step, str):
-                raise ValueError('Non-string reasoning entry')
-            match = re.fullmatch(r'\s*S(\d+):\s*(.+)\.\s*', step)
-            if index % 2 == 0:
-                if match:
-                    raise ValueError('Expected natural-language entry')
+                raise ValueError("Non-string reasoning entry")
+
+            # Identify syntactic steps by prefix, not list position.
+            match = re.match(r"^\s*S(\d+)\s*:\s*(.*)$", step)
+
+            if match is None:
+                # Ignore natural-language explanations and conclusions.
                 continue
-            if not match or int(match[1]) != (index + 1) // 2:
-                raise ValueError('Invalid syntactic step numbering/format')
-            constraints.append(_constraint(match[2], tokens))
+
+            expression = match.group(2).strip()
+
+            # Accept the prompt's terminating period.
+            if expression.endswith("."):
+                expression = expression[:-1].strip()
+
+            if not expression:
+                raise ValueError(
+                    f"Empty constraint in syntactic step S{match.group(1)}")
+
+            # Parse every recognized syntactic step.
+            # Invalid constraints fail consistency; never silently skip them.
+            constraints.append(_constraint(expression, tokens))
+
+
+
 
         solver = z3.Solver()
         solver.set(timeout=max(1, int(float(timeout_s) * 1000)))
