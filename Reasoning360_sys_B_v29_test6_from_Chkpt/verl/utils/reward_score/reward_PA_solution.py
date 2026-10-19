@@ -255,7 +255,7 @@ def compute_pa_solution(payload, timeout_s=5.0):
             'n_populated_assignments': len(cells),
         }
         if out['pa_accuracy_binary_pass'] and out['pa_consistency_binary_pass']:
-            out['pa_reward'] = 1.0 + out['coverage']
+            out['pa_reward'] = 1.0 # + out['coverage']
         else:
             out['pa_reward'] = 0.0
 
