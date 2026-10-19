@@ -995,6 +995,17 @@ def compute_score(
     coverage = 0.0
     pa_reward = 0.0
 
+    pa_diagnosis = {
+        "accuracy": {
+            "status": "not_evaluated",
+            "reason": "PA evaluation has not completed",
+        },
+        "consistency": {
+            "status": "not_evaluated",
+            "reason": "PA evaluation has not completed",
+        },
+    }
+
     final_result.update({
         "pa_accuracy": pa_accuracy,
         "pa_accuracy_binary_pass": pa_accuracy_binary_pass,
@@ -1057,6 +1068,7 @@ def compute_score(
         }
 
         pa_result = compute_pa_solution(pa_payload)
+        pa_diagnosis = pa_result["DIAGNOSIS"]
 
         pa_metrics = {
             # Correct populated cells / total attribute cells.
@@ -1082,8 +1094,20 @@ def compute_score(
         final_result.update(pa_metrics)
         pa_reward = pa_metrics["pa_reward"]
 
-    except Exception:
+
+    except Exception as exc:
+        error_details = {
+            "status": "fail",
+            "stage": "pa_reward_integration",
+            "error_type": type(exc).__name__,
+            "reason": str(exc),
+        }
+        pa_diagnosis = {
+            "accuracy": dict(error_details),
+            "consistency": dict(error_details),
+        }
         logger.exception("Error computing partial-answer reward")
+
 
     # -----------------------
     # Reward components (safe defaults)
@@ -1199,6 +1223,7 @@ def compute_score(
             example_["reward"] = reward
             example_["Format_Check"] = format_ok
             example_["final_result"] = final_result
+            example_["PA_DIAGNOSIS"] = pa_diagnosis
             if example_:
                 os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
                 _append_jsonl(feedback_path, example_)
@@ -1225,6 +1250,7 @@ def compute_score(
             example_["reward"] = reward
             example_["Format_Check"] = format_ok
             example_["final_result"] = final_result
+            example_["PA_DIAGNOSIS"] = pa_diagnosis
             if example_:
                 os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
                 _append_jsonl(feedback_path, example_)
