@@ -276,9 +276,13 @@ def compute_pa_solution(payload, timeout_s=5.0):
         # Invalid input/solver failure must never create a positive PA reward.
         out['pa_consistency_binary_pass'] = 0
         out['pa_reward'] = 0.0
-    diagnosis['pa_reward'] = {
-        'value': out['pa_reward'],
-        'reason': 'Both gates pass' if out['pa_reward'] > 0 else 'At least one gate did not pass',
+    diagnosis["pa_reward"] = {
+        "value": out["pa_reward"],
+        "reason": (
+            "Both gates pass"
+            if out["pa_reward"] > 0
+            else "At least one gate did not pass"
+        ),
     }
     return out
 
