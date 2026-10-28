@@ -265,13 +265,15 @@ def compute_pa_solution(payload, timeout_s=5.0,penalty_lambda=1.0):
             'n_constraints_parsed': len(constraints),
             'n_populated_assignments': len(cells),
         }
+        
+        # Case 5: penalize coverage whenever either binary gate fails.
         if (
-            out['pa_accuracy_binary_pass']
-            and out['pa_consistency_binary_pass']
+                out['pa_accuracy_binary_pass']
+                and out['pa_consistency_binary_pass']
         ):
             out['pa_reward'] = 1.0
         else:
-            out['pa_reward'] = -out['wrong_cell_penalty']
+            out['pa_reward'] = -out['coverage']
 
     except (KeyError, TypeError, ValueError, AttributeError, SyntaxError,
             OverflowError, RecursionError, z3.Z3Exception) as exc:
