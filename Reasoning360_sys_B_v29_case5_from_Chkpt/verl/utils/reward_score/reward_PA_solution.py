@@ -265,7 +265,7 @@ def compute_pa_solution(payload, timeout_s=5.0,penalty_lambda=1.0):
             'n_constraints_parsed': len(constraints),
             'n_populated_assignments': len(cells),
         }
-        
+
         # Case 5: penalize coverage whenever either binary gate fails.
         if (
                 out['pa_accuracy_binary_pass']
