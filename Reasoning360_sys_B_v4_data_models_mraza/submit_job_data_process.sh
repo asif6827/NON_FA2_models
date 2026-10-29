@@ -4,8 +4,8 @@
 
 
 mkdir -p ./all_logs
-mkdir -p ~/HF_cache
-cp -R ~/NON_FA2_models/ZebraLogic ~/HF_cache/
+#mkdir -p ~/HF_cache
+#cp -R ~/NON_FA2_models/ZebraLogic ~/HF_cache/
 
 
 #echo "Data Processing script Running..!"
