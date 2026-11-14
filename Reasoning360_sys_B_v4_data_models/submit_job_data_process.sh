@@ -21,8 +21,12 @@ mkdir -p ./all_logs
 #sbatch ./data_preprocess/logic/v7b/data_preprocess_parsed_v7b.sh
 
 
+#echo "Data Processing script Running..!"
+#sbatch ./data_preprocess/logic/v8b/data_preprocess_parsed_v8b.sh
+
+
 echo "Data Processing script Running..!"
-sbatch ./data_preprocess/logic/v8b/data_preprocess_parsed_v8b.sh
+sbatch ./data_preprocess/logic/v3task/data_preprocess_parsed_v3task.sh
 
 
 #echo "Data Pre-Processing Runing"
