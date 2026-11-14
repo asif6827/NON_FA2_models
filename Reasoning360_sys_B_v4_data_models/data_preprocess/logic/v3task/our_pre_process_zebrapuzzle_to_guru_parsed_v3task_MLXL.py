@@ -6,8 +6,11 @@ import argparse
 from sklearn.model_selection import train_test_split
 
 # Add project root to Python path
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.append(project_root)
+#project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+#sys.path.append(project_root)
+
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, project_root)
 
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 

@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J Data-Processing-v8b #job name
+#SBATCH -J Data-Processing-v3task #job name
 #SBATCH -p gpu-all # queue used
 #SBATCH --gres gpu:1 #number of gpus needed, default is 1
 #SBATCH -c 8  #number of CPUs needed, default is 1 
