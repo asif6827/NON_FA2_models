@@ -74,6 +74,32 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> list[in
     return token_ids
 
 
+def _task1_stop_kwargs(puzzle_task):
+    """String stops support both ordinary multi-token and special-token markers.
+
+    vLLM must detokenize to detect a string stop; retaining special tokens and
+    the matched stop string keeps the actual generated <EOSEG> available to
+    the reward parser. No tokens are appended or re-encoded after generation.
+    """
+    if puzzle_task != "1":
+        return {}
+    return {
+        "stop": ["<EOSEG>"],
+        "stop_token_ids": [],
+        "detokenize": True,
+        "skip_special_tokens": False,
+        "include_stop_str_in_output": True,
+        "min_tokens": 0,
+    }
+
+
+def _generated_length_mask(response, lengths, dtype):
+    """Use vLLM's actual output lengths, including the stop, excluding padding."""
+    lengths = torch.tensor(lengths, device=response.device, dtype=torch.long)
+    positions = torch.arange(response.size(1), device=response.device)
+    return (positions.unsqueeze(0) < lengths.unsqueeze(1)).to(dtype)
+
+
 class vLLMRollout(BaseRollout):
     def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
@@ -87,6 +113,9 @@ class vLLMRollout(BaseRollout):
         """
         super().__init__()
         self.config = config
+        self.puzzle_task = os.environ.get("PUZZLE_TASK")
+        if self.puzzle_task is not None and self.puzzle_task not in ("1", "2", "3"):
+            raise ValueError("PUZZLE_TASK must be 1, 2, or 3")
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), (
@@ -202,6 +231,7 @@ class vLLMRollout(BaseRollout):
         for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
+        kwargs.update(_task1_stop_kwargs(self.puzzle_task))
         kwargs["n"] = 1  # already repeat in ray_trainer
         print(f"kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
@@ -218,11 +248,12 @@ class vLLMRollout(BaseRollout):
                     old_value = getattr(self.sampling_params, key)
                     old_sampling_params_args[key] = old_value
                     setattr(self.sampling_params, key, value)
-        yield
-        # roll back to previous sampling params
-        # if len(old_sampling_params_args):
-        for key, value in old_sampling_params_args.items():
-            setattr(self.sampling_params, key, value)
+        try:
+            yield
+        finally:
+            # Restore defaults even if generation fails.
+            for key, value in old_sampling_params_args.items():
+                setattr(self.sampling_params, key, value)
 
     # NOTE: added by Reasoning360. timer for precise logging
     @staticmethod
@@ -317,6 +348,10 @@ class vLLMRollout(BaseRollout):
                 "n": 1,  # if validate, already repeat in ray_trainer
             }
 
+        # Enforce the same Task 1 boundary for training, validation, and greedy
+        # generation after their sampling overrides have been selected.
+        kwargs.update(_task1_stop_kwargs(self.puzzle_task))
+
         lora_requests = None
         if self.lora_kwargs:
             lora_int_ids = list(self.inference_engine.llm_engine.list_loras())
@@ -339,11 +374,13 @@ class vLLMRollout(BaseRollout):
             # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
 
             response = []
+            generated_lengths = []
             rollout_log_probs = []
             for output in outputs:
                 for sample_id in range(len(output.outputs)):
                     response_ids = output.outputs[sample_id].token_ids
                     response.append(response_ids)
+                    generated_lengths.append(len(response_ids))
                     if self.config.calculate_log_probs:
                         curr_log_prob = []
                         for i, logprob in enumerate(output.outputs[sample_id].logprobs):
@@ -373,9 +410,14 @@ class vLLMRollout(BaseRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[..., -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        response_attention_mask = get_response_mask(
-            response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype
-        )
+        if self.puzzle_task == "1":
+            response_attention_mask = _generated_length_mask(
+                response, generated_lengths, attention_mask.dtype
+            )
+        else:
+            response_attention_mask = get_response_mask(
+                response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype
+            )
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
@@ -389,6 +431,10 @@ class vLLMRollout(BaseRollout):
             },
             batch_size=batch_size,
         )
+        if self.puzzle_task == "1":
+            # Keep actor-loss masking and reward placement aligned with the
+            # attention mask, even when the stop is not the model's native EOS.
+            batch["response_mask"] = response_attention_mask
         if self.config.calculate_log_probs:
             # we will recompute old log prob with actor
             batch["rollout_log_probs"] = rollout_log_probs
