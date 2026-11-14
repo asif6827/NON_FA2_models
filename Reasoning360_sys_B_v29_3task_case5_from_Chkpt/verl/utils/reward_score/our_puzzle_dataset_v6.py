@@ -1387,9 +1387,10 @@ def pretty(x):
 
 
 if __name__ == "__main__":
-    from copy import deepcopy
     import math
 
+    # This direct-run demo always exercises Task 1 and does not write feedback.
+    os.environ["PUZZLE_TASK"] = "1"
     os.environ["VALID_STATUS"] = "0"
 
     ground_truth = {
@@ -1400,34 +1401,7 @@ if __name__ == "__main__":
             ["3", "Eric", "white", "Meredith"],
         ],
     }
-
-    def make_reasoning(pairs):
-        entries = []
-        for i, (explanation, constraint) in enumerate(pairs, 1):
-            entries.extend([explanation, f"S{i}: {constraint}."])
-        return entries
-
-    partial_pairs = [
-        ("Red occupies house two.", "red == 2"),
-        ("Arnold occupies the red house.", "Arnold == red"),
-        ("Bella belongs to house one.", "Bella == 1"),
-        ("Fred lives left of Eric.", "Fred < Eric"),
-        ("Eric occupies house two or three.",
-         "Or(Eric == 2, Eric == 3)"),
-        ("Eric does not occupy house two.", "Not(Eric == 2)"),
-        ("Fred occupies house one or two.",
-         "Or(Fred == 1, Fred == 2)"),
-        ("Fred does not occupy house one.", "Fred != 1"),
-        ("Peter occupies house one.", "Peter == 1"),
-        ("Meredith belongs to house three.", "Meredith == 3"),
-    ]
-
-    complete_pairs = partial_pairs + [
-        ("White occupies Meredith's house.", "white == Meredith"),
-        ("Yellow occupies house one.", "yellow == 1"),
-    ]
-
-    partial = {
+    formalization = {
         "n_houses": 3,
         "attribute_values": {
             "Name": ["Peter", "Eric", "Arnold"],
@@ -1441,206 +1415,100 @@ if __name__ == "__main__":
             "C4: Bella == 1.",
             "C5: white == Meredith.",
         ],
-        "reasoning": make_reasoning(partial_pairs),
-        "solution": {
-            "header": ["House", "Name", "Color", "Children"],
+    }
+    partial_j1 = {
+        "reasoning_steps": [
+            "Clue 3 places red in house 2.",
+            "S1: red == 2.",
+            "Arnold shares red's house by clue 1, so Arnold occupies house 2.",
+            "S2: Arnold == 2.",
+            "Clue 4 places Bella in house 1.",
+            "S3: Bella == 1.",
+        ],
+        "partial_solution": {
+            "header": deepcopy(ground_truth["header"]),
             "rows": [
-                ["1", "Peter", "?", "Bella"],
-                ["2", "Arnold", "red", "Fred"],
-                ["3", "Eric", "?", "Meredith"],
+                ["1", "?", "?", "Bella"],
+                ["2", "Arnold", "red", "?"],
+                ["3", "?", "?", "?"],
             ],
         },
     }
-
-    complete = deepcopy(partial)
-    complete["reasoning"] = make_reasoning(complete_pairs)
-    complete["solution"] = deepcopy(ground_truth)
-
-    # Tuple order:
-    # pa_accuracy, pa_accuracy_binary_pass,
-    # pa_consistency_binary_pass, coverage, pa_reward
-    tests = []
-
-    def add_test(label, prediction, expected):
-        tests.append((label, deepcopy(prediction), expected))
-
-    add_test(
-        "Correct partial answer: seven of nine cells",
-        partial,
-        (7 / 9, 1, 1, 7 / 9, 1 + 7 / 9),
-    )
-
-    add_test(
-        "Correct complete answer",
-        complete,
-        (1, 1, 1, 1, 2),
-    )
-
-    prediction = deepcopy(partial)
-    prediction["solution"]["rows"][2][2] = "white"
-    add_test(
-        "Correct additional cell compatible with reasoning",
-        prediction,
-        (8 / 9, 1, 1, 8 / 9, 1 + 8 / 9),
-    )
-
-    prediction = deepcopy(partial)
-    prediction["solution"] = deepcopy(ground_truth)
-    add_test(
-        "Correct full table with incomplete but compatible reasoning",
-        prediction,
-        (1, 1, 1, 1, 2),
-    )
-
-    # The recorded reasoning does not fix yellow or white.
-    # Swapping them is compatible with reasoning, but wrong against GT.
-    prediction = deepcopy(partial)
-    prediction["solution"] = deepcopy(ground_truth)
-    prediction["solution"]["rows"][0][2] = "white"
-    prediction["solution"]["rows"][2][2] = "yellow"
-    add_test(
-        "Accuracy fails; consistency passes",
-        prediction,
-        (7 / 9, 0, 1, 1, 0),
-    )
-
-    # Complete reasoning explicitly fixes white in house three.
-    prediction = deepcopy(complete)
-    prediction["solution"]["rows"][0][2] = "white"
-    prediction["solution"]["rows"][2][2] = "yellow"
-    add_test(
-        "Both gates fail",
-        prediction,
-        (7 / 9, 0, 0, 1, 0),
-    )
-
-    prediction = deepcopy(complete)
-    prediction["reasoning"] = make_reasoning(
-        complete_pairs + [
-            ("Arnold does not occupy house two.", "Arnold != 2"),
-        ]
-    )
-    add_test(
-        "Accuracy passes; contradictory reasoning fails consistency",
-        prediction,
-        (1, 1, 0, 1, 0),
-    )
-
-    prediction = deepcopy(partial)
-    for row in prediction["solution"]["rows"]:
-        row[1:] = ["?", "?", "?"]
-    add_test(
-        "All cells unknown: reasoning SAT but reward zero",
-        prediction,
-        (0, 0, 1, 0, 0),
-    )
-
-    prediction = deepcopy(partial)
-    for row in prediction["solution"]["rows"]:
-        row[1:] = ["?", "?", "?"]
-    prediction["solution"]["rows"][1][1] = "Arnold"
-    add_test(
-        "One correct populated cell",
-        prediction,
-        (1 / 9, 1, 1, 1 / 9, 1 + 1 / 9),
-    )
-
-    # Three populated cells, two correct.
-    # White in house one is compatible with the partial reasoning.
-    prediction = deepcopy(partial)
-    for row in prediction["solution"]["rows"]:
-        row[1:] = ["?", "?", "?"]
-    prediction["solution"]["rows"][0][1:] = [
-        "Peter", "white", "Bella"
+    complete_j1 = deepcopy(partial_j1)
+    complete_j1["reasoning_steps"] += [
+        "Fred is not in Bella's house 1 and must be left of Eric, so Fred occupies house 2.",
+        "S4: Fred == 2.",
+        "Eric is to the right of Fred in house 2, so Eric occupies house 3.",
+        "S5: Eric == 3.",
+        "Peter is the remaining name, so Peter occupies house 1.",
+        "S6: Peter == 1.",
+        "Meredith is the remaining child, so Meredith occupies house 3.",
+        "S7: Meredith == 3.",
+        "White shares Meredith's house by clue 5, so white occupies house 3.",
+        "S8: white == 3.",
+        "Yellow is the remaining color, so yellow occupies house 1.",
+        "S9: yellow == 1.",
     ]
-    add_test(
-        "Partial accuracy uses all nine cells as denominator",
-        prediction,
-        (2 / 9, 0, 1, 3 / 9, 0),
-    )
+    complete_j1["partial_solution"] = deepcopy(ground_truth)
 
-    # Header-normalization regression test.
-    prediction = deepcopy(complete)
-    prediction["solution"]["header"][2] = " Color "
-    add_test(
-        "Whitespace in attribute header",
-        prediction,
-        (1, 1, 1, 1, 2),
-    )
+    def task1_stream(j1):
+        return json.dumps(formalization) + "\n" + json.dumps(j1) + "<EOSEG>"
 
+    unknown_j1 = deepcopy(partial_j1)
+    for row in unknown_j1["partial_solution"]["rows"]:
+        row[1:] = ["?", "?", "?"]
+
+    wrong_j1 = deepcopy(complete_j1)
+    wrong_j1["partial_solution"]["rows"][0][2] = "white"
+    wrong_j1["partial_solution"]["rows"][2][2] = "yellow"
+
+    # label, generated output, expected parser acceptance, expected coverage.
+    # Incorrect content can parse successfully; scoring must catch its errors.
+    examples = [
+        ("Valid J1: three established cells", task1_stream(partial_j1), True, 3 / 9),
+        ("Valid J1: complete answer within the first segment", task1_stream(complete_j1), True, 1.0),
+        ("Valid J1: all table cells unknown", task1_stream(unknown_j1), True, 0.0),
+        ("Parseable but incorrect table: swapped colors", task1_stream(wrong_j1), True, 1.0),
+        ("Invalid: missing EOSEG", task1_stream(partial_j1).removesuffix("<EOSEG>"), False, None),
+        ("Invalid for Task 1: extra reasoning object", task1_stream(partial_j1) + json.dumps(complete_j1) + "<EOSEG>", False, None),
+        ("Invalid: truncated reasoning JSON", json.dumps(formalization) + '\n{"reasoning_steps": [', False, None),
+    ]
     metric_keys = [
-        "pa_accuracy",
-        "pa_accuracy_binary_pass",
-        "pa_consistency_binary_pass",
-        "coverage",
-        "pa_reward",
+        "puzzle_task", "stream_parse_ok", "reasoning_entries", "stream_parse_seconds",
+        "pa_accuracy", "pa_accuracy_binary_pass", "pa_consistency_binary_pass",
+        "coverage", "pa_reward", "PUZZLE_ACCURACY", "CELL_ACCURACY",
+        "BASE_sat_full_GT", "BASE_n_steps_total", "BASE_n_steps_valid",
+        "BASE_n_steps_novel_inc_clues", "BASE_n_non_valid_contradiction", "score",
     ]
-
     failures = []
-
-    for label, prediction, expected in tests:
-        print(f"\n{'=' * 70}")
-        print(label)
-
-        solution_str = (
-            "<answer>"
-            + json.dumps(prediction, ensure_ascii=False)
-            + "</answer>"
-        )
-
+    for label, stream, expect_parse, expect_coverage in examples:
+        print(f"\n{'=' * 70}\n{label}")
         try:
-            result = compute_score(
-                solution_str=solution_str,
-                ground_truth=deepcopy(ground_truth),
-            )
-
-            print(json.dumps(
-                {
-                    key: result.get(key)
-                    for key in metric_keys + [
-                        "PUZZLE_ACCURACY",
-                        "CELL_ACCURACY",
-                        "BASE_sat_full_GT",
-                        "BASE_n_steps_novel_inc_clues",
-                        "score",
-                    ]
-                },
-                indent=2,
-                ensure_ascii=False,
-            ))
-
-            errors = []
-            for key, target in zip(metric_keys, expected):
-                actual = result.get(key)
-                if actual is None:
-                    errors.append(f"Missing metric: {key}")
-                elif not math.isclose(
-                    float(actual), target,
-                    rel_tol=1e-9, abs_tol=1e-12,
-                ):
-                    errors.append(
-                        f"{key}: expected {target}, got {actual}"
-                    )
-
-            if errors:
-                failures.append((label, "; ".join(errors)))
-                print("FAIL:", "; ".join(errors))
-            else:
-                print("PASS")
-
+            parsed = extract_reasoning_and_solution(stream)
+            print("Parser status:", parsed[-1])
+            assert (parsed[-1] == "success_direct_json") == expect_parse, "Unexpected parser result"
+            result = compute_score(solution_str=stream, ground_truth=deepcopy(ground_truth))
+            pretty({key: result.get(key) for key in metric_keys})
+            assert math.isfinite(float(result["score"])), "Score must be finite"
+            assert result["stream_parse_ok"] == float(expect_parse), "Evaluator parsing disagrees"
+            if expect_coverage is not None:
+                assert math.isclose(float(result["coverage"]), expect_coverage, abs_tol=1e-9), "Unexpected table coverage"
+            if not expect_parse:
+                assert result["score"] == -0.5, "Expected existing parsing-failure reward"
+            if "incorrect table" in label:
+                assert result["pa_accuracy_binary_pass"] == 0, "Incorrect table passed accuracy gate"
+                # Case 5 penalizes a failed gate by the populated-cell coverage.
+                expected_penalty = -float(result["coverage"])
+                assert math.isclose(float(result["pa_reward"]), expected_penalty, abs_tol=1e-9), (
+                    f"Expected incorrect-table penalty {expected_penalty}, got {result['pa_reward']}"
+                )
+            if "all table cells unknown" in label:
+                assert result["pa_reward"] == 0, "Empty table received partial-answer credit"
+            print("PASS")
         except Exception as error:
-            failures.append((label, repr(error)))
-            logger.exception("Test failed: %s", label)
+            failures.append((label, str(error)))
+            logger.exception("Example failed: %s", label)
 
-    print(
-        f"\nPassed {len(tests) - len(failures)}/{len(tests)} tests."
-    )
-
+    print(f"\nPassed {len(examples) - len(failures)}/{len(examples)} Task 1 examples.")
     if failures:
-        raise AssertionError(
-            "\n".join(
-                f"{label}: {error}"
-                for label, error in failures
-            )
-        )
-
+        raise AssertionError("\n".join(f"{label}: {error}" for label, error in failures))
