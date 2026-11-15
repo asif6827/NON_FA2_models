@@ -8,8 +8,8 @@
 #SBATCH --mem 256GB #amount of memory needed, default
 #SBATCH --output=./all_logs/%j-%x.out
 #SBATCH --error=./all_logs/%j-%x.err
-#SBATCH -A H200
-#SBATCH -q h200_qos
+#SBATCH -A H200_Collaborator
+#SBATCH -q H200_Collaborator_qos
 #SBATCH --mail-user=asif6827@gmail.com
 
 
