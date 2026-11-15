@@ -654,33 +654,65 @@ def _read_puzzle_stream(text, with_formalization=True):
     return formalization, objects, rest == "<EOS>"
 
 
-def _read_task1_answer(solution_str):
-    """Reconstruct only the known outer closures after a complete J_1.
+def _read_answer_envelope(solution_str):
+    """Read one opening tag and cumulative repeated closing-tag boundaries.
 
-    The original response is never changed. Missing object/string closures are
-    not repaired, and a malformed or extra segment cannot fall back to J_1.
+    Validate every prefix, rather than falling back to a shorter answer when
+    the latest segment is malformed. Only intermediate outer ]} closures are
+    supplied; complete final JSON must already have them.
     """
     text = solution_str.rsplit("</think>", 1)[-1].strip()
     if text.count("<answer>") != 1:
-        raise ValueError("Task 1 requires exactly one <answer> opening tag")
+        raise ValueError("Expected exactly one opening <answer> tag")
     before, body = text.split("<answer>", 1)
-    if "<EOSEG>" in before or "<EOS>" in before:
-        raise ValueError("Boundary marker before the answer")
-    body = body.strip()
-    if body.count("<EOSEG>") != 1 or not body.endswith("<EOSEG>"):
-        raise ValueError("Task 1 must end at its single <EOSEG> boundary")
-    prefix = body[:-len("<EOSEG>")].rstrip()
-    # Deliberately append only the array and outer object closures. A broken
-    # reasoning object or a marker within a JSON string still fails json.loads.
-    answer = json.loads(prefix + "\n]}")
-    if not isinstance(answer, dict) or set(answer) != {"n_houses", "attribute_values", "syntactic_clues", "reasoning"}:
-        raise ValueError("Expected exactly four top-level answer fields")
-    objects = answer["reasoning"]
-    if not isinstance(objects, list) or len(objects) != 1:
+    if any(marker in before for marker in ("</answer>", "<EOSEG>", "<EOS>")):
+        raise ValueError("Unexpected boundary before the answer")
+    pieces = body.split("</answer>")
+    if len(pieces) < 2:
+        raise ValueError("Missing closing answer boundary")
+    cumulative = pieces[0]
+    result = None
+    for index in range(len(pieces) - 1):
+        tail = pieces[index + 1].lstrip()
+        final_boundary = index == len(pieces) - 2
+        if final_boundary and tail == "<EOS>":
+            eos = True
+            reconstructed = cumulative
+        elif tail.startswith("<EOSEG>"):
+            eos = False
+            continuation = tail[len("<EOSEG>"):]
+            if final_boundary and continuation.strip():
+                raise ValueError("Unexpected data after the last segment")
+            if not final_boundary and not continuation.lstrip().startswith(","):
+                raise ValueError("Continuation must begin with a comma")
+            reconstructed = cumulative + "\n]}"
+        else:
+            raise ValueError("Closing tag must be followed by <EOSEG> or final <EOS>")
+        if any(marker in cumulative for marker in ("<answer>", "</answer>", "<EOSEG>", "<EOS>")):
+            raise ValueError("Marker inside JSON content")
+        answer = json.loads(reconstructed)
+        if not isinstance(answer, dict) or set(answer) != {"n_houses", "attribute_values", "syntactic_clues", "reasoning"}:
+            raise ValueError("Expected exactly four top-level answer fields")
+        objects = answer["reasoning"]
+        if not isinstance(objects, list) or len(objects) != index + 1:
+            raise ValueError("Each boundary must add exactly one reasoning object")
+        formal = {key: answer[key] for key in ("n_houses", "attribute_values", "syntactic_clues")}
+        # Reuse existing domain and object validation; no scoring is changed.
+        stream = json.dumps(formal) + "\n" + "\n".join(json.dumps(obj) + "<EOSEG>" for obj in objects)
+        formal, objects, _ = _read_puzzle_stream(stream)
+        if eos and not _complete_table(objects[-1]):
+            raise ValueError("Final answer must have a complete table")
+        result = formal, objects, eos
+        if not final_boundary:
+            cumulative += continuation
+    return result
+
+
+def _read_task1_answer(solution_str):
+    formal, objects, eos = _read_answer_envelope(solution_str)
+    if len(objects) != 1:
         raise ValueError("Task 1 requires exactly one reasoning object")
-    formalization = {key: answer[key] for key in ("n_houses", "attribute_values", "syntactic_clues")}
-    # Reuse the existing domain/object validation, without changing scoring.
-    return _read_puzzle_stream(json.dumps(formalization) + "\n" + json.dumps(objects[0]) + "<EOSEG>")
+    return formal, objects, eos
 
 
 def _complete_table(obj):
@@ -691,12 +723,15 @@ def _task2_prefix(extra_info):
     """Prefer an exact serialized prefix; otherwise locate it after the real puzzle."""
     info = extra_info if isinstance(extra_info, dict) else {}
     if isinstance(info.get("puzzle_prefix"), str):
-        return _read_puzzle_stream(info["puzzle_prefix"])
+        prefix = info["puzzle_prefix"]
+        return _read_answer_envelope(prefix) if "<answer>" in prefix else _read_puzzle_stream(prefix)
     prompt = info.get("puzzle_prompt", "")
     if not isinstance(prompt, str):
         raise ValueError("Task 2 requires puzzle_prefix or puzzle_prompt")
     # Ignore the one-shot demo, which also contains a complete serialized answer.
     prompt = prompt.rsplit("PUZZLE TO SOLVE", 1)[-1]
+    if "<answer>" in prompt:
+        return _read_answer_envelope(prompt)
     decoder = json.JSONDecoder()
     candidates = []
     for match in re.finditer(r"\{", prompt):
@@ -726,12 +761,22 @@ def extract_reasoning_and_solution(solution_str: str, extra_info=None):
                     raise ValueError("A complete prefix requires only <EOS>")
                 objects = previous
             else:
-                _, new, eos = _read_puzzle_stream(solution_str, with_formalization=False)
-                if len(new) != 1 or eos:
-                    raise ValueError("Task 2 requires one new object ending at <EOSEG>")
-                objects = previous + new
+                if solution_str.lstrip().startswith(","):
+                    # Rebuild an equivalent evaluation prefix only. The actual
+                    # prompt/continuation supplied to the model is never changed.
+                    prefix = "<answer>" + json.dumps(formal)[:-1] + ', "reasoning": ['
+                    prefix += ",".join(json.dumps(obj) + "</answer><EOSEG>" for obj in previous)
+                    formal, objects, eos = _read_answer_envelope(prefix + solution_str)
+                    if len(objects) != len(previous) + 1:
+                        raise ValueError("Task 2 requires exactly one new object")
+                else:
+                    _, new, eos = _read_puzzle_stream(solution_str, with_formalization=False)
+                    if len(new) != 1 or eos:
+                        raise ValueError("Task 2 requires one new object ending at <EOSEG>")
+                    objects = previous + new
         else:
-            formal, objects, eos = _read_puzzle_stream(solution_str)
+            formal, objects, eos = (_read_answer_envelope(solution_str) if "<answer>" in solution_str
+                                    else _read_puzzle_stream(solution_str))
             if not objects:
                 raise ValueError("Missing reasoning objects")
             if task == 1 and (len(objects) != 1 or eos):
@@ -1420,10 +1465,7 @@ def pretty(x):
 if __name__ == "__main__":
     import math
 
-    # This direct-run demo always exercises Task 1 and does not write feedback.
-    os.environ["PUZZLE_TASK"] = "1"
     os.environ["VALID_STATUS"] = "0"
-
     ground_truth = {
         "header": ["House", "Name", "Color", "Children"],
         "rows": [
@@ -1432,82 +1474,199 @@ if __name__ == "__main__":
             ["3", "Eric", "white", "Meredith"],
         ],
     }
-    formalization = {
-        "n_houses": 3,
-        "attribute_values": {
-            "Name": ["Peter", "Eric", "Arnold"],
-            "Color": ["red", "white", "yellow"],
-            "Children": ["Fred", "Meredith", "Bella"],
-        },
-        "syntactic_clues": [
-            "C1: Arnold == red.",
-            "C2: Fred < Eric.",
-            "C3: red == 2.",
-            "C4: Bella == 1.",
-            "C5: white == Meredith.",
+
+    # Exact full one-shot output from the prompt: one opening tag, two
+    # intermediate closing-tag/EOSEG boundaries, and final closing-tag/EOS.
+    full_example = r"""<answer>
+{
+  "n_houses": 3,
+  "attribute_values": {
+    "Name": [
+      "Peter",
+      "Eric",
+      "Arnold"
+    ],
+    "Color": [
+      "red",
+      "white",
+      "yellow"
+    ],
+    "Children": [
+      "Fred",
+      "Meredith",
+      "Bella"
+    ]
+  },
+  "syntactic_clues": [
+    "C1: Arnold == red.",
+    "C2: Fred < Eric.",
+    "C3: red == 2.",
+    "C4: Bella == 1.",
+    "C5: white == Meredith."
+  ],
+  "reasoning": [
+    {
+      "reasoning_steps": [
+        "Clue 3 places red in house 2.",
+        "S1: red == 2.",
+        "By clue 1, Arnold shares red's house, so Arnold occupies house 2.",
+        "S2: Arnold == 2.",
+        "Clue 4 places Bella in house 1.",
+        "S3: Bella == 1."
+      ],
+      "partial_solution": {
+        "header": [
+          "House",
+          "Name",
+          "Color",
+          "Children"
         ],
-    }
-    partial_j1 = {
-        "reasoning_steps": [
-            "Clue 3 places red in house 2.",
-            "S1: red == 2.",
-            "Arnold shares red's house by clue 1, so Arnold occupies house 2.",
-            "S2: Arnold == 2.",
-            "Clue 4 places Bella in house 1.",
-            "S3: Bella == 1.",
-        ],
-        "partial_solution": {
-            "header": deepcopy(ground_truth["header"]),
-            "rows": [
-                ["1", "?", "?", "Bella"],
-                ["2", "Arnold", "red", "?"],
-                ["3", "?", "?", "?"],
-            ],
-        },
-    }
-    complete_j1 = deepcopy(partial_j1)
-    complete_j1["reasoning_steps"] += [
-        "Fred is not in Bella's house 1 and must be left of Eric, so Fred occupies house 2.",
+        "rows": [
+          [
+            "1",
+            "?",
+            "?",
+            "Bella"
+          ],
+          [
+            "2",
+            "Arnold",
+            "red",
+            "?"
+          ],
+          [
+            "3",
+            "?",
+            "?",
+            "?"
+          ]
+        ]
+      }
+    }</answer><EOSEG>
+    ,
+    {
+      "reasoning_steps": [
+        "Fred cannot occupy house 1 because Bella is there; Fred cannot occupy house 3 because clue 2 requires Eric to be to Fred's right. Therefore Fred occupies house 2.",
         "S4: Fred == 2.",
         "Eric is to the right of Fred in house 2, so Eric occupies house 3.",
         "S5: Eric == 3.",
-        "Peter is the remaining name, so Peter occupies house 1.",
-        "S6: Peter == 1.",
-        "Meredith is the remaining child, so Meredith occupies house 3.",
+        "Peter is the remaining name after Arnold in house 2 and Eric in house 3, so Peter occupies house 1.",
+        "S6: Peter == 1."
+      ],
+      "partial_solution": {
+        "header": [
+          "House",
+          "Name",
+          "Color",
+          "Children"
+        ],
+        "rows": [
+          [
+            "1",
+            "Peter",
+            "?",
+            "Bella"
+          ],
+          [
+            "2",
+            "Arnold",
+            "red",
+            "Fred"
+          ],
+          [
+            "3",
+            "Eric",
+            "?",
+            "?"
+          ]
+        ]
+      }
+    }</answer><EOSEG>
+    ,
+    {
+      "reasoning_steps": [
+        "Meredith is the remaining child after Bella in house 1 and Fred in house 2, so Meredith occupies house 3.",
         "S7: Meredith == 3.",
-        "White shares Meredith's house by clue 5, so white occupies house 3.",
+        "Clue 5 places white in Meredith's house, so white occupies house 3.",
         "S8: white == 3.",
-        "Yellow is the remaining color, so yellow occupies house 1.",
-        "S9: yellow == 1.",
-    ]
-    complete_j1["partial_solution"] = deepcopy(ground_truth)
+        "Yellow is the remaining color after red in house 2 and white in house 3, so yellow occupies house 1.",
+        "S9: yellow == 1."
+      ],
+      "partial_solution": {
+        "header": [
+          "House",
+          "Name",
+          "Color",
+          "Children"
+        ],
+        "rows": [
+          [
+            "1",
+            "Peter",
+            "yellow",
+            "Bella"
+          ],
+          [
+            "2",
+            "Arnold",
+            "red",
+            "Fred"
+          ],
+          [
+            "3",
+            "Eric",
+            "white",
+            "Meredith"
+          ]
+        ]
+      }
+    }
+  ]
+}
+</answer><EOS>"""
 
-    def task1_stream(j1):
-        answer = dict(deepcopy(formalization), reasoning=[deepcopy(j1)])
-        serialized = json.dumps(answer)
-        # Remove only the array and outer object closures; J_1 stays complete.
-        assert serialized.endswith("]}")
-        return "<answer>\n" + serialized[:-2] + "<EOSEG>"
+    # Use the actual example as the source for variants, without loading the
+    # preprocessing module or depending on another file at runtime.
+    example_body = full_example.split("<answer>", 1)[1].rsplit("</answer>", 1)[0]
+    example_answer = json.loads(example_body.replace("</answer>", "").replace("<EOSEG>", ""))
 
-    unknown_j1 = deepcopy(partial_j1)
-    for row in unknown_j1["partial_solution"]["rows"]:
+    def serialize_example(answer):
+        """Serialize a complete rollout in the same format as the one-shot."""
+        formal = {key: deepcopy(answer[key]) for key in ("n_houses", "attribute_values", "syntactic_clues")}
+        prefix = json.dumps(formal, indent=2).rstrip()[:-1] + ',\n  "reasoning": [\n'
+        objects = answer["reasoning"]
+        segments = []
+        for index, obj in enumerate(objects):
+            segment = json.dumps(obj, indent=2)
+            if index < len(objects) - 1:
+                segment += "</answer><EOSEG>\n,"
+            segments.append(segment)
+        return "<answer>\n" + prefix + "\n".join(segments) + "\n]}\n</answer><EOS>"
+
+    # Every normal example is a FULL rollout containing EOSEG and EOS.
+    # The malformed cases deliberately alter the specified boundary/JSON.
+    # label, full output, expected parser acceptance, expected coverage,
+    # expected accuracy gate (None means do not assert).
+    examples = [("Exact one-shot example", full_example, True, 1.0, 1)]
+    examples.append(("One-shot after a thinking section", "<think>Working through the clues.</think>\n" + full_example, True, 1.0, 1))
+
+    variant = deepcopy(example_answer)
+    for row in variant["reasoning"][0]["partial_solution"]["rows"]:
         row[1:] = ["?", "?", "?"]
+    examples.append(("All-unknown first table, then progress to complete solution", serialize_example(variant), True, 1.0, 1))
 
-    wrong_j1 = deepcopy(complete_j1)
-    wrong_j1["partial_solution"]["rows"][0][2] = "white"
-    wrong_j1["partial_solution"]["rows"][2][2] = "yellow"
+    variant = deepcopy(example_answer)
+    variant["reasoning"][-1]["partial_solution"]["rows"][0][2] = "white"
+    variant["reasoning"][-1]["partial_solution"]["rows"][2][2] = "yellow"
+    examples.append(("Parseable but incorrect final table: swapped colors", serialize_example(variant), True, 1.0, 0))
 
-    # label, generated output, expected parser acceptance, expected coverage.
-    # Incorrect content can parse successfully; scoring must catch its errors.
-    examples = [
-        ("Valid J1: three established cells", task1_stream(partial_j1), True, 3 / 9),
-        ("Valid J1: complete answer within the first segment", task1_stream(complete_j1), True, 1.0),
-        ("Valid J1: all table cells unknown", task1_stream(unknown_j1), True, 0.0),
-        ("Parseable but incorrect table: swapped colors", task1_stream(wrong_j1), True, 1.0),
-        ("Invalid: missing EOSEG", task1_stream(partial_j1).removesuffix("<EOSEG>"), False, None),
-        ("Invalid for Task 1: extra reasoning object", task1_stream(partial_j1) + json.dumps(complete_j1) + "<EOSEG>", False, None),
-        ("Invalid: truncated reasoning JSON", task1_stream(partial_j1)[:-30], False, None),
-    ]
+    variant = deepcopy(example_answer)
+    variant["reasoning"][-1]["partial_solution"]["rows"][0][2] = "?"
+    examples.append(("Invalid: final table still contains an unknown", serialize_example(variant), False, None, None))
+    examples.append(("Invalid: missing intermediate closing tag", full_example.replace("</answer><EOSEG>", "<EOSEG>", 1), False, None, None))
+    examples.append(("Invalid: missing final EOS", full_example.removesuffix("<EOS>"), False, None, None))
+    examples.append(("Invalid: missing final JSON closures", full_example.replace('\n  ]\n}\n</answer><EOS>', '\n</answer><EOS>'), False, None, None))
+
     metric_keys = [
         "puzzle_task", "stream_parse_ok", "reasoning_entries", "stream_parse_seconds",
         "pa_accuracy", "pa_accuracy_binary_pass", "pa_consistency_binary_pass",
@@ -1516,8 +1675,9 @@ if __name__ == "__main__":
         "BASE_n_steps_novel_inc_clues", "BASE_n_non_valid_contradiction", "score",
     ]
     failures = []
-    for label, stream, expect_parse, expect_coverage in examples:
-        print(f"\n{'=' * 70}\n{label}")
+    os.environ["PUZZLE_TASK"] = "3"  # Evaluate each complete example through J_N.
+    for label, stream, expect_parse, expect_coverage, accuracy_gate in examples:
+        print(f"\n{'=' * 70}\n{label}\nGenerated output:\n{stream}")
         try:
             parsed = extract_reasoning_and_solution(stream)
             print("Parser status:", parsed[-1])
@@ -1527,23 +1687,39 @@ if __name__ == "__main__":
             assert math.isfinite(float(result["score"])), "Score must be finite"
             assert result["stream_parse_ok"] == float(expect_parse), "Evaluator parsing disagrees"
             if expect_coverage is not None:
-                assert math.isclose(float(result["coverage"]), expect_coverage, abs_tol=1e-9), "Unexpected table coverage"
+                assert math.isclose(float(result["coverage"]), expect_coverage, abs_tol=1e-9), "Unexpected coverage"
+            if accuracy_gate is not None:
+                assert result["pa_accuracy_binary_pass"] == accuracy_gate, "Unexpected accuracy gate"
             if not expect_parse:
                 assert result["score"] == -0.5, "Expected existing parsing-failure reward"
-            if "incorrect table" in label:
-                assert result["pa_accuracy_binary_pass"] == 0, "Incorrect table passed accuracy gate"
-                # Case 5 penalizes a failed gate by the populated-cell coverage.
-                expected_penalty = -float(result["coverage"])
-                assert math.isclose(float(result["pa_reward"]), expected_penalty, abs_tol=1e-9), (
-                    f"Expected incorrect-table penalty {expected_penalty}, got {result['pa_reward']}"
-                )
-            if "all table cells unknown" in label:
-                assert result["pa_reward"] == 0, "Empty table received partial-answer credit"
+            if accuracy_gate == 0:
+                assert math.isclose(float(result["pa_reward"]), -float(result["coverage"]), abs_tol=1e-9), "Expected failed-gate coverage penalty"
             print("PASS")
         except Exception as error:
             failures.append((label, str(error)))
             logger.exception("Example failed: %s", label)
 
-    print(f"\nPassed {len(examples) - len(failures)}/{len(examples)} Task 1 examples.")
+    # Task 1 necessarily stops before EOS. Derive its exact generated prefix
+    # from the full one-shot above, rather than presenting it as a full answer.
+    os.environ["PUZZLE_TASK"] = "1"
+    task1_prefix = full_example.split("<EOSEG>", 1)[0] + "<EOSEG>"
+    print(f"\n{'=' * 70}\nTask 1: first segment extracted from the full one-shot\n{task1_prefix}")
+    try:
+        parsed = extract_reasoning_and_solution(task1_prefix)
+        assert parsed[-1] == "success_direct_json"
+        assert parsed[1] == example_answer["reasoning"][0]["reasoning_steps"]
+        assert parsed[2] == example_answer["reasoning"][0]["partial_solution"]
+        result = compute_score(task1_prefix, deepcopy(ground_truth))
+        pretty({key: result.get(key) for key in metric_keys})
+        assert result["stream_parse_ok"] == 1.0
+        assert math.isclose(float(result["coverage"]), 3 / 9, abs_tol=1e-9)
+        assert result["pa_accuracy_binary_pass"] == 1.0
+        print("PASS")
+    except Exception as error:
+        failures.append(("Task 1 prefix", str(error)))
+        logger.exception("Task 1 prefix failed")
+
+    total = len(examples) + 1
+    print(f"\nPassed {total - len(failures)}/{total} reward examples.")
     if failures:
         raise AssertionError("\n".join(f"{label}: {error}" for label, error in failures))

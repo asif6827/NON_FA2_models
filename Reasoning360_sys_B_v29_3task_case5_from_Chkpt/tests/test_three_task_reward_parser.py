@@ -15,13 +15,13 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 REWARD = ROOT / 'verl/utils/reward_score/our_puzzle_dataset_v6.py'
 SOURCE = ast.parse(REWARD.read_text())
-NAMES = {'get_puzzle_task', '_read_puzzle_stream', '_read_task1_answer', '_complete_table', '_task2_prefix', 'extract_reasoning_and_solution'}
+NAMES = {'get_puzzle_task', '_read_puzzle_stream', '_read_task1_answer', '_read_answer_envelope', '_complete_table', '_task2_prefix', 'extract_reasoning_and_solution'}
 NS = {'os': os, 'json': json, 're': re}
 exec(compile(ast.Module(body=[n for n in SOURCE.body if isinstance(n, ast.FunctionDef) and n.name in NAMES], type_ignores=[]), str(REWARD), 'exec'), NS)
 PROMPT_FILE = ROOT.parent / 'Reasoning360_sys_B_v4_data_models/data_preprocess/logic/v3task/our_pre_process_zebrapuzzle_to_guru_parsed_v3task_MLXL.py'
 PROMPT = next(ast.literal_eval(n.value) for n in ast.parse(PROMPT_FILE.read_text()).body if isinstance(n, ast.Assign) and any(isinstance(x, ast.Name) and x.id == 'SOLUTION_PROMPT_1_SHOT_SYS' for x in n.targets))
 ENVELOPE = PROMPT.split('Correct Example Output:\n')[1].strip()
-ANSWER = json.loads(ENVELOPE.split('<answer>', 1)[1].split('</answer>', 1)[0].replace('<EOSEG>', ''))
+ANSWER = json.loads(ENVELOPE.split('<answer>', 1)[1].rsplit('</answer>', 1)[0].replace('</answer>', '').replace('<EOSEG>', ''))
 OBJECTS = ANSWER['reasoning']
 FORMAL = {k: v for k, v in ANSWER.items() if k != 'reasoning'}
 # Tasks 2/3 retain their existing legacy stream implementation in this Task 1 change.
@@ -72,11 +72,58 @@ class ParserTests(unittest.TestCase):
     def test_full_example_is_valid_json_after_marker_removal(self):
         self.assertEqual(set(ANSWER), {'n_houses', 'attribute_values', 'syntactic_clues', 'reasoning'})
         self.assertEqual(len(OBJECTS), 3)
-        self.assertEqual(ENVELOPE.count('<EOSEG>'), 3)
+        self.assertEqual(ENVELOPE.count('<EOSEG>'), 2)
         self.assertTrue(ENVELOPE.endswith('</answer><EOS>'))
         self.assertTrue(all('?' not in row for row in OBJECTS[-1]['partial_solution']['rows']))
         self.assertEqual(self.parse(1, ENVELOPE)[-1], 'parsing_failed')
-        self.assertEqual(json.loads(TASK1.split('<answer>')[1].removesuffix('<EOSEG>') + '] }')['reasoning'], OBJECTS[:1])
+        self.assertEqual(json.loads(TASK1.split('<answer>')[1].removesuffix('</answer><EOSEG>') + '] }')['reasoning'], OBJECTS[:1])
+
+    def test_task1_accepts_closed_complete_answer(self):
+        text = '<answer>' + json.dumps(dict(FORMAL, reasoning=[{
+            'reasoning_steps': sum([x['reasoning_steps'] for x in OBJECTS], []),
+            'partial_solution': OBJECTS[-1]['partial_solution'],
+        }])) + '</answer><EOS>'
+        result = self.parse(1, text)
+        self.assertEqual(result[-1], 'success_direct_json')
+        self.assertEqual(len(result[1]), 18)
+        self.assertEqual(result[2], OBJECTS[-1]['partial_solution'])
+
+    def test_task1_rejects_partial_table_marked_final(self):
+        text = '<answer>' + json.dumps(dict(FORMAL, reasoning=OBJECTS[:1])) + '</answer><EOS>'
+        self.assertEqual(self.parse(1, text)[-1], 'parsing_failed')
+
+    def test_repeated_envelope_full_and_prefix(self):
+        result = self.parse(3, ENVELOPE)
+        self.assertEqual(result[-1], 'success_direct_json')
+        self.assertEqual(len(result[1]), 18)
+        self.assertEqual(result[2], OBJECTS[-1]['partial_solution'])
+        parts = ENVELOPE.split('</answer><EOSEG>')
+        prefix_two = '</answer><EOSEG>'.join(parts[:2]) + '</answer><EOSEG>'
+        formal, objects, eos = NS['_read_answer_envelope'](prefix_two)
+        self.assertEqual(objects, OBJECTS[:2])
+        self.assertFalse(eos)
+        self.assertEqual(self.parse(1, prefix_two)[-1], 'parsing_failed')
+
+    def test_repeated_envelope_rejects_corrupt_latest_segment(self):
+        for text in (ENVELOPE.replace('"S9: yellow == 1."', '"broken'),
+                     ENVELOPE.replace('</answer><EOSEG>', '<EOSEG>', 1),
+                     ENVELOPE.replace('</answer><EOSEG>', '</answer><EOSEG><answer>', 1),
+                     ENVELOPE + 'trailing text'):
+            with self.subTest(text=text[-80:]):
+                self.assertEqual(self.parse(3, text)[-1], 'parsing_failed')
+
+    def test_new_task2_continuation_and_termination(self):
+        parts = ENVELOPE.split('</answer><EOSEG>')
+        continuation = parts[1] + '</answer><EOSEG>'
+        result = self.parse(2, continuation, {'puzzle_prefix': TASK1})
+        self.assertEqual(result[-1], 'success_direct_json')
+        self.assertEqual(result[2], OBJECTS[1]['partial_solution'])
+        prefix_two = '</answer><EOSEG>'.join(parts[:2]) + '</answer><EOSEG>'
+        result = self.parse(2, parts[2], {'puzzle_prefix': prefix_two})
+        self.assertEqual(result[-1], 'success_direct_json')
+        self.assertEqual(result[2], OBJECTS[2]['partial_solution'])
+        complete_prefix = ENVELOPE.rsplit('\n  ]', 1)[0] + '</answer><EOSEG>'
+        self.assertEqual(self.parse(2, '<EOS>', {'puzzle_prefix': complete_prefix})[-1], 'success_direct_json')
 
     def test_continuation_includes_prior_support(self):
         result = self.parse(2, segment(OBJECTS[1]), {'puzzle_prefix': prefix(OBJECTS[:1])})
