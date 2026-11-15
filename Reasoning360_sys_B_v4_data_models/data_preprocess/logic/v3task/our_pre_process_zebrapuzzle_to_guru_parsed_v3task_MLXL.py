@@ -24,12 +24,11 @@ You are given:
 
 All attribute values appearing in syntactic_clues, reasoning steps, and partial solutions MUST be drawn from attribute_values and interpreted as entity tokens representing unknown house positions, except that "?" is allowed in intermediate partial_solution tables for an unassigned cell.
 
-Your task is to construct a fully consistent, solver-verifiable solution by generating:
-1) A clues-formalization JSON object with exactly three keys:
-   n_houses — the total number of houses in the puzzle.
-   attribute_values — returned exactly as given, without modification.
-   syntactic_clues — a normalized, Z3-style textual encoding of each clue.
-2) Reasoning: a sequence of JSON objects J_1 through J_N, each containing exactly
+Your task is to construct a fully consistent, solver-verifiable answer with exactly FOUR top-level fields:
+1) n_houses — the total number of houses in the puzzle.
+2) attribute_values — returned exactly as given, without modification.
+3) syntactic_clues — a normalized, Z3-style textual encoding of each clue.
+4) reasoning — an array of JSON objects J_1 through J_N. Each object contains exactly
    reasoning_steps and partial_solution. Intermediate tables may contain "?";
    the last table MUST be complete and contain no "?".
 Do not output a separate final solution field.
@@ -37,24 +36,37 @@ Do not output a separate final solution field.
 ================================================================================
 CRITICAL FORMAT REQUIREMENTS
 ================================================================================
-- Output is a token-delimited stream, NOT a single JSON document or JSON array.
-- First output the clues-formalization JSON object once, then the reasoning objects.
-- Each individual JSON object MUST be valid JSON.
-- Immediately follow EVERY reasoning object J_i with the literal token <EOSEG>.
-- After the last object J_N, whose table has no "?", output <EOSEG><EOS>.
-- The full format is:
-  {clues formalization}
-  J_1<EOSEG>
-  J_2<EOSEG>
-  ...
-  J_N<EOSEG><EOS>
-- J_1, J_2, ..., J_N are explanatory labels only; do NOT print these labels.
-- Boundary tokens MUST be outside the JSON objects, not quoted strings or reasoning steps.
-- The first segment includes clues formalization and J_1, ending at the first <EOSEG>.
-- If continuing a prefix ending in J_i<EOSEG>, generate the next reasoning object;
-  if J_i already has a complete table, generate only <EOS>.
-- Do NOT include <answer> tags, outer array brackets, commas between objects,
-  markdown, code fences, or additional commentary. Output nothing after <EOS>.
+- Emit exactly ONE opening <answer> tag, before the enclosing JSON object.
+- Put all reasoning objects INSIDE the same "reasoning" array, separated by commas.
+- After EACH intermediate reasoning object J_i, emit </answer><EOSEG>.
+- At an intermediate boundary, leave the reasoning array and outer JSON object OPEN.
+  The repeated </answer> tag marks a cumulative answer-prefix boundary; it does NOT
+  close the underlying JSON. Do not emit another opening <answer> tag.
+- Formalization is NOT a separate segment. NEVER emit </answer><EOSEG> after
+  n_houses, attribute_values, or syntactic_clues, or before completing J_1.
+- The first intermediate segment contains the single opening <answer>, all three
+  formalization fields, the opening reasoning array, and the complete J_1 object,
+  followed immediately by </answer><EOSEG>.
+- After an intermediate boundary, continue with a comma followed by the next J_i.
+  Do not repeat formalization or earlier reasoning objects.
+- In a full answer, after the final J_N with no "?", close the reasoning array with ],
+  close the outer JSON object with }, and emit </answer><EOS>. Do not put <EOSEG>
+  between the final J_N and these outer closures.
+- Thus a three-object full answer has ONE <answer> tag, TWO </answer><EOSEG>
+  intermediate boundaries, and ONE final </answer><EOS> boundary.
+- If continuing a prefix whose latest table is already complete, emit only <EOS>;
+  the evaluator reconstructs the outer closures for this termination-only case.
+- All tags and boundary markers are outside JSON strings; they are not array elements.
+- For intermediate evaluation, take the cumulative span from the single <answer>
+  to the selected </answer>, remove embedded </answer> and <EOSEG> markers, and
+  temporarily append ]} to close the JSON. Do not repair incomplete J_i objects.
+- For final evaluation, use the span from <answer> to the LAST </answer>. Remove
+  embedded boundary markers; the final JSON already contains its outer closures.
+- The final span is the longest cumulative answer span, not the text between two
+  successive closing tags. After marker removal it MUST be one valid JSON object.
+- Temporary evaluation closures MUST NOT be added to the model continuation context.
+- Do not mention or quote tags or boundary markers in free-form thinking or explanations.
+- Do not output markdown, code fences, or additional commentary. Output nothing after <EOS>.
 
 
 ================================================================================
@@ -134,8 +146,9 @@ IMPORTANT:
 ================================================================================
 3) reasoning (MANDATORY — INTERLEAVED NATURAL + SYNTACTIC)
 ================================================================================
-- Reasoning MUST be an ordered sequence of JSON objects J_1 through J_N, each immediately followed by <EOSEG>.
-- The final J_N MUST have a complete partial_solution table and be followed by <EOSEG><EOS>.
+- Reasoning MUST be an ordered array of JSON objects J_1 through J_N.
+- Each intermediate J_i MUST be immediately followed by </answer><EOSEG>; continue with a comma and the next object.
+- The final J_N MUST have a complete partial_solution table; close the array and outer object, then emit </answer><EOS>.
 - Each object MUST have exactly two keys: "reasoning_steps" and "partial_solution".
 - "reasoning_steps" MUST be a list of strings containing only the new steps for that object.
 - "partial_solution" MUST contain the cumulative assignment supported by all steps so far.
@@ -243,6 +256,7 @@ attribute_values = {
 }
 
 Correct Example Output:
+<answer>
 {
   "n_houses": 3,
   "attribute_values": {
@@ -268,122 +282,127 @@ Correct Example Output:
     "C3: red == 2.",
     "C4: Bella == 1.",
     "C5: white == Meredith."
+  ],
+  "reasoning": [
+    {
+      "reasoning_steps": [
+        "Clue 3 places red in house 2.",
+        "S1: red == 2.",
+        "By clue 1, Arnold shares red's house, so Arnold occupies house 2.",
+        "S2: Arnold == 2.",
+        "Clue 4 places Bella in house 1.",
+        "S3: Bella == 1."
+      ],
+      "partial_solution": {
+        "header": [
+          "House",
+          "Name",
+          "Color",
+          "Children"
+        ],
+        "rows": [
+          [
+            "1",
+            "?",
+            "?",
+            "Bella"
+          ],
+          [
+            "2",
+            "Arnold",
+            "red",
+            "?"
+          ],
+          [
+            "3",
+            "?",
+            "?",
+            "?"
+          ]
+        ]
+      }
+    }</answer><EOSEG>
+    ,
+    {
+      "reasoning_steps": [
+        "Fred cannot occupy house 1 because Bella is there; Fred cannot occupy house 3 because clue 2 requires Eric to be to Fred's right. Therefore Fred occupies house 2.",
+        "S4: Fred == 2.",
+        "Eric is to the right of Fred in house 2, so Eric occupies house 3.",
+        "S5: Eric == 3.",
+        "Peter is the remaining name after Arnold in house 2 and Eric in house 3, so Peter occupies house 1.",
+        "S6: Peter == 1."
+      ],
+      "partial_solution": {
+        "header": [
+          "House",
+          "Name",
+          "Color",
+          "Children"
+        ],
+        "rows": [
+          [
+            "1",
+            "Peter",
+            "?",
+            "Bella"
+          ],
+          [
+            "2",
+            "Arnold",
+            "red",
+            "Fred"
+          ],
+          [
+            "3",
+            "Eric",
+            "?",
+            "?"
+          ]
+        ]
+      }
+    }</answer><EOSEG>
+    ,
+    {
+      "reasoning_steps": [
+        "Meredith is the remaining child after Bella in house 1 and Fred in house 2, so Meredith occupies house 3.",
+        "S7: Meredith == 3.",
+        "Clue 5 places white in Meredith's house, so white occupies house 3.",
+        "S8: white == 3.",
+        "Yellow is the remaining color after red in house 2 and white in house 3, so yellow occupies house 1.",
+        "S9: yellow == 1."
+      ],
+      "partial_solution": {
+        "header": [
+          "House",
+          "Name",
+          "Color",
+          "Children"
+        ],
+        "rows": [
+          [
+            "1",
+            "Peter",
+            "yellow",
+            "Bella"
+          ],
+          [
+            "2",
+            "Arnold",
+            "red",
+            "Fred"
+          ],
+          [
+            "3",
+            "Eric",
+            "white",
+            "Meredith"
+          ]
+        ]
+      }
+    }
   ]
 }
-{
-  "reasoning_steps": [
-    "Clue 3 places red in house 2.",
-    "S1: red == 2.",
-    "By clue 1, Arnold shares red's house, so Arnold occupies house 2.",
-    "S2: Arnold == 2.",
-    "Clue 4 places Bella in house 1.",
-    "S3: Bella == 1."
-  ],
-  "partial_solution": {
-    "header": [
-      "House",
-      "Name",
-      "Color",
-      "Children"
-    ],
-    "rows": [
-      [
-        "1",
-        "?",
-        "?",
-        "Bella"
-      ],
-      [
-        "2",
-        "Arnold",
-        "red",
-        "?"
-      ],
-      [
-        "3",
-        "?",
-        "?",
-        "?"
-      ]
-    ]
-  }
-}<EOSEG>
-{
-  "reasoning_steps": [
-    "Fred cannot occupy house 1 because Bella is there; Fred cannot occupy house 3 because clue 2 requires Eric to be to Fred's right. Therefore Fred occupies house 2.",
-    "S4: Fred == 2.",
-    "Eric is to the right of Fred in house 2, so Eric occupies house 3.",
-    "S5: Eric == 3.",
-    "Peter is the remaining name after Arnold in house 2 and Eric in house 3, so Peter occupies house 1.",
-    "S6: Peter == 1."
-  ],
-  "partial_solution": {
-    "header": [
-      "House",
-      "Name",
-      "Color",
-      "Children"
-    ],
-    "rows": [
-      [
-        "1",
-        "Peter",
-        "?",
-        "Bella"
-      ],
-      [
-        "2",
-        "Arnold",
-        "red",
-        "Fred"
-      ],
-      [
-        "3",
-        "Eric",
-        "?",
-        "?"
-      ]
-    ]
-  }
-}<EOSEG>
-{
-  "reasoning_steps": [
-    "Meredith is the remaining child after Bella in house 1 and Fred in house 2, so Meredith occupies house 3.",
-    "S7: Meredith == 3.",
-    "Clue 5 places white in Meredith's house, so white occupies house 3.",
-    "S8: white == 3.",
-    "Yellow is the remaining color after red in house 2 and white in house 3, so yellow occupies house 1.",
-    "S9: yellow == 1."
-  ],
-  "partial_solution": {
-    "header": [
-      "House",
-      "Name",
-      "Color",
-      "Children"
-    ],
-    "rows": [
-      [
-        "1",
-        "Peter",
-        "yellow",
-        "Bella"
-      ],
-      [
-        "2",
-        "Arnold",
-        "red",
-        "Fred"
-      ],
-      [
-        "3",
-        "Eric",
-        "white",
-        "Meredith"
-      ]
-    ]
-  }
-}<EOSEG><EOS>
+</answer><EOS>
 """
 
 
@@ -398,7 +417,7 @@ solution_header = {solution_header}
 
 attribute_values = {attribute_values}
 
-Solve the puzzle above. Output the clues-formalization JSON object, followed by interleaved reasoning objects containing reasoning_steps and partial_solution. Follow every reasoning object with <EOSEG>; the last table must contain no "?" and its object must be followed by <EOSEG><EOS>. Do not output a separate solution field or any additional text.
+Solve the puzzle above. Emit one opening <answer> and one enclosing object containing n_houses, attribute_values, syntactic_clues, and a reasoning array. Each reasoning object contains interleaved reasoning_steps and partial_solution. After each intermediate object emit </answer><EOSEG>, leaving the array and outer object open; continue with a comma and the next object, without another opening tag. The first segment must include formalization AND J_1. After the final complete table, close the array and outer object and emit </answer><EOS>. Do not output a separate solution field or additional text.
 """
 
 

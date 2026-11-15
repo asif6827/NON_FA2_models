@@ -654,6 +654,35 @@ def _read_puzzle_stream(text, with_formalization=True):
     return formalization, objects, rest == "<EOS>"
 
 
+def _read_task1_answer(solution_str):
+    """Reconstruct only the known outer closures after a complete J_1.
+
+    The original response is never changed. Missing object/string closures are
+    not repaired, and a malformed or extra segment cannot fall back to J_1.
+    """
+    text = solution_str.rsplit("</think>", 1)[-1].strip()
+    if text.count("<answer>") != 1:
+        raise ValueError("Task 1 requires exactly one <answer> opening tag")
+    before, body = text.split("<answer>", 1)
+    if "<EOSEG>" in before or "<EOS>" in before:
+        raise ValueError("Boundary marker before the answer")
+    body = body.strip()
+    if body.count("<EOSEG>") != 1 or not body.endswith("<EOSEG>"):
+        raise ValueError("Task 1 must end at its single <EOSEG> boundary")
+    prefix = body[:-len("<EOSEG>")].rstrip()
+    # Deliberately append only the array and outer object closures. A broken
+    # reasoning object or a marker within a JSON string still fails json.loads.
+    answer = json.loads(prefix + "\n]}")
+    if not isinstance(answer, dict) or set(answer) != {"n_houses", "attribute_values", "syntactic_clues", "reasoning"}:
+        raise ValueError("Expected exactly four top-level answer fields")
+    objects = answer["reasoning"]
+    if not isinstance(objects, list) or len(objects) != 1:
+        raise ValueError("Task 1 requires exactly one reasoning object")
+    formalization = {key: answer[key] for key in ("n_houses", "attribute_values", "syntactic_clues")}
+    # Reuse the existing domain/object validation, without changing scoring.
+    return _read_puzzle_stream(json.dumps(formalization) + "\n" + json.dumps(objects[0]) + "<EOSEG>")
+
+
 def _complete_table(obj):
     return all(cell != "?" for row in obj["partial_solution"]["rows"] for cell in row[1:])
 
@@ -686,7 +715,9 @@ def extract_reasoning_and_solution(solution_str: str, extra_info=None):
     """Adapt a task-specific stream to the existing cumulative reward inputs."""
     task = get_puzzle_task()  # configuration errors must not become output failures
     try:
-        if task == 2:
+        if task == 1:
+            formal, objects, eos = _read_task1_answer(solution_str)
+        elif task == 2:
             formal, previous, prefix_eos = _task2_prefix(extra_info)
             if not previous or prefix_eos:
                 raise ValueError("Task 2 needs a prefix ending at <EOSEG>")
@@ -1452,7 +1483,11 @@ if __name__ == "__main__":
     complete_j1["partial_solution"] = deepcopy(ground_truth)
 
     def task1_stream(j1):
-        return json.dumps(formalization) + "\n" + json.dumps(j1) + "<EOSEG>"
+        answer = dict(deepcopy(formalization), reasoning=[deepcopy(j1)])
+        serialized = json.dumps(answer)
+        # Remove only the array and outer object closures; J_1 stays complete.
+        assert serialized.endswith("]}")
+        return "<answer>\n" + serialized[:-2] + "<EOSEG>"
 
     unknown_j1 = deepcopy(partial_j1)
     for row in unknown_j1["partial_solution"]["rows"]:
@@ -1471,7 +1506,7 @@ if __name__ == "__main__":
         ("Parseable but incorrect table: swapped colors", task1_stream(wrong_j1), True, 1.0),
         ("Invalid: missing EOSEG", task1_stream(partial_j1).removesuffix("<EOSEG>"), False, None),
         ("Invalid for Task 1: extra reasoning object", task1_stream(partial_j1) + json.dumps(complete_j1) + "<EOSEG>", False, None),
-        ("Invalid: truncated reasoning JSON", json.dumps(formalization) + '\n{"reasoning_steps": [', False, None),
+        ("Invalid: truncated reasoning JSON", task1_stream(partial_j1)[:-30], False, None),
     ]
     metric_keys = [
         "puzzle_task", "stream_parse_ok", "reasoning_entries", "stream_parse_seconds",

@@ -15,13 +15,18 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 REWARD = ROOT / 'verl/utils/reward_score/our_puzzle_dataset_v6.py'
 SOURCE = ast.parse(REWARD.read_text())
-NAMES = {'get_puzzle_task', '_read_puzzle_stream', '_complete_table', '_task2_prefix', 'extract_reasoning_and_solution'}
+NAMES = {'get_puzzle_task', '_read_puzzle_stream', '_read_task1_answer', '_complete_table', '_task2_prefix', 'extract_reasoning_and_solution'}
 NS = {'os': os, 'json': json, 're': re}
 exec(compile(ast.Module(body=[n for n in SOURCE.body if isinstance(n, ast.FunctionDef) and n.name in NAMES], type_ignores=[]), str(REWARD), 'exec'), NS)
 PROMPT_FILE = ROOT.parent / 'Reasoning360_sys_B_v4_data_models/data_preprocess/logic/v3task/our_pre_process_zebrapuzzle_to_guru_parsed_v3task_MLXL.py'
 PROMPT = next(ast.literal_eval(n.value) for n in ast.parse(PROMPT_FILE.read_text()).body if isinstance(n, ast.Assign) and any(isinstance(x, ast.Name) and x.id == 'SOLUTION_PROMPT_1_SHOT_SYS' for x in n.targets))
-FULL = PROMPT.split('Correct Example Output:\n')[1].strip()
-FORMAL, OBJECTS, EOS = NS['_read_puzzle_stream'](FULL)
+ENVELOPE = PROMPT.split('Correct Example Output:\n')[1].strip()
+ANSWER = json.loads(ENVELOPE.split('<answer>', 1)[1].split('</answer>', 1)[0].replace('<EOSEG>', ''))
+OBJECTS = ANSWER['reasoning']
+FORMAL = {k: v for k, v in ANSWER.items() if k != 'reasoning'}
+# Tasks 2/3 retain their existing legacy stream implementation in this Task 1 change.
+FULL = json.dumps(FORMAL) + '\n' + '\n'.join(json.dumps(obj) + '<EOSEG>' for obj in OBJECTS) + '<EOS>'
+TASK1 = ENVELOPE.split('<EOSEG>', 1)[0] + '<EOSEG>' 
 
 def segment(obj):
     return json.dumps(obj) + '<EOSEG>'
@@ -35,11 +40,43 @@ class ParserTests(unittest.TestCase):
             return NS['extract_reasoning_and_solution'](text, info)
 
     def test_first_segment(self):
-        result = self.parse(1, prefix(OBJECTS[:1]))
+        result = self.parse(1, TASK1)
         self.assertEqual(result[1], OBJECTS[0]['reasoning_steps'])
         self.assertEqual(result[2], OBJECTS[0]['partial_solution'])
         self.assertEqual(result[-1], 'success_direct_json')
         self.assertEqual(self.parse(1, FULL)[-1], 'parsing_failed')
+
+    def test_task1_answer_after_thinking(self):
+        result = self.parse(1, '<think>Working through the puzzle.</think>\n' + TASK1)
+        self.assertEqual(result[-1], 'success_direct_json')
+        self.assertEqual(result[2], OBJECTS[0]['partial_solution'])
+
+    def test_task1_rejects_incomplete_objects_and_premature_stops(self):
+        bad_outputs = [
+            TASK1.replace('<answer>', '', 1),
+            TASK1.removesuffix('<EOSEG>'),
+            TASK1 + 'extra',
+            TASK1 + '<EOS>',
+            TASK1 + ',{}<EOSEG>',
+            TASK1.replace('"partial_solution"', '"solution"', 1),
+            TASK1.replace('"rows"', '"missing_rows"', 1),
+            TASK1[:-len('<EOSEG>')].rstrip()[:-1] + '<EOSEG>',
+            '<answer>' + json.dumps(FORMAL) + '<EOSEG>',
+            '<answer>{"n_houses": 3, "reasoning": [' + json.dumps(OBJECTS[0]) + '<EOSEG>',
+            TASK1.replace('"Clue 3 places red in house 2."', '"Clue 3 places <EOSEG> red in house 2."'),
+        ]
+        for text in bad_outputs:
+            with self.subTest(text=text[-80:]):
+                self.assertEqual(self.parse(1, text)[-1], 'parsing_failed')
+
+    def test_full_example_is_valid_json_after_marker_removal(self):
+        self.assertEqual(set(ANSWER), {'n_houses', 'attribute_values', 'syntactic_clues', 'reasoning'})
+        self.assertEqual(len(OBJECTS), 3)
+        self.assertEqual(ENVELOPE.count('<EOSEG>'), 3)
+        self.assertTrue(ENVELOPE.endswith('</answer><EOS>'))
+        self.assertTrue(all('?' not in row for row in OBJECTS[-1]['partial_solution']['rows']))
+        self.assertEqual(self.parse(1, ENVELOPE)[-1], 'parsing_failed')
+        self.assertEqual(json.loads(TASK1.split('<answer>')[1].removesuffix('<EOSEG>') + '] }')['reasoning'], OBJECTS[:1])
 
     def test_continuation_includes_prior_support(self):
         result = self.parse(2, segment(OBJECTS[1]), {'puzzle_prefix': prefix(OBJECTS[:1])})
