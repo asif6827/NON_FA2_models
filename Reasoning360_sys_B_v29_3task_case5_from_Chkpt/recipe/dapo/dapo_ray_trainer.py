@@ -44,6 +44,8 @@ from verl.trainer.ppo.ray_trainer import (
 )
 from verl.utils.profiler import marked_timer
 
+from verl.utils.puzzle_workflow import save_best, refresh_trainer
+
 puzzle_key = "val-aux/our_zebra_puzzle_new_reward_test/PUZZLE_ACCURACY/mean@1"
 
 class RayDAPOTrainer(RayPPOTrainer):
@@ -86,7 +88,7 @@ class RayDAPOTrainer(RayPPOTrainer):
             os.environ["VALID_STATUS"] = "1"
             val_metrics = self._validate()
             os.environ["VALID_STATUS"] = "2"
-            val_metrics_tr = self._validate_tr()
+            val_metrics_tr = {} if self.config.trainer.get("val_only", False) else self._validate_tr()
             os.environ["VALID_STATUS"] = "0"
             assert val_metrics, f"{val_metrics=}"
             pprint(f"INITIAL VALIDATION METRICS: {val_metrics}")
@@ -97,11 +99,7 @@ class RayDAPOTrainer(RayPPOTrainer):
             if self.config.trainer.get("val_only", False):
                 return
 
-            puzzle_accuracy = float(val_metrics[puzzle_key])
-            print(f"Puzzle Accuracy = {puzzle_accuracy}")
-            if puzzle_accuracy > self.puzzle_acc:
-                print(f"Replacing Puzzle Accuracy with {puzzle_accuracy}")
-                self.puzzle_acc = puzzle_accuracy
+            save_best(self, val_metrics)
 
         # add tqdm
         progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
@@ -195,6 +193,10 @@ class RayDAPOTrainer(RayPPOTrainer):
                     # repeat to align with repeated responses in rollout
                     new_batch = new_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     new_batch = new_batch.union(gen_batch_output)
+                    for index, info in enumerate(new_batch.non_tensor_batch.get("extra_info", [])):
+                        new_batch.non_tensor_batch["extra_info"][index] = dict(
+                            info, workflow_training=True, workflow_step=self.global_steps
+                        )
 
                     with marked_timer("reward", timing_raw, "yellow"):
                         # compute scores. Support both model and function-based.
@@ -375,14 +377,7 @@ class RayDAPOTrainer(RayPPOTrainer):
                         metrics.update(val_metrics_tr)
                         os.environ["VALID_STATUS"] = "0"
 
-                        puzzle_accuracy = float(val_metrics[puzzle_key])
-                        if puzzle_accuracy > self.puzzle_acc:
-                            print(f"New Puzzle Accuracy is higher. Updating Puzzle Accuracy = {puzzle_accuracy}")
-                            print("Updating checkpoint...!")
-                            if self.config.trainer.save_freq > 0 and (self.global_steps % self.config.trainer.save_freq == 0):
-                                with marked_timer("save_checkpoint", timing_raw, "green"):
-                                    self._save_checkpoint()
-                            self.puzzle_acc = puzzle_accuracy
+                        save_best(self, val_metrics)
 
                 with marked_timer("stop_profile", timing_raw):
                     if do_profile:
@@ -424,4 +419,11 @@ class RayDAPOTrainer(RayPPOTrainer):
                 if is_last_step:
                     pprint(f"Final validation metrics: {last_val_metrics}")
                     progress_bar.close()
+                    if os.environ.get("PUZZLE_TASK") == "2":
+                        from verl.utils.puzzle_workflow import advance
+                        advance(os.environ["PUZZLE_DATA_RUN"], epoch + 1)
                     return
+            # Rebuild only at the epoch boundary, after all eight responses
+            # have participated in the current epoch's on-policy updates.
+            if os.environ.get("PUZZLE_TASK") == "2":
+                refresh_trainer(self, epoch + 1)

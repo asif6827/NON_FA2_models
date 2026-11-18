@@ -90,7 +90,7 @@ gpu_memory_utilization=0.8
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
 WANDB_PROJECT="Sys_B_v1_Qwen3_4B_MLXL_1_1shot_H200" # Your wandb project name
-RESUME_FROM_PATH="/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29/checkpoints/Sys_B_v1_Qwen3_4B_MLXL_1_1shot_H200/job-id-276924-time-20260420-144810-Qwen3-4B-Thinking-2507/global_step_84"
+RESUME_FROM_PATH="${PUZZLE_INITIAL_CHECKPOINT:-/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29/checkpoints/Sys_B_v1_Qwen3_4B_MLXL_1_1shot_H200/job-id-276924-time-20260420-144810-Qwen3-4B-Thinking-2507/global_step_84}"
 
 # --- External Services ---
 export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as-judge hosted URL for 'STEM' domain evaluation
@@ -182,8 +182,35 @@ if [[ -n "$RESUME_CKPT_DIR_NAME" ]]; then
     WANDB_EXPERIMENT_NAME="$RESUME_CKPT_DIR_NAME"
 else
     TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-    WANDB_EXPERIMENT_NAME="job-id-${SLURM_JOB_ID}-time-${TIMESTAMP}-${BASE_MODEL##*/}"
+    WANDB_EXPERIMENT_NAME="${PUZZLE_RUN_NAME:-job-id-${SLURM_JOB_ID}-time-${TIMESTAMP}-${BASE_MODEL##*/}}"
 fi
+
+export PUZZLE_RUN_NAME="$WANDB_EXPERIMENT_NAME"
+echo "Puzzle workflow: task=${PUZZLE_TASK:-1}, run=${PUZZLE_RUN_NAME}, source=${PUZZLE_SOURCE_RUN:-initial-checkpoint}"
+export PUZZLE_TASK="${PUZZLE_TASK:-1}"
+export PUZZLE_MODEL_ONLY="${PUZZLE_MODEL_ONLY:-1}"
+ARTIFACT_ROOT="/export/alt-insight/NON_FA2_models/${SYSTEM_NAME}"
+CHECKPOINT_PROJECT_ROOT="${ARTIFACT_ROOT}/checkpoints/${WANDB_PROJECT}"
+TASK2_PROJECT_ROOT="${ARTIFACT_ROOT}/task2_data/${WANDB_PROJECT}"
+export PUZZLE_DATA_RUN="${TASK2_PROJECT_ROOT}/${WANDB_EXPERIMENT_NAME}"
+TASK_CHECKPOINT_DIR="${CHECKPOINT_PROJECT_ROOT}/${WANDB_EXPERIMENT_NAME}/task${PUZZLE_TASK}"
+mkdir -p "$PUZZLE_DATA_RUN" "$TASK_CHECKPOINT_DIR"
+if [[ "$PUZZLE_TASK" == "2" || "$PUZZLE_TASK" == "3" ]]; then
+    : "${PUZZLE_SOURCE_RUN:?Set PUZZLE_SOURCE_RUN to the previous task experiment name}"
+    SOURCE_TASK=$((PUZZLE_TASK - 1))
+    RESUME_FROM_PATH=$(python -m verl.utils.puzzle_workflow checkpoint \
+        --run "${CHECKPOINT_PROJECT_ROOT}/${PUZZLE_SOURCE_RUN}" --task "$SOURCE_TASK") || exit 1
+fi
+if [[ "$PUZZLE_TASK" == "2" ]]; then
+    python -m verl.utils.puzzle_workflow prepare \
+        --source "${TASK2_PROJECT_ROOT}/${PUZZLE_SOURCE_RUN}" \
+        --destination "$PUZZLE_DATA_RUN" || exit 1
+    train_files="['${PUZZLE_DATA_RUN}/train/epoch_0001.parquet']"
+    test_files="['${PUZZLE_DATA_RUN}/validation/continuations.parquet']"
+fi
+# Existing evaluation_results/.../jobid_xxxx paths are retained.
+
+
 
 # =================== Ray Start (Single Node) ===================
 # Stop any previous Ray instances
@@ -212,7 +239,7 @@ kl_loss_coef=0.0
 clip_ratio_low=0.2
 clip_ratio_high=0.2
 
-max_prompt_length=$((1024 * 8))
+max_prompt_length=${PUZZLE_MAX_PROMPT_LENGTH:-8192}
 max_response_length=$((1024 * 8))
 enable_overlong_buffer=False
 overlong_buffer_len=$((1024 * 4))
@@ -336,6 +363,7 @@ python -m recipe.dapo.main_dapo \
     reward_model.overlong_buffer.len=${overlong_buffer_len} \
     reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
     trainer.logger=['console'] \
+    trainer.default_local_dir="${TASK_CHECKPOINT_DIR}" \
     trainer.project_name=${WANDB_PROJECT} \
     trainer.system_name=${SYSTEM_NAME} \
     trainer.experiment_name=${WANDB_EXPERIMENT_NAME} \

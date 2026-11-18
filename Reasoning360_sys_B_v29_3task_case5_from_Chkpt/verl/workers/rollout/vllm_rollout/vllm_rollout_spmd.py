@@ -81,10 +81,10 @@ def _task1_stop_kwargs(puzzle_task):
     the matched stop string keeps the actual generated <EOSEG> available to
     the reward parser. No tokens are appended or re-encoded after generation.
     """
-    if puzzle_task != "1":
+    if puzzle_task not in ("1", "2", "3"):
         return {}
     return {
-        "stop": ["<EOSEG>"],
+        "stop": ["<EOSEG>", "<EOS>"] if puzzle_task in ("1", "2") else ["<EOS>"],
         "stop_token_ids": [],
         "detokenize": True,
         "skip_special_tokens": False,
@@ -410,7 +410,7 @@ class vLLMRollout(BaseRollout):
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
         response_position_ids = position_ids[..., -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
-        if self.puzzle_task == "1":
+        if self.puzzle_task in ("1", "2", "3"):
             response_attention_mask = _generated_length_mask(
                 response, generated_lengths, attention_mask.dtype
             )
@@ -431,7 +431,7 @@ class vLLMRollout(BaseRollout):
             },
             batch_size=batch_size,
         )
-        if self.puzzle_task == "1":
+        if self.puzzle_task in ("1", "2", "3"):
             # Keep actor-loss masking and reward placement aligned with the
             # attention mask, even when the stop is not the model's native EOS.
             batch["response_mask"] = response_attention_mask

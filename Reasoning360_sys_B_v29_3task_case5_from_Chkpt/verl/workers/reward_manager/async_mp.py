@@ -315,6 +315,9 @@ class AsyncMultiProcessRewardManager:
                     result = {"score": result, "acc": result}
 
             score = result["score"]
+            from verl.utils.puzzle_workflow import capture_candidate
+            capture_candidate(os.environ.get("PUZZLE_TASK"), prompt_strs[i], response_str,
+                              ground_truth, extra_infos[i], result)
             # Store the information including original reward
             for key, value in result.items():
                 # print(f"[DEBUG] in reward_extra_info, key: {key}, value: {value}")

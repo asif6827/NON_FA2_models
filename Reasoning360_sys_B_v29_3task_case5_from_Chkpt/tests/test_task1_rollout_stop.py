@@ -55,7 +55,7 @@ class RolloutStopTests(unittest.TestCase):
         for meta in ({}, {'validate': True}, {'do_sample': False}, {'validate': True, 'do_sample': False}):
             with self.subTest(meta=meta):
                 settings = self.sampling('1', meta, {'stop': ['wrong'], 'detokenize': False})
-                self.assertEqual(settings['stop'], ['<EOSEG>'])
+                self.assertEqual(settings['stop'], ['<EOSEG>', '<EOS>'])
                 self.assertTrue(settings['detokenize'])
                 self.assertTrue(settings['include_stop_str_in_output'])
                 self.assertFalse(settings['skip_special_tokens'])
@@ -63,9 +63,17 @@ class RolloutStopTests(unittest.TestCase):
                 self.assertEqual(settings['min_tokens'], 0)
 
     def test_other_tasks_keep_existing_stopping(self):
-        for task in (None, '2', '3'):
+        for task in (None,):
             settings = self.sampling(task, {}, {'stop': ['existing'], 'detokenize': False})
             self.assertEqual(settings, {'stop': ['existing'], 'detokenize': False})
+
+    def test_task2_and_task3_stopping(self):
+        for task, stops in [('2', ['<EOSEG>', '<EOS>']), ('3', ['<EOS>'])]:
+            for meta in ({}, {'validate': True}, {'do_sample': False}):
+                settings = self.sampling(task, meta)
+                self.assertEqual(settings['stop'], stops)
+                self.assertTrue(settings['include_stop_str_in_output'])
+                self.assertFalse(settings['skip_special_tokens'])
 
     def test_sampling_parameters_restored_on_failure(self):
         obj = SimpleNamespace(sampling_params=SimpleNamespace(stop=['old'], temperature=.8))

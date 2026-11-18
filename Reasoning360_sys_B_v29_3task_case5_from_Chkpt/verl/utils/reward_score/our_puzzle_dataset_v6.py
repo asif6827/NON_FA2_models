@@ -1450,6 +1450,8 @@ def compute_score(
 
     #os.environ["VALID_STATUS"] = "0"
     #sorted_result = dict(sorted(final_result.items(), key=lambda x: x[0]))
+    from verl.utils.puzzle_workflow import verified
+    final_result["verified_coverage"] = float(final_result.get("coverage", 0.0)) if verified(final_result) else 0.0
     return final_result
 
 

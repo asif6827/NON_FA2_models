@@ -1485,7 +1485,8 @@ class RayPPOTrainer:
                     global_step_folder = os.path.join(working_dir, global_step_folder)
         print(f"Load from checkpoint folder: {global_step_folder}")
         # set global step
-        self.global_steps = int(global_step_folder.split("global_step_")[-1])
+        self.global_steps = (0 if os.environ.get("PUZZLE_MODEL_ONLY", "0") == "1"
+                             else int(global_step_folder.split("global_step_")[-1]))
 
         print(f"Setting global step to {self.global_steps}")
         print(f"Resuming from {global_step_folder}")
@@ -1505,7 +1506,7 @@ class RayPPOTrainer:
         # load dataloader,
         # TODO: from remote not implemented yet
         dataloader_local_path = os.path.join(global_step_folder, "data.pt")
-        if os.path.exists(dataloader_local_path):
+        if os.path.exists(dataloader_local_path) and os.environ.get("PUZZLE_MODEL_ONLY", "0") != "1":
             dataloader_state_dict = torch.load(dataloader_local_path, weights_only=False)
             self.train_dataloader.load_state_dict(dataloader_state_dict)
         else:

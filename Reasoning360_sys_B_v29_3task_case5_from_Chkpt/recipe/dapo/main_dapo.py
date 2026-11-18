@@ -44,13 +44,22 @@ if not RAY_TMP:
 os.makedirs(RAY_TMP, exist_ok=True)
 
 def run_ppo(config) -> None:
+    task = os.environ.get("PUZZLE_TASK", "1")
+    if task not in ("1", "2", "3"):
+        raise ValueError("PUZZLE_TASK must be 1, 2, or 3")
+    config.trainer.val_only = task == "3"
+    # Stage transitions load model weights, not optimizer/scheduler state.
+    if os.environ.get("PUZZLE_MODEL_ONLY", "1") == "1":
+        OmegaConf.update(config, "actor_rollout_ref.actor.checkpoint.load_contents", ["model"], force_add=True)
+    workflow_env = {key: value for key, value in os.environ.items()
+                    if key.startswith("PUZZLE_") or key in ("CURRENT_EPOCH", "SLURM_JOB_ID")}
     if not ray.is_initialized():
         # this is for local ray cluster
         ray.init(
             _temp_dir=RAY_TMP,
             include_dashboard=False,
             runtime_env={
-                "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}
+                "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN", **workflow_env}
             },
             num_cpus=config.ray_init.num_cpus,
         )
@@ -61,9 +70,9 @@ def run_ppo(config) -> None:
         and len(OmegaConf.select(config.trainer, "profile_steps")) > 0
     ):
         nsight_options = OmegaConf.to_container(config.trainer.controller_nsight_options)
-        runner = TaskRunner.options(runtime_env={"nsight": nsight_options}).remote()
+        runner = TaskRunner.options(runtime_env={"nsight": nsight_options, "env_vars": workflow_env}).remote()
     else:
-        runner = TaskRunner.remote()
+        runner = TaskRunner.options(runtime_env={"env_vars": workflow_env}).remote()
     ray.get(runner.run.remote(config))
 
 
