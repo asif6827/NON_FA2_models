@@ -32,6 +32,22 @@ def record(puzzle='a', split='train', coverage=1/3, count=1):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_source_label_and_job_id_select_one_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = 'task-1_runA-job-id-123-time-20261118-100000-model'
+            b = 'task-1_runA-job-id-456-time-20261118-110000-model'
+            for name in (a, b, 'task-1_runA'):
+                (Path(tmp)/name).mkdir()
+            self.assertEqual(w.resolve_source_run(tmp, 'task-1_runA', '123'), a)
+            self.assertEqual(w.resolve_source_run(tmp, 'task-1_runA', '456'), b)
+            self.assertEqual(w.resolve_source_run(tmp, a), a)
+            self.assertEqual(w.resolve_source_run(tmp, 'task-1_runA'), 'task-1_runA')
+            with self.assertRaises(ValueError):
+                w.resolve_source_run(tmp, 'task-1_runA', '999')
+            (Path(tmp)/'task-1_runA-job-id-123-time-duplicate').mkdir()
+            with self.assertRaises(ValueError):
+                w.resolve_source_run(tmp, 'task-1_runA', '123')
+
     def test_selection_filters_wrong_answers_and_keeps_all_candidates(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)/'candidates.jsonl'

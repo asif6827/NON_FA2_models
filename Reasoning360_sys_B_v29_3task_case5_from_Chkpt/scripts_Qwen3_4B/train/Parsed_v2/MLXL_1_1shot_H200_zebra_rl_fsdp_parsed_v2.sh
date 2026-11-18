@@ -182,7 +182,8 @@ if [[ -n "$RESUME_CKPT_DIR_NAME" ]]; then
     WANDB_EXPERIMENT_NAME="$RESUME_CKPT_DIR_NAME"
 else
     TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-    WANDB_EXPERIMENT_NAME="${PUZZLE_RUN_NAME:-job-id-${SLURM_JOB_ID}-time-${TIMESTAMP}-${BASE_MODEL##*/}}"
+    RUN_LABEL="${PUZZLE_RUN_NAME:-task-${PUZZLE_TASK:-1}_runA}"
+    WANDB_EXPERIMENT_NAME="${RUN_LABEL}-job-id-${SLURM_JOB_ID}-time-${TIMESTAMP}-${BASE_MODEL##*/}"
 fi
 
 export PUZZLE_RUN_NAME="$WANDB_EXPERIMENT_NAME"
@@ -198,12 +199,18 @@ mkdir -p "$PUZZLE_DATA_RUN" "$TASK_CHECKPOINT_DIR"
 if [[ "$PUZZLE_TASK" == "2" || "$PUZZLE_TASK" == "3" ]]; then
     : "${PUZZLE_SOURCE_RUN:?Set PUZZLE_SOURCE_RUN to the previous task experiment name}"
     SOURCE_TASK=$((PUZZLE_TASK - 1))
+    SOURCE_ARGS=(--root "$CHECKPOINT_PROJECT_ROOT" --name "$PUZZLE_SOURCE_RUN")
+    if [[ -n "${PUZZLE_SOURCE_JOB_ID:-}" ]]; then
+        SOURCE_ARGS+=(--job-id "$PUZZLE_SOURCE_JOB_ID")
+    fi
+    RESOLVED_SOURCE_RUN=$(python -m verl.utils.puzzle_workflow resolve-run "${SOURCE_ARGS[@]}") || exit 1
+    echo "Resolved source run: $RESOLVED_SOURCE_RUN"
     RESUME_FROM_PATH=$(python -m verl.utils.puzzle_workflow checkpoint \
-        --run "${CHECKPOINT_PROJECT_ROOT}/${PUZZLE_SOURCE_RUN}" --task "$SOURCE_TASK") || exit 1
+        --run "${CHECKPOINT_PROJECT_ROOT}/${RESOLVED_SOURCE_RUN}" --task "$SOURCE_TASK") || exit 1
 fi
 if [[ "$PUZZLE_TASK" == "2" ]]; then
     python -m verl.utils.puzzle_workflow prepare \
-        --source "${TASK2_PROJECT_ROOT}/${PUZZLE_SOURCE_RUN}" \
+        --source "${TASK2_PROJECT_ROOT}/${RESOLVED_SOURCE_RUN}" \
         --destination "$PUZZLE_DATA_RUN" || exit 1
     train_files="['${PUZZLE_DATA_RUN}/train/epoch_0001.parquet']"
     test_files="['${PUZZLE_DATA_RUN}/validation/continuations.parquet']"

@@ -3,16 +3,20 @@
 #echo " I am only this..!"
 
 # Shared reward mode: 1 = first segment, 2 = continuation, 3 = inference only.
-export PUZZLE_TASK=1
-export PUZZLE_RUN_NAME="task-1_runA"
-unset PUZZLE_SOURCE_RUN
+export PUZZLE_TASK="${PUZZLE_TASK:-1}"
+# Human-readable label; the child script appends job ID, time, and model name.
+export PUZZLE_RUN_NAME="${PUZZLE_RUN_NAME:-task-${PUZZLE_TASK}_runA}"
+if [[ "$PUZZLE_TASK" == "1" ]]; then
+    unset PUZZLE_SOURCE_RUN PUZZLE_SOURCE_JOB_ID
+fi
 case "$PUZZLE_TASK" in
     1|2|3) ;;
     *) echo "PUZZLE_TASK must be 1, 2, or 3" >&2; exit 1 ;;
 esac
 # Keep these exported when submitting later stages:
-# PUZZLE_SOURCE_RUN = source task's checkpoint/data experiment directory name.
-# PUZZLE_RUN_NAME   = optional explicit destination experiment directory name.
+# PUZZLE_SOURCE_RUN = source label (e.g. task-1_runA), or exact directory name.
+# PUZZLE_SOURCE_JOB_ID = source Slurm job ID when selecting by label.
+# PUZZLE_RUN_NAME   = destination label; job ID/time are appended automatically.
 export PUZZLE_MODEL_ONLY="${PUZZLE_MODEL_ONLY:-1}"
 #if false; then
 mkdir -p ./all_logs

@@ -160,6 +160,27 @@ def advance(directory, epoch):
     return str(next_file)
 
 
+def resolve_source_run(root, name, job_id=None):
+    """Resolve a source label/job pair, or accept an explicit directory name."""
+    root = Path(root)
+    if Path(name).name != name or name in ('', '.', '..'):
+        raise ValueError('Source must be a label or directory basename, not a path')
+    if job_id is None:
+        if (root / name).is_dir():
+            return name
+        raise ValueError('Exact source directory not found; supply PUZZLE_SOURCE_JOB_ID with the source label')
+    job_id = str(job_id)
+    if not job_id.isdigit():
+        raise ValueError('Source job ID must be numeric')
+    prefix = f'{name}-job-id-{job_id}-'
+    matches = [p.name for p in root.iterdir() if p.is_dir() and (
+        p.name.startswith(prefix) or (p.name == name and f'-job-id-{job_id}-' in p.name)
+    )] if root.exists() else []
+    if len(matches) != 1:
+        raise ValueError(f'Expected one run for source {name}, job {job_id}; found {len(matches)}')
+    return matches[0]
+
+
 def best_checkpoint(run_directory, task):
     manifest = Path(run_directory) / f'task{task}' / 'best.json'
     record = json.loads(manifest.read_text())
@@ -212,11 +233,17 @@ if __name__ == '__main__':
     prep = sub.add_parser('prepare')
     prep.add_argument('--source', required=True)
     prep.add_argument('--destination', required=True)
+    resolve = sub.add_parser('resolve-run')
+    resolve.add_argument('--root', required=True)
+    resolve.add_argument('--name', required=True)
+    resolve.add_argument('--job-id')
     checkpoint = sub.add_parser('checkpoint')
     checkpoint.add_argument('--run', required=True)
     checkpoint.add_argument('--task', required=True, type=int, choices=(1, 2))
     args = parser.parse_args()
     if args.command == 'prepare':
         prepare(args.source, args.destination)
+    elif args.command == 'resolve-run':
+        print(resolve_source_run(args.root, args.name, args.job_id))
     else:
         print(best_checkpoint(args.run, args.task))
