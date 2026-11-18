@@ -21,6 +21,8 @@ export PUZZLE_MODEL_ONLY="${PUZZLE_MODEL_ONLY:-1}"
 #if false; then
 mkdir -p ./all_logs
 
+echo "All Good"
+
 ACRONYM="MLXL"
 echo "Submitting Training job H200 + GT"
 TRAIN_TEMP_LIST=(0.8)
