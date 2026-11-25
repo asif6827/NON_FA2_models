@@ -10,7 +10,7 @@ z3_out are added.
 
 House/Position identifiers are excluded from cell counts. Empty attribute
 cells are ?, blank strings, or None. An all-empty answer fails accuracy and
-earns zero reward; its consistency reflects the SAT check.
+earns a PA reward of -1. Its consistency reflects the SAT check.
 
 Syntactic constraints are identified by their S<number>: prefix.
 Natural-language entries are ignored. Empty reasoning adds no constraints;
@@ -185,6 +185,8 @@ def compute_pa_solution(payload, timeout_s=5.0,penalty_lambda=1.0):
                 for h, c, value in cells if value != gt[h][c]
             ],
         }
+        if not cells:
+            out['pa_reward'] = -1.0
         stage = 'entity_validation'
 
 
@@ -272,7 +274,7 @@ def compute_pa_solution(payload, timeout_s=5.0,penalty_lambda=1.0):
                 and out['pa_consistency_binary_pass']
         ):
             out['pa_reward'] = 1.0
-        else:
+        elif cells:
             out['pa_reward'] = -out['coverage']
 
     except (KeyError, TypeError, ValueError, AttributeError, SyntaxError,
@@ -291,10 +293,10 @@ def compute_pa_solution(payload, timeout_s=5.0,penalty_lambda=1.0):
             }
         # Invalid input/solver failure must never create a positive PA reward.
         out['pa_consistency_binary_pass'] = 0
-        out['pa_reward'] = 0.0
     diagnosis['pa_reward'] = {
         'value': out['pa_reward'],
-        'reason': 'Both gates pass' if out['pa_reward'] > 0 else 'At least one gate did not pass',
+        'reason': ('No populated attribute cells' if diagnosis['accuracy'].get('populated_cells') == 0
+                   else 'Both gates pass' if out['pa_reward'] > 0 else 'At least one gate did not pass'),
     }
     return out
 
@@ -440,7 +442,7 @@ if __name__ == '__main__':
             n_wrong=1,
             n_wrong_available=1,
             penalty=1.0,
-            pa_reward=-1.0,
+            pa_reward=-1 / 9,
         ),
     ))
 
@@ -467,7 +469,7 @@ if __name__ == '__main__':
             n_wrong=2,
             n_wrong_available=1,
             penalty=2.0,
-            pa_reward=-2.0,
+            pa_reward=-1.0,
         ),
     ))
 
@@ -496,7 +498,7 @@ if __name__ == '__main__':
             n_wrong=0,
             n_wrong_available=1,
             penalty=0.0,
-            pa_reward=0.0,
+            pa_reward=-1.0,
         ),
     ))
 
@@ -523,7 +525,7 @@ if __name__ == '__main__':
             n_wrong=2,
             n_wrong_available=1,
             penalty=2.0,
-            pa_reward=-2.0,
+            pa_reward=-1.0,
         ),
     ))
 
@@ -547,7 +549,7 @@ if __name__ == '__main__':
             n_wrong=0,
             n_wrong_available=1,
             penalty=0.0,
-            pa_reward=0.0,
+            pa_reward=-1.0,
         ),
     ))
 
