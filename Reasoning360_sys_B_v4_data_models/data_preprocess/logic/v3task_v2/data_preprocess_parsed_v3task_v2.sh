@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH -J Data-Processing-v3task_v1 #job name
+#SBATCH -J Data-Processing-v3task_v2 #job name
 #SBATCH -p gpu-all # queue used
 #SBATCH --gres gpu:1 #number of gpus needed, default is 1
 #SBATCH -c 8  #number of CPUs needed, default is 1 
@@ -20,6 +20,6 @@ export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 source activate zebrapuzzles
 
 
-python ./data_preprocess/logic/v3task_v1/our_pre_process_zebrapuzzle_to_guru_parsed_v3task_v2_MLXL.py --data_path '/export/home/asifali/HF_cache/ZebraLogic' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru_parsed_v3task_v2_MLXL'
+python ./data_preprocess/logic/v3task_v2/our_pre_process_zebrapuzzle_to_guru_parsed_v3task_v2_MLXL.py --data_path '/export/home/asifali/HF_cache/ZebraLogic' --data_setting 'mlxl_train_mlxl_test' --output_dir '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru_parsed_v3task_v2_MLXL'
 
 nvidia-smi
