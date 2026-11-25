@@ -1,0 +1,620 @@
+import os
+import sys
+import datasets
+import random
+import argparse
+from sklearn.model_selection import train_test_split
+
+# Add project root to Python path
+#project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+#sys.path.append(project_root)
+
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, project_root)
+
+from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
+
+SOLUTION_PROMPT_1_SHOT_SYS = """
+You are an expert logic puzzle solver.
+
+You are given:
+(i) one logic puzzle_text written in plain English,
+(ii) solution_header that lists the attribute names used in the puzzle, and
+(iii) a dictionary of attribute_values specifying the complete and exclusive set of allowed values for each attribute.
+
+All attribute values appearing in syntactic_clues, reasoning steps, and partial solutions MUST be drawn from attribute_values and interpreted as entity tokens representing unknown house positions, except that "?" is allowed in intermediate partial_solution tables for an unassigned cell.
+
+Your task is to construct a fully consistent, solver-verifiable answer with exactly FOUR top-level fields:
+1) n_houses — the total number of houses in the puzzle.
+2) attribute_values — returned exactly as given, without modification.
+3) syntactic_clues — a normalized, Z3-style textual encoding of each clue.
+4) reasoning — an array of JSON objects J_1 through J_N. Each object contains exactly
+   reasoning_steps and partial_solution. Intermediate tables may contain "?";
+   the last table MUST be complete and contain no "?".
+Do not output a separate final solution field.
+
+================================================================================
+CRITICAL FORMAT REQUIREMENTS
+================================================================================
+- Emit exactly ONE opening <answer> tag, before the enclosing JSON object.
+- Put all reasoning objects INSIDE the same "reasoning" array, separated by commas.
+- After EACH intermediate reasoning object J_i, emit </answer><EOSEG>.
+- At an intermediate boundary, leave the reasoning array and outer JSON object OPEN.
+  The repeated </answer> tag marks a cumulative answer-prefix boundary; it does NOT
+  close the underlying JSON. Do not emit another opening <answer> tag.
+- Formalization is NOT a separate segment. NEVER emit </answer><EOSEG> after
+  n_houses, attribute_values, or syntactic_clues, or before completing J_1.
+- The first intermediate segment contains the single opening <answer>, all three
+  formalization fields, the opening reasoning array, and the complete J_1 object,
+  followed immediately by </answer><EOSEG>.
+- After an intermediate boundary, continue with a comma followed by the next J_i.
+  Do not repeat formalization or earlier reasoning objects.
+- In a full answer, after the final J_N with no "?", close the reasoning array with ],
+  close the outer JSON object with }, and emit </answer><EOS>. Do not put <EOSEG>
+  between the final J_N and these outer closures.
+- Thus the two-object one-shot answer has ONE <answer> tag, ONE </answer><EOSEG>
+  intermediate boundary, and ONE final </answer><EOS> boundary.
+- If continuing a prefix whose latest table is already complete, emit only <EOS>;
+  the evaluator reconstructs the outer closures for this termination-only case.
+- All tags and boundary markers are outside JSON strings; they are not array elements.
+- For intermediate evaluation, take the cumulative span from the single <answer>
+  to the selected </answer>, remove embedded </answer> and <EOSEG> markers, and
+  temporarily append ]} to close the JSON. Do not repair incomplete J_i objects.
+- For final evaluation, use the span from <answer> to the LAST </answer>. Remove
+  embedded boundary markers; the final JSON already contains its outer closures.
+- The final span is the longest cumulative answer span, not the text between two
+  successive closing tags. After marker removal it MUST be one valid JSON object.
+- Temporary evaluation closures MUST NOT be added to the model continuation context.
+- Do not mention or quote tags or boundary markers in free-form thinking or explanations.
+- Do not output markdown, code fences, or additional commentary. Output nothing after <EOS>.
+
+
+================================================================================
+NORMALIZATION RULES
+================================================================================
+- Use underscores instead of spaces in VALUES (e.g., grilled_cheese, very_short).
+- Attribute names MUST match the solution_header exactly (case-sensitive), e.g., Name, Animal, Occupation, Sport, Height, etc.
+- House numbers are integers 1..N.
+- Convert ordinals to integers: first=1, second=2, third=3, fourth=4, fifth=5, sixth=6, etc.
+- "?" is permitted only in partial_solution attribute cells as an unassigned-value marker; it is not an entity token or an addition to attribute_values.
+- Do not invent values. Every concrete attribute value must be mapped to its canonical token (in attribute_values) and selected from the list of allowed attribute_values (after normalization).
+ - Example: If puzzle says “september” and attribute_values contains "sept", output "sept" (not september).
+ - Example: If puzzle says “sept” and attribute_values contains "september", output "september"
+- If the clue mentions a bare person name (e.g., "Arnold"), treat it as Name=Arnold.
+- If the clue uses a descriptor like "cat lover", "dog owner", "coffee drinker", map it to the matching token in attribute_values.
+
+================================================================================
+1) DOMAIN OUTPUT (MANDATORY)
+================================================================================
+- "n_houses" MUST be an integer N equal to the number of houses in the puzzle.
+attribute_values immutability rule:
+- The "attribute_values" object MUST be returned exactly as provided in the input.
+- It must be identical:
+  - Same attribute keys
+  - Same ordering of keys
+  - Same ordering of values within each list
+  - Same casing and spelling
+- Do NOT normalize, rename, reorder, add, or remove anything in "attribute_values".
+- Normalization rules apply ONLY to syntactic_clues, reasoning_steps, and partial_solution — NOT to attribute_values.
+
+================================================================================
+2) syntactic_clues (MANDATORY, TEXTUAL CONSTRAINTS — NOT PREDICATES)
+================================================================================
+We do NOT use predicate-style DSL for clues.
+Instead, each clue MUST be rewritten as a single-line *syntactic constraint statement* in a Z3-like textual form.
+
+Rules:
+- "syntactic_clues" MUST be a list of strings.
+- For each clue, the selected tokens must be mapped to one of the values defined in attribute_values.
+ - Example: If the clue says “sept” and attribute_values contains "september", use "september"; if attribute_values contains "sept", use "sept".
+- There MUST be exactly one entry per clue, in the same order as the clues.
+- Each entry MUST be exactly 1 line and end with a period.
+- Each entry MUST start with the clue id prefix: "C<i>: ".
+- Use ONLY these syntactic operators in the clue text:
+    ==   (same house / equivalence)
+    !=   (not same house)
+    <    (somewhere left of)
+    >    (somewhere right of)
+    + k == (k is a positive integer, e.g., 1 for immediately left, 2 for one house between, 3 for two houses between)
+    == H  (fixed house index, where H is an integer)
+- Use bare normalized tokens (no quotes) for values (e.g., Arnold, engineer, very_short).
+- When a clue states a specific house like "in the fifth house", encode as: <token> == 5
+  Example: "The lawyer is in the fifth house." -> "C9: lawyer == 5."
+- When a clue states "directly left of", encode as: A + 1 == B
+  Example: "baseball is directly left of engineer" -> "C12: baseball + 1 == engineer."
+- When a clue states "one house between", encode as: A + 2 == B
+  Example: "There is one house between Eric and the bird keeper" -> "C12: Eric + 2 == bird_keeper."
+  Example: "There is one house between Arnold and Peter" -> "C12: Arnold + 2 == Peter."
+- When a clue states "two houses between", encode as: A + 3 == B
+  Example: "There are two houses between Eric and Arnold" -> "C12: Eric + 3 == Arnold."
+- When a clue states "person who has", encode as: A == B
+  Example: "The person whose mother's name is Holly is the person who has black hair" -> "C12: Holly == black."
+- When a clue states "one house between the person who has", encode as: A + 2 == B
+  Example: "There is one house between the person who has black hair and Eric" -> "C12: black + 2 == Eric."
+- When a clue states "next to each other", encode it as: Or(A == B + 1, A == B - 1)
+  Example: "The person who prefers city breaks and Alice are next to each other" -> C12: "Or(city_breaks == Alice + 1, city_breaks == Alice - 1)."
+- When a clue states "somewhere to the left of", encode as: A < B
+- When a clue states "somewhere to the right of", encode as: A > B
+- When a clue states "X is the Y", encode as: X == Y
+
+IMPORTANT:
+- The goal is to produce constraints that resemble:
+  s.add(<left> <op> <right>)
+  but you must NOT write "s.add(...)".
+  Only output the inner constraint as text.
+
+================================================================================
+3) reasoning (MANDATORY — INTERLEAVED NATURAL + SYNTACTIC)
+================================================================================
+- Reasoning MUST be an ordered array of JSON objects J_1 through J_N.
+- Each intermediate J_i MUST be immediately followed by </answer><EOSEG>; continue with a comma and the next object.
+- The final J_N MUST have a complete partial_solution table; close the array and outer object, then emit </answer><EOS>.
+- Each object MUST have exactly two keys: "reasoning_steps" and "partial_solution".
+- "reasoning_steps" MUST be a list of strings containing only the new steps for that object.
+- "partial_solution" MUST contain the cumulative assignment supported by all steps so far.
+- Before ending J_1, establish at least one attribute value in a specific numbered house. If you have only relative positions, keep reasoning until they determine a placement.
+- For each established placement, write a numbered syntactic step fixing the value to its house and enter it in the corresponding partial_solution cell. Check every such step against the table before emitting the boundary. Leave unresolved cells as "?".
+- Preserve established assignments across objects and continue until the last table contains no "?".
+- Use as many objects as needed; the one-shot example uses exactly two, with the second object completing the solution.
+- The interleaving rules below are MANDATORY within EVERY J_i reasoning_steps array.
+- Each reasoning_steps array MUST contain complete natural-language/syntactic pairs (an even number of entries).
+- Each entry MUST end with a period; each syntactic entry MUST contain exactly one constraint statement.
+- reasoning_steps MUST be interleaved, numbering entries from 1 within each J_i:
+    Odd-numbered entries: Natural-language reasoning.
+    Even-numbered entries: Syntactic reasoning step (Z3-like statement).
+- Natural-language entries should explain the deduction in plain English.
+- Syntactic entries should encode the *newly deduced fact* as a Z3-like statement.
+- Entity tokens in syntactic entries MUST map to canonical values in "attribute_values".
+
+Syntactic entry format:
+- Every syntactic entry MUST start with "S<k>: " and MUST end with a period.
+- <k> starts at 1 and increments by 1 across all objects, without restarting (S1, S2, S3, ...).
+- The syntactic constraint MUST be solver-verifiable and may use ONLY:
+  ==, !=, <, >, + d ==, Not(...), And(...), Or(...)
+
+- Each syntactic step MUST be written in the exact form: S<k>: <constraint>.
+
+  Atomic operators:
+    ==        (same house / equivalence)
+    !=        (not the same house)
+    <         (somewhere to the left of)
+    >         (somewhere to the right of)
+    + d ==    (directed distance; d is a positive integer)
+    == H      (fixed house index; H is an integer in 1..n_houses)
+
+  Boolean operators:
+    Not(e)    (negation of a single atomic expression)
+    And(e1, e2, ..., en)
+    Or(e1, e2, ..., en)
+
+- Boolean operators may ONLY be applied to valid atomic expressions.
+- Nested Boolean expressions are allowed but MUST remain solver-verifiable.
+
+Examples of valid INTERLEVED reasoning steps:
+    The engineer is assigned to house 2.
+    S1: engineer == 2.
+    
+    Since the engineer occupies house 2, the doctor cannot also be in house 2 (both are Occupation values).
+    S2: doctor != 2.
+    
+    The cat is immediately to the left of the coffee, so the cat’s house index plus one equals the coffee’s house index.
+    S3: cat + 1 == coffee.
+    
+    The green house appears somewhere to the left of the white house.
+    S4: green < white.
+    
+    The dog is not in the first house.
+    S5: Not(dog == 1).
+    
+    The cat cannot be in house 1 or house 3.
+    S6: And(cat != 1, cat != 3).
+    
+    The milk is located either in house 1 or in house 5.
+    S7: Or(milk == 1, milk == 5).
+  
+Logical validity requirement:
+- Every syntactic step MUST be logically entailed by the syntactic_clues, puzzle domain rules (positions 1..N and distinct positions within each attribute), plus any earlier syntactic steps.
+- Do NOT output syntactic steps that merely restate a clue unless they are required as part of the deduction chain.
+
+================================================================================
+4) partial_solution (MANDATORY TABLE WITHIN EACH REASONING OBJECT)
+================================================================================
+- Each "partial_solution" MUST be in tabular form with:
+  - "header": a list of column names
+  - "rows": a list of rows, each row being a list of strings matching the header order
+- The header MUST match solution_header exactly.
+- The rows MUST list houses in increasing order from 1..N.
+- All concrete solution attribute values MUST be normalized with underscores.
+- Fill every attribute cell in conjunction with the reasoning steps: each concrete value MUST have its house assignment established in the syntactic reasoning steps (S1..Sk).
+- If the syntactic reasoning steps do not establish a cell’s value, fill that cell with "?"; do NOT guess or leave it blank.
+- The last reasoning object MUST contain a complete table with no "?"; do not add a separate solution field.
+- Keep House cells as the house indices "1".."N"; do NOT replace them with "?".
+
+================================================================================
+ONE-SHOT EXAMPLE (3 HOUSES, 3 ATTRIBUTES)
+================================================================================
+
+Example Puzzle:
+There are 3 houses, numbered 1 to 3 from left to right. Each house is occupied by a different person.
+Each house has a unique attribute for each of the following characteristics:
+
+- Each person has a unique name: Peter, Eric, Arnold
+- The people like unique colors: red, white, yellow
+- The people have childern named: Fred, Meredith, Bella
+
+Clues:
+1. Arnold is the person whose favorite color is red.
+2. The person whose child is named Fred is somewhere to the left of Eric.
+3. The person whose favorite color is red is somewhere to the left of Eric.
+4. The person whose child is named Bella is somewhere to the left of the person who loves red.
+5. The person who loves white is the person whose child is named Meredith.
+
+solution_header = ["House", "Name", "Color", "Children"]
+
+attribute_values = {
+  "Name": ["Peter", "Eric", "Arnold"],
+  "Color": ["red", "white", "yellow"],
+  "Children": ["Fred", "Meredith", "Bella"]
+}
+
+Correct Example Output:
+<answer>
+{
+  "n_houses": 3,
+  "attribute_values": {
+    "Name": [
+      "Peter",
+      "Eric",
+      "Arnold"
+    ],
+    "Color": [
+      "red",
+      "white",
+      "yellow"
+    ],
+    "Children": [
+      "Fred",
+      "Meredith",
+      "Bella"
+    ]
+  },
+  "syntactic_clues": [
+    "C1: Arnold == red.",
+    "C2: Fred < Eric.",
+    "C3: red < Eric.",
+    "C4: Bella < red.",
+    "C5: white == Meredith."
+  ],
+  "reasoning": [
+    {
+      "reasoning_steps": [
+        "Clues 4 and 3 place Bella before red and red before Eric. With three houses, the middle position belongs to red.",
+        "S1: red == 2.",
+        "Bella is left of house 2, so Bella is in house 1.",
+        "S2: Bella == 1.",
+        "Eric is right of house 2, so Eric is in house 3.",
+        "S3: Eric == 3.",
+        "Clue 1 places Arnold with red in house 2.",
+        "S4: Arnold == 2.",
+        "Peter is the remaining name in house 1.",
+        "S5: Peter == 1.",
+        "Fred is left of Eric by clue 2 and cannot share house 1 with Bella, so Fred is in house 2.",
+        "S6: Fred == 2.",
+        "Meredith is the remaining child in house 3.",
+        "S7: Meredith == 3."
+      ],
+      "partial_solution": {
+        "header": [
+          "House",
+          "Name",
+          "Color",
+          "Children"
+        ],
+        "rows": [
+          [
+            "1",
+            "Peter",
+            "?",
+            "Bella"
+          ],
+          [
+            "2",
+            "Arnold",
+            "red",
+            "Fred"
+          ],
+          [
+            "3",
+            "Eric",
+            "?",
+            "Meredith"
+          ]
+        ]
+      }
+    }</answer><EOSEG>
+    ,
+    {
+      "reasoning_steps": [
+        "Clue 5 places white in the same house as Meredith. Since Meredith occupies house 3, white occupies house 3.",
+        "S8: white == 3.",
+        "Red occupies house 2 and white occupies house 3. Since each color is unique, yellow must occupy the remaining house, house 1.",
+        "S9: yellow == 1."
+      ],
+      "partial_solution": {
+        "header": [
+          "House",
+          "Name",
+          "Color",
+          "Children"
+        ],
+        "rows": [
+          [
+            "1",
+            "Peter",
+            "yellow",
+            "Bella"
+          ],
+          [
+            "2",
+            "Arnold",
+            "red",
+            "Fred"
+          ],
+          [
+            "3",
+            "Eric",
+            "white",
+            "Meredith"
+          ]
+        ]
+      }
+    }
+  ]
+}
+</answer><EOS>
+"""
+
+
+SOLUTION_PROMPT_1_SHOT_USER = """
+--------------------------------
+PUZZLE TO SOLVE
+--------------------------------
+
+puzzle = {puzzle}
+
+solution_header = {solution_header}
+
+attribute_values = {attribute_values}
+
+Solve the puzzle above. Emit one opening <answer> and one enclosing object containing n_houses, attribute_values, syntactic_clues, and a reasoning array. Each reasoning object contains interleaved reasoning_steps and partial_solution. After each intermediate object emit </answer><EOSEG>, leaving the array and outer object open; continue with a comma and the next object, without another opening tag. In the first segment, give the formalization and J_1. Derive at least one numbered-house placement, then transfer every established placement into the table before ending J_1. After the final complete table, close the array and outer object and emit </answer><EOS>. Do not output a separate solution field or additional text.
+"""
+
+
+def extract_clues_from_puzzle(puzzle_text):
+    """Extract clues from the puzzle text."""
+    if "## Clues:" in puzzle_text:
+        clues_part = puzzle_text.split("## Clues:")[1]
+        # Extract each clue line
+        clues = []
+        for line in clues_part.splitlines():
+            line = line.strip()
+            if line and line[0].isdigit() and "." in line:
+                # Remove the numbering and keep the clue text
+                clue_text = line.split(".", 1)[1].strip()
+                clues.append(clue_text)
+        return clues
+    else:
+        return []
+
+def attribute_values_from_solution(solution: dict) -> dict:
+    """
+    Convert a solution table into attribute_values:
+      solution = {"header": [...], "rows": [[...], ...]}
+    Returns:
+      {"Name": [...], "CarModel": [...], ...}   (excludes "House")
+    """
+    header = solution.get("header", [])
+    rows = solution.get("rows", [])
+
+    # column indices, skipping "House"
+    col_indices = [(i, col) for i, col in enumerate(header) if col != "House"]
+
+    values = {col: [] for _, col in col_indices}
+    seen = {col: set() for _, col in col_indices}
+
+    for row in rows:
+        if not isinstance(row, list):
+            continue
+        for i, col in col_indices:
+            if i >= len(row):
+                continue
+            v = "_".join(row[i].split(" "))
+            # v = row[i]
+            if v not in seen[col]:
+                seen[col].add(v)
+                values[col].append(v)
+
+    for key in values:
+        random.shuffle(values[key])
+    return values
+
+def make_map_fn_1_shot(split, data_source):
+    def process_fn_1_shot(example, idx):
+        # Use 'ground_truth' instead of 'solution' since that's what the input data has
+        final_grid = example['solution']
+        # Use the 'clues' field directly from the input data
+        clues = extract_clues_from_puzzle(puzzle_text=example['puzzle'])
+        # user_prompt = SOLUTION_PROMPT_USER_SOLUTION_BASED.format(puzzle=example['puzzle'])
+        user_prompt = SOLUTION_PROMPT_1_SHOT_SYS + SOLUTION_PROMPT_1_SHOT_USER.format(
+            puzzle=example['puzzle'],solution_header=final_grid['header'], attribute_values=attribute_values_from_solution(example['solution']))
+
+        data = {
+            "data_source": data_source,
+            "prompt": [
+                {
+                    "role": "user",
+                    "content": user_prompt
+                }],
+            'raw_prompt': [
+                {
+                    "role": "user",
+                    "content": user_prompt
+                }],
+            "ability": "logical_reasoning",
+            "reward_model": {
+                "style": "rule",
+                "ground_truth": final_grid,
+            },
+            "apply_chat_template": False,
+            "extra_info": {
+                'id': example['id'] if 'id' in example else str(idx),
+                'split': split,
+                'clues': clues
+            }
+        }
+
+        if idx != 0:
+            print(f"data_source: {data_source}, split: {split}, idx: {idx}")
+            print("\n" + "=" * 100 + f"{data_source} {split} {idx}" + "=" * 10)
+            print(data)
+            print("\n\n")
+        return data
+
+    return process_fn_1_shot
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data_path', default='/home/asif/data3/HF_cache/ZebraLogic/', help='Path to json file')
+    parser.add_argument('--data_setting', default=None, help='Path to json file')
+    parser.add_argument('--output_dir', default=None, help='Directory to save processed data')
+    parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
+    parser.add_argument('--train_size', type=float, default=0.3, help='Proportion of data for train set')
+    parser.add_argument('--test_size', type=float, default=0.7, help='Proportion of data for test set')
+    parser.add_argument('--data_source_train', default='our_zebra_puzzle_new_reward', help='Name of data source')
+    parser.add_argument('--data_source_test', default='our_zebra_puzzle_new_reward_test', help='Name of data source')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
+    parser.add_argument('--train_sample_size', type=int, default=None, help='Number of samples to use from train. If None, use all.')
+    args = parser.parse_args()
+
+    random.seed(args.seed)
+
+    if args.data_setting == 'small_train_med_test':
+        args.train_file = os.path.join(args.data_path, 'Zebra_Puzzle_small_320.json')
+        args.test_file = os.path.join(args.data_path, 'Zebra_Puzzle_medium_280.json')
+    elif args.data_setting == 'med_train_small_test':
+        args.train_file = os.path.join(args.data_path, 'Zebra_Puzzle_medium_280.json')
+        args.test_file = os.path.join(args.data_path, 'Zebra_Puzzle_small_320.json')
+    elif args.data_setting == 'med_train_large_test':
+        args.train_file = os.path.join(args.data_path, 'Zebra_Puzzle_medium_280.json')
+        args.test_file = os.path.join(args.data_path, 'Zebra_Puzzle_large_200.json')
+    elif args.data_setting == 'med_train_med_test':
+        args.data_file = os.path.join(args.data_path, 'Zebra_Puzzle_medium_280.json')
+    elif args.data_setting == 'mlxl_train_mlxl_test':
+        args.data_file = os.path.join(args.data_path, 'Zebra_Puzzle_complete_1000.json')
+    else:
+        raise ValueError('Invalid data_setting')
+    args.output_dir = os.path.join(args.output_dir, args.data_setting)
+
+    if args.data_setting == 'mlxl_train_mlxl_test':
+        # Load dataset from JSON or Parquet based on file extension
+        file_extension = os.path.splitext(args.data_file)[1].lower()
+        if file_extension in ['.json', '.jsonl']:
+            dataset = datasets.load_dataset('json', data_files=args.data_file)['train']
+        elif file_extension == '.parquet':
+            dataset = datasets.load_dataset('parquet', data_files=args.data_file)['train']
+        else:
+            raise ValueError(f"Unsupported file format: {file_extension}. Only JSON, JSONL, and Parquet are supported.")
+
+        train_indices, test_indices = train_test_split(
+            range(len(dataset)),
+            train_size=args.train_size,
+            test_size=args.test_size,
+            random_state=args.seed
+        )
+
+        # Create train and test datasets
+        train_dataset = dataset.select(train_indices)
+        test_dataset = dataset.select(test_indices)
+
+        # Transform dataset
+        process_train_fn = make_map_fn_1_shot('train', args.data_source_train)
+        train_dataset = train_dataset.map(function=process_train_fn, with_indices=True)
+
+        process_test_fn = make_map_fn_1_shot('test', args.data_source_test)
+        test_dataset = test_dataset.map(function=process_test_fn, with_indices=True)
+
+        if args.train_size + args.test_size > 1.0:
+            raise ValueError(f"The sum of train_size ({args.train_size}) and test_size ({args.test_size}) cannot exceed 1.0")
+
+        # Split dataset into train and test
+
+    else:
+        # Load dataset from JSON or Parquet based on file extension
+        file_extension = os.path.splitext(args.train_file)[1].lower()
+        if file_extension in ['.json', '.jsonl']:
+            train_dataset = datasets.load_dataset('json', data_files=args.train_file)['train']
+        elif file_extension == '.parquet':
+            train_dataset = datasets.load_dataset('parquet', data_files=args.train_file)['train']
+        else:
+            raise ValueError(f"Unsupported file format: {file_extension}. Only JSON, JSONL, and Parquet are supported.")
+
+        file_extension = os.path.splitext(args.test_file)[1].lower()
+        if file_extension in ['.json', '.jsonl']:
+            test_dataset = datasets.load_dataset('json', data_files=args.test_file)['train']
+        elif file_extension == '.parquet':
+            test_dataset = datasets.load_dataset('parquet', data_files=args.test_file)['train']
+        else:
+            raise ValueError(f"Unsupported file format: {file_extension}. Only JSON, JSONL, and Parquet are supported.")
+
+        # Transform dataset
+        process_train_fn = make_map_fn_1_shot('train', args.data_source_train)
+        train_dataset = train_dataset.map(function=process_train_fn, with_indices=True)
+
+        process_test_fn = make_map_fn_1_shot('test', args.data_source_test)
+        test_dataset = test_dataset.map(function=process_test_fn, with_indices=True)
+
+    # Store the original training dataset size
+    original_train_size = len(train_dataset)
+
+    # Sample the training dataset if needed
+    train_dataset = sample_dataset(train_dataset, args.train_sample_size)
+
+    # Create output directories
+    train_output_dir = os.path.join(args.output_dir ,"train")
+    test_output_dir = os.path.join(args.output_dir, "test")
+    os.makedirs(train_output_dir, exist_ok=True)
+    os.makedirs(test_output_dir, exist_ok=True)
+
+    # Save train dataset
+    train_output_path = save_dataset(
+        dataset=train_dataset,
+        output_dir=train_output_dir,
+        filename_prefix=f"logic_{args.data_source_train}",
+        sample_size=args.train_sample_size if args.train_sample_size else len(train_dataset)
+    )
+
+    # Save test dataset
+    test_output_path = save_dataset(
+        dataset=test_dataset,
+        output_dir=test_output_dir,
+        filename_prefix=f"logic_{args.data_source_test}",
+        sample_size=len(test_dataset)
+    )
+
+    # Copy to HDFS if specified
+    if args.hdfs_dir is not None:
+        try:
+            from verl.utils.hdfs_io import copy, makedirs
+            makedirs(args.hdfs_dir)
+            copy(src=args.output_dir, dst=args.hdfs_dir)
+            print(f"Data copied to HDFS: {args.hdfs_dir}")
+        except ImportError:
+            print("HDFS utilities not available. Install verl package for HDFS support.")
+
+    print(f"Done! \n"
+          f"Train data saved to {train_output_path}\n"
+          f"Test data saved to {test_output_path}")
+    print(f"Original train set size: {original_train_size} examples")
+    print(f"Final train set size: {len(train_dataset)} examples")
+    print(f"Test set: {len(test_dataset)} examples")
