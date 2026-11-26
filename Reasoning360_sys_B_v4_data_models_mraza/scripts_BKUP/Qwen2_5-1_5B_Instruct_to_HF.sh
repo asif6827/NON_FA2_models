@@ -29,7 +29,7 @@ export RAY_DISABLE_DOCKER_CPU_WARNING=1
 export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
 export PYTHONUNBUFFERED=1
 export HYDRA_FULL_ERROR=1
-export PYTHONPATH="/export/home/asifali/Reasoning360:${PYTHONPATH:-}"
+export PYTHONPATH="/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v4_data_models_mraza:${PYTHONPATH:-}"
 # export DISABLE_RAY=1  # Remove/comment out this line to enable Ray
 export PYTHONWARNINGS="ignore::FutureWarning:transformers.utils.hub"
 

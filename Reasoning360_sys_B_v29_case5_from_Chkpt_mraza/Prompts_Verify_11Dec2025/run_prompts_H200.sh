@@ -5,8 +5,8 @@
 #SBATCH --gres gpu:1 #number of gpus needed, default is 1
 #SBATCH -c 30  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
-#SBATCH --output=./all_logs/%j-%x-slurm.out
-#SBATCH --error=./all_logs/%j-%x-slurm.err
+#SBATCH --output=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/all_logs/%j-%x-slurm.out
+#SBATCH --error=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/all_logs/%j-%x-slurm.err
 #SBATCH -A H200
 #SBATCH -q h200_qos
 #SBATCH --mail-user=asif6827@gmail.com
@@ -28,12 +28,12 @@ export USE_Thinking=0
 
 
 nvidia-smi
-export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
-export HF_HOME="/export/home/asifali/HF_cache"
-export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
+export TRANSFORMERS_CACHE="/export/alt-insight/HF_cache"
+export HF_HOME="/export/alt-insight/HF_cache"
+export HF_DATASETS_CACHE="/export/alt-insight/HF_cache"
 export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 
-export PYTHONPATH="/export/home/asifali/Reasoning360:${PYTHONPATH:-}"
+export PYTHONPATH="/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza:${PYTHONPATH:-}"
 
 #python ./Prompts_Verify_11Dec2025/prompt_SFT_data_v2.py
 #python ./Prompts_Verify_11Dec2025/prompt_SFT_data_v4.py
@@ -71,8 +71,8 @@ export PYTHONPATH="/export/home/asifali/Reasoning360:${PYTHONPATH:-}"
 #python ./Prompts_Verify_11Dec2025/Prompts/puzzle_eval_add_pass@k_z3_constraint.py --n_samples 10 data_ 'medium' --limit -1
 
 
-#python ./Prompts_System/sft/extract_sft_data.py --input-files /export/home/asifali/Reasoning360/Prompts_Results/ZebraPuzzle_1000_main_results/
+#python ./Prompts_System/sft/extract_sft_data.py --input-files /export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/Prompts_Results/ZebraPuzzle_1000_main_results/
 
-python ./Prompting_System/sft/extract_sft_data.py --input-files /export/home/asifali/Reasoning360/Prompts_Results/ZebraPuzzle_1000_main_results/results_constraint_small_n_20251211_003645_jobid_236548_limit__50.jsonl --output-dir /export/home/asifali/Reasoning360/Prompts_SFT_data
+python ./Prompting_System/sft/extract_sft_data.py --input-files /export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/Prompts_Results/ZebraPuzzle_1000_main_results/results_constraint_small_n_20251211_003645_jobid_236548_limit__50.jsonl --output-dir /export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/Prompts_SFT_data
 
 #python ./Prompts_System/prompt_iterate.py --mode constraint --temperature 0.7 --n_samples 5 --data_ 'small' --limit 50

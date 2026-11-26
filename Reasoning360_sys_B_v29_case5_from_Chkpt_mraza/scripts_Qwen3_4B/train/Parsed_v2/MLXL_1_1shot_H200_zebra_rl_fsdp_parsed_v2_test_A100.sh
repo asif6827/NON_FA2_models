@@ -21,11 +21,11 @@ unset ROCR_VISIBLE_DEVICES
 
 #### MY Parameters
 export USE_Thinking=1
-#export TRANSFORMERS_CACHE="/export/home/mraza/HF_cache"
-export HF_HOME="/export/home/mraza/HF_cache"
-export HF_DATASETS_CACHE="/export/home/mraza/HF_cache"
+#export TRANSFORMERS_CACHE="/export/alt-insight/HF_cache"
+export HF_HOME="/export/alt-insight/HF_cache"
+export HF_DATASETS_CACHE="/export/alt-insight/HF_cache"
 
-#export RAY_TMPDIR="/export/home/mraza/HF_cache/RAY_TMP"
+#export RAY_TMPDIR="/export/alt-insight/HF_cache/RAY_TMP"
 #mkdir -p RAY_TMPDIR
 
 # ===============================
@@ -78,7 +78,7 @@ ACC_W=$ACC_W, Z3_W=$Z3_W, EPOCH_SWITCH=$SWITCH_EPOCH SYSTEM_NAME=$SYSTEM_NAME EV
 
 # ===============================================================
 #SYSTEM_NAME="Reasoning360_sys_B_v2"
-export PYTHONPATH="/export/home/mraza/NON_FA2_models/${SYSTEM_NAME}:${PYTHONPATH:-}"
+export PYTHONPATH="/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza:${PYTHONPATH:-}"
 echo "Python Path = ${PYTHONPATH}"
 
 
@@ -89,7 +89,7 @@ gpu_memory_utilization=0.8
 # --- Resuming & Logging ---
 RESUME_CKPT_DIR_NAME=""  # Fill in the W&B experiment name to resume from, otherwise leave empty to start from scratch
 WANDB_PROJECT="Sys_B_v1_Qwen3_4B_MLXL_1_1shot_H200" # Your wandb project name
-RESUME_FROM_PATH="/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29/checkpoints/Sys_B_v1_Qwen3_4B_MLXL_1_1shot_H200/job-id-276924-time-20260420-144810-Qwen3-4B-Thinking-2507/global_step_84"
+SPRING_CHECKPOINT="/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29/checkpoints/Sys_B_v1_Qwen3_4B_MLXL_1_1shot_H200/job-id-276924-time-20260420-144810-Qwen3-4B-Thinking-2507/global_step_84"
 
 # --- External Services ---
 export STEM_LLM_JUDGE_URL="<STEM_LLM_JUDGE_URL>"  # Optional: Fill in the llm-as-judge hosted URL for 'STEM' domain evaluation
@@ -139,20 +139,15 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 
 
 # =================== Model ===================
-#BASE_MODEL=Qwen/Qwen2.5-1.5B-Instruct
-#BASE_MODEL=/export/home/mraza/HF_cache/Qwen2.5-7B-Instruct
-#BASE_MODEL=/export/home/mraza/HF_cache/Qwen2.5-1.5B-Instruct
-BASE_MODEL=/export/home/mraza/HF_cache/Qwen3-4B-Thinking-2507
-#BASE_MODEL=/export/home/mraza/HF_cache/Qwen3-1.7B
-MODEL_NAME=$(basename "$BASE_MODEL" | tr -s ' ' '_' | tr -d -c '[:alnum:]_')
-MODEL_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]')
-#BASE_MODEL=/export/home/mraza/HF_cache/Qwen3-1.7B
+MODEL_NAME=spring_global_step_84
+cd "/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza" || exit 1
+BASE_MODEL=$(bash scripts_Qwen3_4B/prepare_spring84_model.sh "$SPRING_CHECKPOINT" "$HF_HOME/$MODEL_NAME") || exit 1
 
 export REWARD_LOG_PATH=/export/alt-insight/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
-SHARED_DATA_PATH=/export/home/mraza/HF_cache/${DATA_PATH}
+SHARED_DATA_PATH=/export/alt-insight/HF_cache/${DATA_PATH}
 VALID_GENERATION_PATH=/export/alt-insight/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
 export PUZZLE_FEEDBACK_PATH=/export/alt-insight/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
-export PUZZLE_DIC_PATH=/export/home/mraza/HF_cache/ZebraLogic/pid_to_puzzle_dic.json
+export PUZZLE_DIC_PATH=/export/alt-insight/HF_cache/ZebraLogic/pid_to_puzzle_dic.json
 
 
 
@@ -181,7 +176,7 @@ if [[ -n "$RESUME_CKPT_DIR_NAME" ]]; then
     WANDB_EXPERIMENT_NAME="$RESUME_CKPT_DIR_NAME"
 else
     TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-    WANDB_EXPERIMENT_NAME="job-id-${SLURM_JOB_ID}-time-${TIMESTAMP}-${BASE_MODEL##*/}"
+    WANDB_EXPERIMENT_NAME="job-id-${SLURM_JOB_ID}-time-${TIMESTAMP}-${MODEL_NAME}"
 fi
 
 # =================== Ray Start (Single Node) ===================
@@ -322,7 +317,7 @@ python -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.val_kwargs.temperature=${TEST_TEMP} \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
-    actor_rollout_ref.model.path=$BASE_MODEL \
+    actor_rollout_ref.model.path="$BASE_MODEL" \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.rollout.multi_turn.enable=False \
     actor_rollout_ref.rollout.mode="sync" \
@@ -347,8 +342,7 @@ python -m recipe.dapo.main_dapo \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.total_epochs=${EPOCH} \
     trainer.log_val_generations=127 \
-    trainer.resume_mode=resume_path \
-    trainer.resume_from_path="$RESUME_FROM_PATH" \
+    trainer.resume_mode=disable \
     trainer.default_hdfs_dir=null \
     trainer.del_local_ckpt_after_load=False \
     trainer.validation_data_dir=${VALID_GENERATION_PATH}

@@ -74,20 +74,20 @@ if __name__ == "__main__":
     panther = True
 
     if hp:
-        os.environ["HF_HOME"] = "/home/asif/data3/HF_Cache"
-        os.environ["HF_DATASETS_CACHE"] = "/home/asif/data3/HF_Cache"
-        os.environ["TRANSFORMERS_CACHE"] = "/home/asif/data3/HF_Cache"
+        os.environ["HF_HOME"] = "/export/alt-insight/HF_cache"
+        os.environ["HF_DATASETS_CACHE"] = "/export/alt-insight/HF_cache"
+        os.environ["TRANSFORMERS_CACHE"] = "/export/alt-insight/HF_cache"
 
-        base_dir = '/home/asif/data3/HF_Cache/guru_data/'
-        new_dir = '/home/asif/data3/HF_Cache/guru_data_20_all/'
+        base_dir = '/export/alt-insight/HF_cache/guru_data/'
+        new_dir = '/export/alt-insight/HF_cache/guru_data_20_all/'
 
     elif panther:
-        os.environ["HF_HOME"] = "/export/home/asifali/HF_cache"
-        os.environ["HF_DATASETS_CACHE"] = "/export/home/asifali/HF_cache"
-        os.environ["TRANSFORMERS_CACHE"] = "/export/home/asifali/HF_cache"
+        os.environ["HF_HOME"] = "/export/alt-insight/HF_cache"
+        os.environ["HF_DATASETS_CACHE"] = "/export/alt-insight/HF_cache"
+        os.environ["TRANSFORMERS_CACHE"] = "/export/alt-insight/HF_cache"
 
-        base_dir = '/export/home/asifali/HF_cache/guru_data/'
-        new_dir = '/export/home/asifali/HF_cache/guru_data_20_all/'
+        base_dir = '/export/alt-insight/HF_cache/guru_data/'
+        new_dir = '/export/alt-insight/HF_cache/guru_data_20_all/'
 
     ## Processing offline_eval data sets...!
     directory = os.path.join(base_dir, offline_eval_dir)

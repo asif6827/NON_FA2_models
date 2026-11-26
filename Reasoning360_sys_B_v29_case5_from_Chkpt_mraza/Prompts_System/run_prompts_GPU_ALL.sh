@@ -5,8 +5,8 @@
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 30  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
-#SBATCH --output=./all_logs/%j-%x.out
-#SBATCH --error=./all_logs/%j-%x.err
+#SBATCH --output=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/all_logs/%j-%x.out
+#SBATCH --error=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/all_logs/%j-%x.err
 #SBATCH --mail-user=asif6827@gmail.com
 
 
@@ -25,13 +25,13 @@ unset ROCR_VISIBLE_DEVICES
 export USE_Thinking=0
 
 nvidia-smi
-export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
-export HF_HOME="/export/home/asifali/HF_cache"
-export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
+export TRANSFORMERS_CACHE="/export/alt-insight/HF_cache"
+export HF_HOME="/export/alt-insight/HF_cache"
+export HF_DATASETS_CACHE="/export/alt-insight/HF_cache"
 export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 
 
-export PYTHONPATH="/export/home/asifali/Reasoning360:${PYTHONPATH:-}"
+export PYTHONPATH="/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza:${PYTHONPATH:-}"
 
 
 #N_SAMPLES=$1
@@ -52,7 +52,7 @@ export PYTHONPATH="/export/home/asifali/Reasoning360:${PYTHONPATH:-}"
 #python ./Prompts_System/prompt_iterate.py --n_samples ${N_SAMPLES} --data_ ${DATA} --max_attempts ${ATTEMPTS} --mode ${MODE} --limit -1 --model_path ${PATH}
 
 
-python ./Prompts_System/sft/extract_sft_data_short_answer.py --input_files '/export/home/asifali/Reasoning360/Prompts_Results/ZebraPuzzle_1000_main_results/results_solution_small_n_20251212_100814_jobid_236791_limit__full.jsonl'
+python ./Prompts_System/sft/extract_sft_data_short_answer.py --input_files '/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/Prompts_Results/ZebraPuzzle_1000_main_results/results_solution_small_n_20251212_100814_jobid_236791_limit__full.jsonl'
 
 
-#python ./Prompts_System/sft/extract_sft_data.py --input_files '/export/home/asifali/Reasoning360/Prompts_Results/ZebraPuzzle_1000_main_results/results_solution_small_n_20251212_100814_jobid_236791_limit__full.jsonl'
+#python ./Prompts_System/sft/extract_sft_data.py --input_files '/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/Prompts_Results/ZebraPuzzle_1000_main_results/results_solution_small_n_20251212_100814_jobid_236791_limit__full.jsonl'

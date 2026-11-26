@@ -24,9 +24,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Puzzle Solving System with Z3 Verification")
     
     # Model and data configuration
-    parser.add_argument("--model_path", type=str, default='/export/home/asifali/HF_cache/Qwen2.5-7B-Instruct', help="LLM")
+    parser.add_argument("--model_path", type=str, default='/export/alt-insight/HF_cache/Qwen2.5-7B-Instruct', help="LLM")
     parser.add_argument("--data_",  type=str, default="small", help="(.json, .jsonl or .parquet)")
-    parser.add_argument("--output_dir", type=str, default="/export/home/asifali/Reasoning360/Prompts_Results/ZebraPuzzle_1000_main_results", help="output directory")
+    parser.add_argument("--output_dir", type=str, default="/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/Prompts_Results/ZebraPuzzle_1000_main_results", help="output directory")
     
     # Verification mode selection
     parser.add_argument("--mode", type=str, choices=["solution", "constraint"], default="solution",  help=" solution or constraint")
@@ -59,13 +59,13 @@ def main() -> None:
     args = parse_args()
 
     if args.data_ == "small":
-        args.data_path = "/export/home/asifali/HF_cache/ZebraLogic/Zebra_Puzzle_small_320.json"
+        args.data_path = "/export/alt-insight/HF_cache/ZebraLogic/Zebra_Puzzle_small_320.json"
     elif args.data_ == "medium":
-        args.data_path = "/export/home/asifali/HF_cache/ZebraLogic/Zebra_Puzzle_medium_280.json"
+        args.data_path = "/export/alt-insight/HF_cache/ZebraLogic/Zebra_Puzzle_medium_280.json"
     elif args.data_ == "large":
-        args.data_path = "/export/home/asifali/HF_cache/ZebraLogic/Zebra_Puzzle_large_200.json"
+        args.data_path = "/export/alt-insight/HF_cache/ZebraLogic/Zebra_Puzzle_large_200.json"
     elif args.data_ == "XL":
-        args.data_path = "/export/home/asifali/HF_cache/ZebraLogic/Zebra_Puzzle_xl_200.json"
+        args.data_path = "/export/alt-insight/HF_cache/ZebraLogic/Zebra_Puzzle_xl_200.json"
 
 
     print("Program Arguments = {}".format(args))

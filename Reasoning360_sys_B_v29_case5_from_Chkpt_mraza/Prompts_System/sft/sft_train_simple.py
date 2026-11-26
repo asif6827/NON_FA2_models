@@ -100,10 +100,10 @@ def keep_top_k_checkpoints(output_dir: str, k: int = 2,
 def main():
     parser = argparse.ArgumentParser(description="SFT Training Script for Logic Puzzle Solving")
     
-    parser.add_argument("--model_name_or_path", type=str, default="/export/home/asifali/HF_cache/Qwen2.5-7B-Instruct", help="Local model folder path or Hugging Face model ID")
+    parser.add_argument("--model_name_or_path", type=str, default="/export/alt-insight/HF_cache/Qwen2.5-7B-Instruct", help="Local model folder path or Hugging Face model ID")
     parser.add_argument("--select_", type=str, default="combined", help="Training data path (json/jsonl, containing messages field)")
-    parser.add_argument("--data_path", type=str, default="/export/home/asifali/Reasoning360/Prompts_SFT_data", help="Path to training data folders")
-    parser.add_argument("--save_dir", type=str, default="/export/home/asifali/Reasoning360/Prompts_Checkpoint/", help="Model save root directory")
+    parser.add_argument("--data_path", type=str, default="/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/Prompts_SFT_data", help="Path to training data folders")
+    parser.add_argument("--save_dir", type=str, default="/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/Prompts_Checkpoint/", help="Model save root directory")
     
     # LoRA Configuration
     parser.add_argument("--use_lora", action="store_true", help="Whether to use LoRA")

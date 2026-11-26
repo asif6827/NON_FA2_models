@@ -1,5 +1,7 @@
 #!/bin/bash
 
+cd "/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza" || exit 1
+
 #echo " I am only this..!"
 
 #if false; then

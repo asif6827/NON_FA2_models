@@ -20,7 +20,7 @@ source activate Reason360
 PY=python
 export CUDA_VISIBLE_DEVICES=0,1
 unset ROCR_VISIBLE_DEVICES
-export PYTHONPATH="/export/home/asifali/Reasoning360:${PYTHONPATH:-}"
+export PYTHONPATH="/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v4_data_models_mraza:${PYTHONPATH:-}"
 
 nvidia-smi
 #########################################################

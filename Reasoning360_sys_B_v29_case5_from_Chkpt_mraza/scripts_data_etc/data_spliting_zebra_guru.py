@@ -72,11 +72,11 @@ def save_dataset(dataset, output_dir, filename_prefix, sample_size=None):
 if __name__ == "__main__":
 
     print('Processing small_training mediumn test')
-    os.environ["HF_HOME"] = "/export/home/asifali/HF_cache"
-    os.environ["HF_DATASETS_CACHE"] = "/export/home/asifali/HF_cache"
+    os.environ["HF_HOME"] = "/export/alt-insight/HF_cache"
+    os.environ["HF_DATASETS_CACHE"] = "/export/alt-insight/HF_cache"
 
-    base_dir = '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru/small_train_med_test'
-    new_dir = '/export/home/asifali/HF_cache/ZebraPuzzle_to_guru_10/small_train_med_test'
+    base_dir = '/export/alt-insight/HF_cache/ZebraPuzzle_to_guru/small_train_med_test'
+    new_dir = '/export/alt-insight/HF_cache/ZebraPuzzle_to_guru_10/small_train_med_test'
 
     ## Processing Train data sets...!
     directory = os.path.join(base_dir, train_dir)
@@ -132,8 +132,8 @@ if __name__ == "__main__":
 
 
     print('Processing Guru Adjusted data')
-    base_dir = '/export/home/asifali/HF_cache/guru_data_adjusted'
-    new_dir = '/export/home/asifali/HF_cache/guru_data_adjusted_10'
+    base_dir = '/export/alt-insight/HF_cache/guru_data_adjusted'
+    new_dir = '/export/alt-insight/HF_cache/guru_data_adjusted_10'
 
     ## Processing Train data sets...!
     directory = os.path.join(base_dir, train_dir)

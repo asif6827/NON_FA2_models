@@ -5,10 +5,10 @@ hp = False
 panther = True
 if hp:
     repo_id = "Qwen/Qwen2.5-0.5B-Instruct"           # or "Qwen/Qwen3-1.7B-Instruct"
-    target   = Path("/home/asif/data3/HF_Cache/Qwen2.5-0.5B-Instruct")  # your folder
+    target   = Path("/export/alt-insight/HF_cache/Qwen2.5-0.5B-Instruct")  # your folder
 elif panther:
     repo_id = "Qwen/Qwen2.5-0.5B-Instruct"
-    target = Path("/export/home/asifali/HF_cache/Qwen2.5-0.5B-Instruct")  # your folder
+    target = Path("/export/alt-insight/HF_cache/Qwen2.5-0.5B-Instruct")  # your folder
 
 path = snapshot_download(
     repo_id=repo_id,

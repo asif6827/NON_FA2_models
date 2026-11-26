@@ -47,7 +47,7 @@ ACC_W=$ACC_W, Z3_W=$Z3_W, EPOCH_SWITCH=$SWITCH_EPOCH SYSTEM_NAME=$SYSTEM_NAME EV
 
 # ===============================================================
 #SYSTEM_NAME="Reasoning360_sys_B_v2"
-export PYTHONPATH="/export/home/asifali/NON_FA2_models/${SYSTEM_NAME}:${PYTHONPATH:-}"
+export PYTHONPATH="/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v4_data_models_mraza:${PYTHONPATH:-}"
 echo "Python Path = ${PYTHONPATH}"
 
 

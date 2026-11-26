@@ -5,8 +5,8 @@
 #SBATCH --gres gpu:1 #number of gpus needed, default is 1
 #SBATCH -c 30  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
-#SBATCH --output=./all_logs/%j.out
-#SBATCH --error=./all_logs/%j.err
+#SBATCH --output=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/all_logs/%j.out
+#SBATCH --error=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/all_logs/%j.err
 #SBATCH -A H200
 #SBATCH -q h200_qos
 #SBATCH --mail-user=asif6827@gmail.com
@@ -27,13 +27,13 @@ unset ROCR_VISIBLE_DEVICES
 export USE_Thinking=0
 
 nvidia-smi
-export TRANSFORMERS_CACHE="/export/home/asifali/HF_cache"
-export HF_HOME="/export/home/asifali/HF_cache"
-export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
+export TRANSFORMERS_CACHE="/export/alt-insight/HF_cache"
+export HF_HOME="/export/alt-insight/HF_cache"
+export HF_DATASETS_CACHE="/export/alt-insight/HF_cache"
 export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 
 
-export PYTHONPATH="/export/home/asifali/Reasoning360:${PYTHONPATH:-}"
+export PYTHONPATH="/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza:${PYTHONPATH:-}"
 
 
 
@@ -87,11 +87,11 @@ python ./Prompts_System/prompt_iterate_chkpt.py --n_samples ${N_SAMPLES} --data_
 #python ./Prompts_System/prompt_iterate_chkpt.py --n_samples ${N_SAMPLES} --data_ ${DATA} --max_attempts ${ATTEMPTS} --mode ${MODE} --limit ${LIMIT} --remove_chkpt ${REMOVE_CHKPT} --model_path ${CHKPT_PATH}
 
 
-#python ./Prompts_System/prompt_iterate.py --n_samples ${N_SAMPLES} --data_ ${DATA} --max_attempts ${ATTEMPTS} --mode ${MODE} --limit -1 --model_path '/export/home/asifali/Reasoning360/Prompts_Checkpoint/data_correct_only_20251212_205544_jobid_236829/checkpoint-1470'
+#python ./Prompts_System/prompt_iterate.py --n_samples ${N_SAMPLES} --data_ ${DATA} --max_attempts ${ATTEMPTS} --mode ${MODE} --limit -1 --model_path '/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/Prompts_Checkpoint/data_correct_only_20251212_205544_jobid_236829/checkpoint-1470'
 
 
 #N_SAMPLES=$1
 #DATA=$2
 #ATTEMPTS=$3
 #MODE=$4
-#python ./Prompts_System/prompt_iterate.py --n_samples ${N_SAMPLES} --data_ ${DATA} --max_attempts ${ATTEMPTS} --mode ${MODE} --limit -1 --model_path '/export/home/asifali/Reasoning360/Prompts_Checkpoint/data_correct_only_20251212_205544_jobid_236829/checkpoint-1470'
+#python ./Prompts_System/prompt_iterate.py --n_samples ${N_SAMPLES} --data_ ${DATA} --max_attempts ${ATTEMPTS} --mode ${MODE} --limit -1 --model_path '/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/Prompts_Checkpoint/data_correct_only_20251212_205544_jobid_236829/checkpoint-1470'

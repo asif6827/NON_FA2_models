@@ -63,8 +63,8 @@ def make_map_fn(split, data_source):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--json_path', default='/home/asif/data3/HF_cache/ZebraPuzzle_guru/zebra_puzzle.json', help='Path to json file')
-    parser.add_argument('--output_dir', default='/home/asif/data3/HF_cache/ZebraPuzzle_guru', help='Directory to save processed data')
+    parser.add_argument('--json_path', default='/export/alt-insight/HF_cache/ZebraPuzzle_guru/zebra_puzzle.json', help='Path to json file')
+    parser.add_argument('--output_dir', default='/export/alt-insight/HF_cache/ZebraPuzzle_guru', help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
     parser.add_argument('--train_size', type=float, default=0.8, help='Proportion of data for train set')
     parser.add_argument('--test_size', type=float, default=0.2, help='Proportion of data for test set')

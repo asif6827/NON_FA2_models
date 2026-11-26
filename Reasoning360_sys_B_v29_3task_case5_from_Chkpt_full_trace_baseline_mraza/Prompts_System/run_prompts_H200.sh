@@ -33,7 +33,7 @@ export HF_DATASETS_CACHE="/export/alt-insight/HF_cache"
 export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 
 
-export PYTHONPATH="/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_full_trace_baseline_mraza:${PYTHONPATH:-}"
+export PYTHONPATH="/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_full_trace_baseline_mraza:${PYTHONPATH:-}"
 
 
 

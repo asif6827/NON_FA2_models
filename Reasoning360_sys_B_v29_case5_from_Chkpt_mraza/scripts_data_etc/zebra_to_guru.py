@@ -68,6 +68,6 @@ def main(in_path, out_path):
 
 
 if __name__ == '__main__':
-    in_path = '/home/asif/data3/HF_cache/ZebraLogic/Zebra_Puzzle_small_320.json'
-    out_path = '/home/asif/data3/HF_cache/ZebraPuzzle_guru/zebra_puzzle.json'
+    in_path = '/export/alt-insight/HF_cache/ZebraLogic/Zebra_Puzzle_small_320.json'
+    out_path = '/export/alt-insight/HF_cache/ZebraPuzzle_guru/zebra_puzzle.json'
     main(in_path, out_path)

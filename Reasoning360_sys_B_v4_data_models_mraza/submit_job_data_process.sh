@@ -1,5 +1,7 @@
 #!/bin/bash
 
+cd "/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v4_data_models_mraza" || exit 1
+
 #echo " I am only this..!"
 
 

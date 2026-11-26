@@ -219,8 +219,8 @@ def make_map_fn_1_shot(split, data_source):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_path', default='/home/asif/data3/HF_cache/guru_data', help='Path to json file')
-    parser.add_argument('--output_dir', default='/home/asif/data3/HF_cache/guru_data_adjusted_1shot', help='Directory to save processed data')
+    parser.add_argument('--input_path', default='/export/alt-insight/HF_cache/guru_data', help='Path to json file')
+    parser.add_argument('--output_dir', default='/export/alt-insight/HF_cache/guru_data_adjusted_1shot', help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
     parser.add_argument('--train_size', type=float, default=0.8, help='Proportion of data for train set')
     parser.add_argument('--test_size', type=float, default=0.2, help='Proportion of data for test set')

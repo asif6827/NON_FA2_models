@@ -334,9 +334,9 @@ def make_map_fn_1_shot(split, data_source):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path', default='/home/asif/data3/HF_cache/ZebraLogic/', help='Path to json file')
+    parser.add_argument('--data_path', default='/export/alt-insight/HF_cache/ZebraLogic/', help='Path to json file')
     parser.add_argument('--data_setting', default='small_train_small_test', help='Path to json file')
-    parser.add_argument('--output_dir', default='/home/asif/data3/HF_cache/ZebraLogic/', help='Directory to save processed data')
+    parser.add_argument('--output_dir', default='/export/alt-insight/HF_cache/ZebraLogic/', help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
     parser.add_argument('--train_size', type=float, default=0.6, help='Proportion of data for train set')
     parser.add_argument('--test_size', type=float, default=0.4, help='Proportion of data for test set')

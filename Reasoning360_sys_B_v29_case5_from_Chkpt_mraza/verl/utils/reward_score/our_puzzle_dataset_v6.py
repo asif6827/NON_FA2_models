@@ -46,8 +46,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-#pid_to_puzzle_dic_file = '/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json'
-pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/Users/asif/Desktop/Codes_QCRI/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
+#pid_to_puzzle_dic_file = '/export/alt-insight/HF_cache/ZebraLogic/pid_to_puzzle_dic.json'
+pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/export/alt-insight/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
 
 with open(pid_to_puzzle_dic_file, "r", encoding="utf-8") as f:
     pid_to_puzzle_dic = json.load(f)   # this is a dict (if JSON root is an object)

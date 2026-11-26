@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Extract SFT data from puzzle-solving results")
     parser.add_argument("--input-files", nargs="+", required=True, help="Path to input JSONL files containing puzzle results")
-    parser.add_argument("--output-dir", default="/export/home/asifali/Reasoning360/Prompts_SFT_data", help="Directory to save the extracted SFT datasets")
+    parser.add_argument("--output-dir", default="/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/Prompts_SFT_data", help="Directory to save the extracted SFT datasets")
     parser.add_argument("--split-ratio", type=float, default=0.9, help="Train/test split ratio (default: 0.9)")
     return parser.parse_args()
 

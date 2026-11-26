@@ -132,21 +132,21 @@ if __name__ == "__main__":
     panther = True
 
     if hp:
-        os.environ["HF_HOME"] = "/home/asif/data3/HF_Cache"
-        os.environ["HF_DATASETS_CACHE"] = "/home/asif/data3/HF_Cache"
-        os.environ["TRANSFORMERS_CACHE"] = "/home/asif/data3/HF_Cache"
+        os.environ["HF_HOME"] = "/export/alt-insight/HF_cache"
+        os.environ["HF_DATASETS_CACHE"] = "/export/alt-insight/HF_cache"
+        os.environ["TRANSFORMERS_CACHE"] = "/export/alt-insight/HF_cache"
 
-        base_dir = '/home/asif/data3/HF_Cache/guru_data/'
-        new_dir = '/home/asif/data3/HF_Cache/guru_data_3K/'
-        #intermediate_dir = '/home/asif/data3/HF_Cache/guru_intermediate/'
+        base_dir = '/export/alt-insight/HF_cache/guru_data/'
+        new_dir = '/export/alt-insight/HF_cache/guru_data_3K/'
+        #intermediate_dir = '/export/alt-insight/HF_cache/guru_intermediate/'
     elif panther:
-        os.environ["HF_HOME"] = "/export/home/asifali/HF_cache"
-        os.environ["HF_DATASETS_CACHE"] = "/export/home/asifali/HF_cache"
-        os.environ["TRANSFORMERS_CACHE"] = "/export/home/asifali/HF_cache"
+        os.environ["HF_HOME"] = "/export/alt-insight/HF_cache"
+        os.environ["HF_DATASETS_CACHE"] = "/export/alt-insight/HF_cache"
+        os.environ["TRANSFORMERS_CACHE"] = "/export/alt-insight/HF_cache"
 
-        base_dir = '/export/home/asifali/HF_cache/guru_data/'
-        new_dir = '/export/home/asifali/HF_cache/guru_data_3K/'
-        #intermediate_dir = '/export/home/asifali/HF_cache/guru_intermediate'
+        base_dir = '/export/alt-insight/HF_cache/guru_data/'
+        new_dir = '/export/alt-insight/HF_cache/guru_data_3K/'
+        #intermediate_dir = '/export/alt-insight/HF_cache/guru_intermediate'
 
 
     offline_eval_dir = 'offline_eval'

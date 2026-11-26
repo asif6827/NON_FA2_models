@@ -33,7 +33,7 @@ export HF_DATASETS_CACHE="/export/home/asifali/HF_cache"
 export WANDB_API_KEY="64305b88cc27033d4132d6ce147ecce132e6955d"
 
 
-export PYTHONPATH="/export/home/asifali/Reasoning360:${PYTHONPATH:-}"
+export PYTHONPATH="/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v4_data_models_mraza:${PYTHONPATH:-}"
 
 
 

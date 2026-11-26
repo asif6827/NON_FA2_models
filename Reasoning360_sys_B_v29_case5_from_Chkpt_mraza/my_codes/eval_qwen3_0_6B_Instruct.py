@@ -22,20 +22,20 @@ panther = False
 
 if hp_dell:
     print("Using HP-DELL Configration")
-    os.environ["HF_HOME"] = "/home/asif/data3/HF_cache"
-    os.environ["HF_DATASETS_CACHE"] = "/home/asif/data3/HF_cache"
-    os.environ["TRANSFORMERS_CACHE"] = "/home/asif/data3/HF_cache"
+    os.environ["HF_HOME"] = "/export/alt-insight/HF_cache"
+    os.environ["HF_DATASETS_CACHE"] = "/export/alt-insight/HF_cache"
+    os.environ["TRANSFORMERS_CACHE"] = "/export/alt-insight/HF_cache"
     model_path = "Qwen/Qwen3-0.6B"
-    DATASET_NAME = "/home/asif/data3/HF_Cache/guru_data_20/offline_eval/math__math_500_20.parquet"
+    DATASET_NAME = "/export/alt-insight/HF_cache/guru_data_20/offline_eval/math__math_500_20.parquet"
 
 elif panther:
     print("Using Panther server Configration")
-    os.environ["HF_HOME"] = "/export/home/asifali/HF_cache"
-    os.environ["HF_DATASETS_CACHE"] = "/export/home/asifali/HF_cache"
-    os.environ["TRANSFORMERS_CACHE"] = "/export/home/asifali/HF_cache"
-    model_path = "/export/home/asifali/HF_cache/Qwen3-0.6B"
-    DATASET_NAME = "/export/home/asifali/HF_cache/guru_data_20/offline_eval/math__math_500_20.parquet"
-    #DATASET_NAME = "/export/home/asifali/HF_cache/guru_data/offline_eval/math__math_500.parquet"
+    os.environ["HF_HOME"] = "/export/alt-insight/HF_cache"
+    os.environ["HF_DATASETS_CACHE"] = "/export/alt-insight/HF_cache"
+    os.environ["TRANSFORMERS_CACHE"] = "/export/alt-insight/HF_cache"
+    model_path = "/export/alt-insight/HF_cache/Qwen3-0.6B"
+    DATASET_NAME = "/export/alt-insight/HF_cache/guru_data_20/offline_eval/math__math_500_20.parquet"
+    #DATASET_NAME = "/export/alt-insight/HF_cache/guru_data/offline_eval/math__math_500.parquet"
 
 
 

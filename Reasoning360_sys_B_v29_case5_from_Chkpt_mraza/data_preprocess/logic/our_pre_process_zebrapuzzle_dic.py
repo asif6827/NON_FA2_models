@@ -15,9 +15,9 @@ from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path', default='/home/asif/data3/HF_cache/ZebraLogic/', help='Path to json file')
+    parser.add_argument('--data_path', default='/export/alt-insight/HF_cache/ZebraLogic/', help='Path to json file')
     parser.add_argument('--data_setting', default=None, help='Path to json file')
-    parser.add_argument('--output_dir', default='/home/asif/data3/HF_cache/ZebraLogic/', help='Directory to save processed data')
+    parser.add_argument('--output_dir', default='/export/alt-insight/HF_cache/ZebraLogic/', help='Directory to save processed data')
     parser.add_argument('--shot', default='zero', help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
     parser.add_argument('--train_size', type=float, default=0.6, help='Proportion of data for train set')
