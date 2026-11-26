@@ -33,5 +33,9 @@ echo "Data Processing script v3 Running..!"
 sbatch ./data_preprocess/logic/v3task_v3/data_preprocess_parsed_v3task_v3.sh
 
 
+echo "Data Processing script v4 Running..!"
+sbatch ./data_preprocess/logic/v3task_v4/data_preprocess_parsed_v3task_v4.sh
+
+
 #echo "Data Pre-Processing Runing"
 #sbatch ./data_preprocess/logic/v6a/data_preprocess_parsed_v6a_ALL.sh
