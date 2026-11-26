@@ -3,7 +3,7 @@
 #echo " I am only this..!"
 
 #if false; then
-mkdir -p ./all_logs
+mkdir -p "/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/all_logs" || exit 1
 
 ACRONYM="MLXL"
 echo "Submitting Training job H200 + GT"

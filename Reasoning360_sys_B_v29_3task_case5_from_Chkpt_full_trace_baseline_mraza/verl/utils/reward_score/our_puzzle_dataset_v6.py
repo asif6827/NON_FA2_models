@@ -1,0 +1,1735 @@
+# -*- coding: utf-8 -*-
+"""
+our_puzzles_dataset.py
+
+Reward scoring for Zebra/Logic puzzles with triple scoring:
+- ACC (grid match / cell-level)
+- Z3 validity score
+- Clue self-check score (LLM-as-verifier via Ray)
+"""
+
+import re
+import os
+import sys
+import json
+import logging
+import numpy as np
+from copy import deepcopy
+from typing import Dict, List, Any, Optional, Tuple
+
+# from z3_verifier_v13 import compute_dsl_components
+from typing import Dict, Any, List, Tuple, Optional
+
+
+from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import solve_and_validate_payload
+from verl.utils.reward_score.z3_reasoning_validator_v13_gt_solve_v9 import normalize_header, normalize_months_in_rows
+from verl.utils.reward_score.check_interleved_format import check_interleaved_reasoning
+from verl.utils.reward_score.z3_reasoning_vs_solution_verifier_v2 import verify_solution_two_step
+from verl.utils.reward_score.reward_PA_solution import compute_pa_solution
+
+
+os.environ.setdefault("CLUE_TIMEOUT_S", "3.0")
+os.environ.setdefault("Z3_TIMEOUT_S", "1.5")
+os.environ.setdefault("Z3_CLUE_GATE", "0.7")
+os.environ.setdefault("CLUE_MAX_NEW_TOKENS", "256")
+os.environ.setdefault("CLUE_MAX_INFLIGHT", "1")
+
+job_id = os.getenv("SLURM_JOB_ID")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True
+)
+
+logger = logging.getLogger(__name__)
+
+
+#pid_to_puzzle_dic_file = '/export/alt-insight/HF_cache/ZebraLogic/pid_to_puzzle_dic.json'
+pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/export/alt-insight/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
+
+with open(pid_to_puzzle_dic_file, "r", encoding="utf-8") as f:
+    pid_to_puzzle_dic = json.load(f)   # this is a dict (if JSON root is an object)
+
+
+
+def parse_answer_tag(solution_str: str) -> Optional[str]:
+    """Extract content from <answer>...</answer> tags."""
+    answer_pattern = r'<answer>([\s\S]*?)</answer>'
+    match = re.search(answer_pattern, solution_str, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def log_case(case_type: str, solution_str: str, ground_truth: Any, logger):
+    """Log special cases like non-boxed answers."""
+    logger.info(f"{case_type} case:")
+    logger.info(f"Solution_str: {solution_str}")
+    logger.info(f"Ground_truth: {ground_truth}")
+
+
+# -------------------- normalization helpers --------------------
+
+def convert_numpy_arrays(obj: Any) -> Any:
+    """Convert numpy arrays nested in dict/list to python lists."""
+    try:
+        import numpy as np
+    except Exception:
+        np = None
+
+    if np is not None and isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, dict):
+        return {k: convert_numpy_arrays(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [convert_numpy_arrays(x) for x in obj]
+    return obj
+
+
+def _normalize_atom(x: Any) -> str:
+    return str(x).strip().lower()
+
+
+def normalize_grid(data: Any) -> Optional[Dict[str, Any]]:
+    """
+    Normalize grid for comparison:
+    - lower/strip everything
+    - ignore 'house'/'position' column if present
+    - sort rows for permutation invariance
+    """
+    if not isinstance(data, dict):
+        return None
+    if "header" not in data or "rows" not in data:
+        return None
+
+    try:
+        header = [_normalize_atom(h) for h in data["header"]]
+
+        ignore_cols = {"house", "position"}
+        keep_indices = [i for i, h in enumerate(header) if h not in ignore_cols]
+        if not keep_indices:
+            keep_indices = list(range(len(header)))
+
+        rows_norm: List[List[str]] = []
+        for row in data["rows"]:
+            row_norm_full = [_normalize_atom(x) for x in row]
+            row_norm = [row_norm_full[i] for i in keep_indices]
+            rows_norm.append(row_norm)
+
+        header_kept = [header[i] for i in keep_indices]
+        return {"header": header_kept, "rows": sorted(rows_norm)}
+    except Exception:
+        return None
+
+
+def normalize_strings(obj):
+    """
+    Recursively normalize:
+      - strings -> lower-case + spaces -> underscores
+      - list/tuple -> normalize each element (supports list of lists)
+      - dict -> normalize values (keys unchanged; change if you want)
+    """
+    if isinstance(obj, str):
+        return obj.strip().lower().replace(" ", "_")
+    if isinstance(obj, (list, tuple)):
+        return [normalize_strings(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: normalize_strings(v) for k, v in obj.items()}
+    return obj
+
+
+def _compute_acc_from_normalized(norm_pred: Dict[str, Any], norm_gt: Dict[str, Any]) -> float:
+    """Exact match => 1.0, otherwise cell-level acc if shapes align."""
+    if not norm_pred or not norm_gt:
+        return (0.0, 0.0)
+    if norm_pred == norm_gt:
+        return (1.0, 1.0)
+
+    ph, pr = norm_pred.get("header", []), norm_pred.get("rows", [])
+    gh, gr = norm_gt.get("header", []), norm_gt.get("rows", [])
+    ph, pr = normalize_strings(ph), normalize_strings(pr)
+    gh, gr = normalize_strings(gh), normalize_strings(gr)
+    if not ph or not gh or not pr or not gr:
+        return (0.0, 0.0)
+    if ph != gh or len(pr) != len(gr):
+        return (0.0, 0.0)
+
+    puzzle_accuracy = 0.0
+    correct = 0
+    total = 0
+    for rp, rg in zip(pr, gr):
+        if len(rp) != len(rg):
+            return 0.0
+        total += len(rp)
+        correct += sum(1 for a, b in zip(rp, rg) if a == b)
+    cell_accuracy = correct / total if total > 0 else 0.0
+    if cell_accuracy < 1.0:
+        puzzle_accuracy = 0.0
+    else:
+        puzzle_accuracy = 1.0
+    return (cell_accuracy, puzzle_accuracy)
+
+
+# -------------------- ray verifier singleton --------------------
+
+_RAY_VERIFIER = None
+
+
+def _get_ray_verifier(model_config: Dict[str, Any]):
+    """Per-process singleton: avoid recreating verifier/actor for each sample."""
+    global _RAY_VERIFIER
+    if _RAY_VERIFIER is None:
+        from verl.utils.reward_score.ray_clue_verifier import RayClueVerifier
+        _RAY_VERIFIER = RayClueVerifier(model_config=model_config)
+    return _RAY_VERIFIER
+
+
+# -------------------- z3 timeout patch --------------------
+
+_Z3_SOLVER_PATCHED = False
+_Z3_LAST_TIMEOUT_MS = None
+
+
+def _ensure_z3_timeout(timeout_s: float):
+    """
+    Monkey-patch verl.utils.reward_score.z3_verifier.Solver to set timeout for new solvers.
+    """
+    global _Z3_SOLVER_PATCHED, _Z3_LAST_TIMEOUT_MS
+    try:
+        import verl.utils.reward_score.z3_verifier as zv
+    except Exception:
+        return
+
+    ms = int(max(0.0, float(timeout_s)) * 1000)
+    if _Z3_SOLVER_PATCHED and _Z3_LAST_TIMEOUT_MS == ms:
+        return
+
+    orig_solver = getattr(zv, "Solver", None)
+    if orig_solver is None:
+        return
+
+    def _solver_with_timeout(*args, **kwargs):
+        s = orig_solver(*args, **kwargs)
+        try:
+            s.set("timeout", ms)
+        except Exception:
+            pass
+        return s
+
+    zv.Solver = _solver_with_timeout
+    _Z3_SOLVER_PATCHED = True
+    _Z3_LAST_TIMEOUT_MS = ms
+
+
+def _clamp01(x: Optional[float]) -> float:
+    if x is None:
+        return 0.0
+    try:
+        x = float(x)
+    except Exception:
+        return 0.0
+    return 0.0 if x < 0.0 else (1.0 if x > 1.0 else x)
+
+
+def _safe_int(x: Any, default: int = 0) -> int:
+    try:
+        if x is None:
+            return default
+        # avoid int(True)=1 surprises unless you want it
+        if isinstance(x, bool):
+            return default
+        return int(x)
+    except Exception:
+        return default
+
+
+def _safe_bool(x: Any) -> Optional[bool]:
+    if x is True:
+        return True
+    if x is False:
+        return False
+    return None
+
+
+
+
+def puzzle_and_cell_accuracy(
+        solution: Dict[str, Any],
+        ground_truth: Dict[str, Any],
+        *,
+        custom_aliases: Optional[Dict[str, str]] = None,
+) -> Tuple[float, float]:
+    """
+    Returns (puzzle_accuracy, cell_accuracy)
+
+    Improvements vs basic version:
+      - Strong value canonicalization to reduce false mismatches:
+        * hyphens/model names: "Ford F-150" ~ "ford f150" ~ "fordf-150"
+        * plural vs singular: "horses" ~ "horse"
+        * phrasing: "keeps horses" ~ "horse" (best-effort)
+        * devices: "iPhone 13" ~ "iphone13"
+      - Aligns columns by header name (case-insensitive)
+      - Aligns rows by "House" if present in both, else by row index
+      - Compares only intersection of columns
+
+    You can pass `custom_aliases` for dataset-specific equivalences.
+    """
+
+    # --- Normalization helpers ------------------------------------------------
+    DEFAULT_ALIASES = {
+        # nationality/common short forms
+        "british": "brit",
+        "danish": "dane",
+        "german": "germany",  # example; adjust/remove if not needed
+        # common device normalization examples
+        "iphone": "iphone",
+        "i phone": "iphone",
+    }
+    # user overrides / adds aliases
+    alias_map = {**DEFAULT_ALIASES, **(custom_aliases or {})}
+
+    STOPWORDS = {
+        "the", "a", "an", "person", "who", "whose", "is", "in", "of", "to", "and",
+        "somewhere", "directly", "immediately", "left", "right", "next", "between",
+        "house", "loves", "likes", "keeps", "owns", "uses", "has", "drinks", "eats",
+        "enjoys", "prefers", "wears", "with", "named", "name",
+    }
+
+    def _norm_header(x: Any) -> str:
+        return str(x).strip().lower()
+
+    def _singularize_token(tok: str) -> str:
+        # very light singularization: horses->horse, cars->car; avoids "glass"->"glas"
+        if len(tok) >= 4 and tok.endswith("s") and not tok.endswith("ss"):
+            return tok[:-1]
+        return tok
+
+    def _apply_alias(s: str) -> str:
+        # apply aliases to full string first (handles british->brit etc.)
+        # but also allow token-level later
+        s2 = s
+        for k, v in alias_map.items():
+            # whole-word replacement
+            s2 = re.sub(rf"\b{re.escape(k)}\b", v, s2)
+        return s2
+
+    def _normalize_value(x: Any) -> str:
+        """
+        Canonicalize a cell value to a stable comparable key.
+        Output is a compact alphanumeric string (no spaces/punct), e.g.:
+          "Ford F-150" -> "fordf150"
+          "iPhone 13"  -> "iphone13"
+          "keeps horses" -> "horse" (best-effort)
+        """
+        s = str(x).strip().lower()
+        s = s.strip("`'\"")
+        s = _apply_alias(s)
+
+        # Replace separators with spaces (hyphens, slashes, underscores, commas, etc.)
+        s = re.sub(r"[\-_/.,:;()\[\]{}]", " ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+
+        # Tokenize on spaces
+        toks = s.split(" ")
+        # Remove stopwords + singularize remaining
+        kept: List[str] = []
+        for t in toks:
+            if not t:
+                continue
+            if t in STOPWORDS:
+                continue
+            # token-level alias too (e.g., british -> brit)
+            t = alias_map.get(t, t)
+            t = _singularize_token(t)
+            kept.append(t)
+
+        if not kept:
+            # fallback: keep alphanumerics from original string
+            return re.sub(r"[^a-z0-9]+", "", s)
+
+        # Special handling: if string looks like "iphone 13" etc., joining works already.
+        # Return compact canonical key
+        return "".join(re.sub(r"[^a-z0-9]+", "", t) for t in kept)
+
+    # --- Load and normalize table structures ---------------------------------
+    sol_header = [_norm_header(h) for h in (solution.get("header") or [])]
+    gt_header = [_norm_header(h) for h in (ground_truth.get("header") or [])]
+
+    sol_rows_raw = (solution.get("rows") or [])
+    gt_rows_raw = (ground_truth.get("rows") or [])
+
+    sol_rows = [[_normalize_value(v) for v in r] for r in sol_rows_raw if isinstance(r, list)]
+    gt_rows = [[_normalize_value(v) for v in r] for r in gt_rows_raw if isinstance(r, list)]
+
+    if not sol_header or not gt_header or not sol_rows or not gt_rows:
+        return 0.0, 0.0
+
+    # Column intersection mapping
+    gt_col = {name: j for j, name in enumerate(gt_header)}
+    sol_col = {name: i for i, name in enumerate(sol_header)}
+    common_cols = [c for c in gt_header if c in sol_col]
+    if not common_cols:
+        return 0.0, 0.0
+
+    # Row alignment: by house if present in both; else by row index
+    use_house = ("house" in sol_col) and ("house" in gt_col)
+
+    def build_row_map(rows: List[List[str]], col_map: Dict[str, int]) -> Dict[str, List[str]]:
+        m: Dict[str, List[str]] = {}
+        if use_house:
+            hi = col_map["house"]
+            for idx, r in enumerate(rows):
+                key = r[hi] if hi < len(r) else str(idx + 1)
+                m[key] = r
+        else:
+            for idx, r in enumerate(rows):
+                m[str(idx)] = r
+        return m
+
+    sol_map = build_row_map(sol_rows, sol_col)
+    gt_map = build_row_map(gt_rows, gt_col)
+
+    keys = sorted(set(sol_map.keys()) & set(gt_map.keys()),
+                  key=lambda x: (int(x) if x.isdigit() else 10 ** 9, x))
+    if not keys:
+        return 0.0, 0.0
+
+    total = 0
+    correct = 0
+
+    for k in keys:
+        sr = sol_map[k]
+        gr = gt_map[k]
+        for c in common_cols:
+            si = sol_col[c]
+            gi = gt_col[c]
+            total += 1
+            if si >= len(sr) or gi >= len(gr):
+                continue
+            if sr[si] == gr[gi]:
+                correct += 1
+
+    cell_acc = correct / total if total > 0 else 0.0
+
+    # Puzzle accuracy: strict match on compared region + same aligned key set sizes
+    puzzle_acc = 1.0 if (correct == total and len(sol_map) == len(gt_map) == len(keys)) else 0.0
+    return float(puzzle_acc), float(cell_acc)
+
+
+def extract_puzzle_text(
+        full_string: str,
+        start_marker: str = "PUZZLE TO SOLVE",
+        end_markers: Optional[List[str]] = None, ) -> str:
+    """
+    Extract the puzzle statement + clues block from a larger string.
+
+    Defaults:
+    - Starts right after a line containing `start_marker`
+    - Skips separator lines (-----) and blank lines
+    - Stops before the first line that matches any end marker (e.g. "Solve the puzzle above")
+
+    Raises:
+        ValueError: if start_marker is not found.
+    """
+    if end_markers is None:
+        end_markers = [
+            r"^\s*Solve the puzzle above\b",  # common instruction line
+            r"^\s*returning\s+ONLY\s+the\s*<answer>",  # other common variant
+        ]
+
+    # Pre-compile patterns
+    start_re = re.compile(rf"^\s*-*\s*{re.escape(start_marker)}\s*-*\s*$", re.IGNORECASE)
+    end_res = [re.compile(pat, re.IGNORECASE) for pat in end_markers]
+    sep_re = re.compile(r"^\s*-{3,}\s*$")  # lines of -----
+
+    lines = full_string.splitlines(keepends=True)
+
+    # 1) Find the start marker line
+    start_idx = None
+    for i, line in enumerate(lines):
+        if start_re.match(line):
+            start_idx = i
+            break
+    if start_idx is None:
+        raise ValueError(f"start_marker not found: {start_marker!r}")
+
+    # 2) Move to the first "content" line after the marker (skip separators + blanks)
+    j = start_idx + 1
+    while j < len(lines) and (lines[j].strip() == "" or sep_re.match(lines[j])):
+        j += 1
+
+    # 3) Find end (first matching end marker line)
+    k = len(lines)
+    for i in range(j, len(lines)):
+        if any(er.match(lines[i]) for er in end_res):
+            k = i
+            break
+
+    # 4) Return extracted block
+    block = "".join(lines[j:k]).strip("\n")
+    return block
+
+
+def clamp01(x: float) -> float:
+    x = float(x)
+    if x < 0.0:
+        return 0.0
+    if x > 1.0:
+        return 1.0
+    return x
+
+
+def logic_quality(z3_sat: float, clue_sat: float, parse_cov: float, cov_floor: float = 0.25) -> float:
+    z3_sat = clamp01(z3_sat)
+    clue_sat = clamp01(clue_sat)
+    cov = clamp01(parse_cov)
+
+    reliable = 1.0 if cov >= cov_floor else 0.0
+
+    # When reliable: mix sat + clue_sat; when not reliable: don’t punish (quality=1)
+    if reliable < 1.0:
+        return 1.0
+
+    q = 0.70 * z3_sat + 0.30 * clue_sat
+    return clamp01(q)
+
+
+def schedule(epoch: int, total_epochs: int):
+    """
+    Returns:
+      w_puz: weight for puzzle_acc in GT anchor (0->1)
+      alpha: penalty exponent (increases over time)
+      cov_floor: min parse_cov to trust Z3
+      parse_bonus_w: small bonus early to encourage parsable outputs
+    """
+    t = clamp01(epoch / max(1, total_epochs - 1))  # 0..1
+
+    w_puz = t ** 1.5  # slow start, stronger later
+    alpha = 0.5 + 3.0 * (t ** 2.0)  # Z3 penalty weak early, strong late
+    cov_floor = 0.20 + 0.15 * t  # stricter later
+    parse_bonus_w = 0.05 * (1.0 - t)  # only early
+
+    return w_puz, alpha, cov_floor, parse_bonus_w
+
+
+def curriculum_with_z3(
+        cell_acc: float,
+        puzzle_acc: float,
+        z3_sat: float,
+        clue_sat: float,
+        parse_cov: float,
+        epoch: int,
+        total_epochs: int,
+        cell_beta: float = 2.0,
+) -> float:
+    c = clamp01(cell_acc)
+    p = clamp01(puzzle_acc)
+
+    if p >= 1.0:
+        return 1.0
+    if p <= 0.0 and c <= 0.0:
+        return 0.0
+
+    w_puz, alpha, cov_floor, parse_bonus_w = schedule(epoch, total_epochs)
+
+    # GT anchor (early: shaped cell, late: puzzle)
+    c_shaped = c ** max(1e-6, float(cell_beta))
+    gt_anchor = clamp01((1.0 - w_puz) * c_shaped + w_puz * p)
+
+    # Z3 logic quality (reliable only when parse_cov high)
+    q_logic = logic_quality(z3_sat=z3_sat, clue_sat=clue_sat, parse_cov=parse_cov, cov_floor=cov_floor)
+
+    # penalty ramps up with alpha over time
+    reward = gt_anchor * (q_logic ** max(1e-6, float(alpha)))
+
+    # small early parse bonus (prevents “ignore Z3 parser” collapse early)
+    cov = clamp01(parse_cov)
+    reward = clamp01(reward + parse_bonus_w * cov)
+
+    return float(reward)
+
+
+def _try_parse_first_json_obj(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Try parsing JSON object from text.
+    - fast path: json.loads(text)
+    - fallback: brute scan for the first valid {...} object
+    """
+    if not text:
+        return None
+
+    try:
+        obj = json.loads(text)
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        pass
+
+    starts = [m.start() for m in re.finditer(r'\{', text)]
+    for st in starts:
+        for ed in range(len(text), st, -1):
+            if text[ed - 1] != '}':
+                continue
+            chunk = text[st:ed]
+            try:
+                obj = json.loads(chunk)
+                if isinstance(obj, dict):
+                    return obj
+            except Exception:
+                continue
+    return None
+
+
+def find_last_answer_block(text: str) -> Optional[str]:
+    """
+    Returns the *last* <answer>...</answer> block found in `text`,
+    or None if no block exists.
+
+    - Case-insensitive tags: <answer> or <ANSWER>
+    - Allows attributes in the opening tag: <answer id="x">
+    - Dot matches newlines so multi-line blocks work
+    """
+    pattern = re.compile(
+        r"<answer\b[^>]*>.*?</answer\s*>",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return None
+
+    return matches[-1].group(0)
+
+
+def get_puzzle_task():
+    """Require an explicit task; never silently evaluate using the wrong mode."""
+    task = os.environ.get("PUZZLE_TASK", "")
+    if task not in ("1", "2", "3", "4"):
+        raise ValueError("PUZZLE_TASK must be explicitly set to 1, 2, 3, or 4")
+    return int(task)
+
+
+def _read_puzzle_stream(text, with_formalization=True, validate_tables=True):
+    """Read every object and delimiter strictly; never recover an earlier answer."""
+    decoder = json.JSONDecoder()
+    rest = text.strip()
+    formalization = None
+    if with_formalization:
+        formalization, end = decoder.raw_decode(rest)
+        if not isinstance(formalization, dict) or set(formalization) != {"n_houses", "attribute_values", "syntactic_clues"}:
+            raise ValueError("Expected clues-formalization object")
+        n = formalization["n_houses"]
+        values = formalization["attribute_values"]
+        clues = formalization["syntactic_clues"]
+        if type(n) is not int or n < 1 or not isinstance(values, dict) or not values:
+            raise ValueError("Invalid puzzle domain")
+        if not all(isinstance(v, list) and len(v) == n and all(isinstance(x, str) for x in v) for v in values.values()):
+            raise ValueError("Invalid attribute values")
+        if not isinstance(clues, list) or not all(isinstance(x, str) for x in clues):
+            raise ValueError("Invalid syntactic clues")
+        rest = rest[end:].strip()
+    objects = []
+    while rest and rest != "<EOS>":
+        obj, end = decoder.raw_decode(rest)
+        if not isinstance(obj, dict) or set(obj) != {"reasoning_steps", "partial_solution"}:
+            raise ValueError("Expected reasoning_steps and partial_solution")
+        steps = obj["reasoning_steps"]
+        if not isinstance(steps, list) or not steps or len(steps) % 2 or not all(isinstance(x, str) for x in steps):
+            raise ValueError("Invalid reasoning_steps")
+        if validate_tables:
+            table = obj["partial_solution"]
+            if not isinstance(table, dict) or set(table) != {"header", "rows"}:
+                raise ValueError("Invalid partial_solution")
+            if not isinstance(table["header"], list) or not isinstance(table["rows"], list):
+                raise ValueError("Invalid table lists")
+            if not table["header"] or table["header"][0] != "House" or not all(isinstance(x, str) for x in table["header"]):
+                raise ValueError("Invalid table header")
+            if not table["rows"] or not all(isinstance(row, list) and len(row) == len(table["header"]) and all(isinstance(x, str) for x in row) for row in table["rows"]):
+                raise ValueError("Invalid table rows")
+        rest = rest[end:].lstrip()
+        if not rest.startswith("<EOSEG>"):
+            raise ValueError("Every reasoning object must end with <EOSEG>")
+        rest = rest[len("<EOSEG>"):].strip()
+        objects.append(obj)
+    return formalization, objects, rest == "<EOS>"
+
+
+def _read_answer_envelope(solution_str, full_trace=False):
+    """Read one opening tag and cumulative repeated closing-tag boundaries.
+
+    Validate every prefix, rather than falling back to a shorter answer when
+    the latest segment is malformed. Only intermediate outer ]} closures are
+    supplied; complete final JSON must already have them.
+    """
+    text = solution_str.rsplit("</think>", 1)[-1].strip()
+    if text.count("<answer>") != 1:
+        raise ValueError("Expected exactly one opening <answer> tag")
+    before, body = text.split("<answer>", 1)
+    if any(marker in before for marker in ("</answer>", "<EOSEG>", "<EOS>")):
+        raise ValueError("Unexpected boundary before the answer")
+    pieces = body.split("</answer>")
+    if len(pieces) < 2:
+        raise ValueError("Missing closing answer boundary")
+    cumulative = pieces[0]
+    result = None
+    for index in range(len(pieces) - 1):
+        tail = pieces[index + 1].lstrip()
+        final_boundary = index == len(pieces) - 2
+        if final_boundary and tail == "<EOS>":
+            eos = True
+            reconstructed = cumulative
+        elif tail.startswith("<EOSEG>"):
+            eos = False
+            continuation = tail[len("<EOSEG>"):]
+            if final_boundary and continuation.strip():
+                raise ValueError("Unexpected data after the last segment")
+            if not final_boundary and not continuation.lstrip().startswith(","):
+                raise ValueError("Continuation must begin with a comma")
+            reconstructed = cumulative + "\n]}"
+        else:
+            raise ValueError("Closing tag must be followed by <EOSEG> or final <EOS>")
+        if any(marker in cumulative for marker in ("<answer>", "</answer>", "<EOSEG>", "<EOS>")):
+            raise ValueError("Marker inside JSON content")
+        answer = json.loads(reconstructed)
+        if not isinstance(answer, dict) or set(answer) != {"n_houses", "attribute_values", "syntactic_clues", "reasoning"}:
+            raise ValueError("Expected exactly four top-level answer fields")
+        objects = answer["reasoning"]
+        if not isinstance(objects, list) or len(objects) != index + 1:
+            raise ValueError("Each boundary must add exactly one reasoning object")
+        formal = {key: answer[key] for key in ("n_houses", "attribute_values", "syntactic_clues")}
+        # Reuse existing domain and object validation; no scoring is changed.
+        stream = json.dumps(formal) + "\n" + "\n".join(json.dumps(obj) + "<EOSEG>" for obj in objects)
+        formal, objects, _ = _read_puzzle_stream(stream, validate_tables=not full_trace)
+        if eos and not full_trace and not _complete_table(objects[-1]):
+            raise ValueError("Final answer must have a complete table")
+        result = formal, objects, eos
+        if not final_boundary:
+            cumulative += continuation
+    return result
+
+
+def _read_task1_answer(solution_str):
+    formal, objects, eos = _read_answer_envelope(solution_str)
+    if len(objects) != 1:
+        raise ValueError("Task 1 requires exactly one reasoning object")
+    return formal, objects, eos
+
+
+def _complete_table(obj):
+    return all(cell != "?" for row in obj["partial_solution"]["rows"] for cell in row[1:])
+
+
+def _task2_prefix(extra_info):
+    """Prefer an exact serialized prefix; otherwise locate it after the real puzzle."""
+    info = extra_info if isinstance(extra_info, dict) else {}
+    if isinstance(info.get("puzzle_prefix"), str):
+        prefix = info["puzzle_prefix"]
+        return _read_answer_envelope(prefix) if "<answer>" in prefix else _read_puzzle_stream(prefix)
+    prompt = info.get("puzzle_prompt", "")
+    if not isinstance(prompt, str):
+        raise ValueError("Task 2 requires puzzle_prefix or puzzle_prompt")
+    # Ignore the one-shot demo, which also contains a complete serialized answer.
+    prompt = prompt.rsplit("PUZZLE TO SOLVE", 1)[-1]
+    if "<answer>" in prompt:
+        return _read_answer_envelope(prompt)
+    decoder = json.JSONDecoder()
+    candidates = []
+    for match in re.finditer(r"\{", prompt):
+        try:
+            obj, _ = decoder.raw_decode(prompt[match.start():])
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and set(obj) == {"n_houses", "attribute_values", "syntactic_clues"}:
+            candidates.append(match.start())
+    if len(candidates) != 1:
+        raise ValueError("Task 2 requires one unambiguous serialized input prefix")
+    return _read_puzzle_stream(prompt[candidates[0]:])
+
+
+def extract_reasoning_and_solution(solution_str: str, extra_info=None):
+    """Adapt a task-specific stream to the existing cumulative reward inputs."""
+    task = get_puzzle_task()  # configuration errors must not become output failures
+    try:
+        if task == 1:
+            formal, objects, eos = _read_task1_answer(solution_str)
+        elif task == 4:
+            formal, objects, eos = _read_answer_envelope(solution_str, full_trace=True)
+            if not eos:
+                raise ValueError("Full trace requires final </answer><EOS>")
+        elif task == 2:
+            formal, previous, prefix_eos = _task2_prefix(extra_info)
+            if not previous or prefix_eos:
+                raise ValueError("Task 2 needs a prefix ending at <EOSEG>")
+            if _complete_table(previous[-1]):
+                if solution_str.strip() != "<EOS>":
+                    raise ValueError("A complete prefix requires only <EOS>")
+                objects = previous
+            else:
+                if solution_str.lstrip().startswith(","):
+                    # Rebuild an equivalent evaluation prefix only. The actual
+                    # prompt/continuation supplied to the model is never changed.
+                    prefix = "<answer>" + json.dumps(formal)[:-1] + ', "reasoning": ['
+                    prefix += ",".join(json.dumps(obj) + "</answer><EOSEG>" for obj in previous)
+                    formal, objects, eos = _read_answer_envelope(prefix + solution_str)
+                    if len(objects) != len(previous) + 1:
+                        raise ValueError("Task 2 requires exactly one new object")
+                else:
+                    _, new, eos = _read_puzzle_stream(solution_str, with_formalization=False)
+                    if len(new) != 1 or eos:
+                        raise ValueError("Task 2 requires one new object ending at <EOSEG>")
+                    objects = previous + new
+        else:
+            formal, objects, eos = (_read_answer_envelope(solution_str) if "<answer>" in solution_str
+                                    else _read_puzzle_stream(solution_str))
+            if not objects:
+                raise ValueError("Missing reasoning objects")
+            if task == 1 and (len(objects) != 1 or eos):
+                raise ValueError("Task 1 requires J_1 ending at <EOSEG>")
+            if task == 3 and (not eos or not _complete_table(objects[-1])):
+                raise ValueError("Task 3 requires a complete final table and <EOS>")
+        n = formal["n_houses"]
+        header = ["House"] + list(formal["attribute_values"])
+        previous_rows = None
+        for obj in (objects[-1:] if task == 4 else objects):
+            table = obj["partial_solution"]
+            rows = table["rows"]
+            if task == 4 and (not isinstance(rows, list) or any(
+                not isinstance(row, list) or len(row) != len(header) or not all(isinstance(cell, str) for cell in row)
+                for row in rows
+            )):
+                raise ValueError("Invalid final grid rows")
+            if table["header"] != header or len(rows) != n or [row[0] for row in rows] != [str(i) for i in range(1, n + 1)]:
+                raise ValueError("Table does not match puzzle domain")
+            if previous_rows is not None and any(old != "?" and old != new for a, b in zip(previous_rows, rows) for old, new in zip(a, b)):
+                raise ValueError("Established assignments must be preserved")
+            previous_rows = rows
+        steps = [step for obj in objects for step in obj["reasoning_steps"]]
+        return formal["syntactic_clues"], steps, objects[-1]["partial_solution"], formal["attribute_values"], n, "success_direct_json"
+    except (ValueError, TypeError, KeyError, IndexError):
+        return None, None, None, None, None, "parsing_failed"
+
+
+def normalize_ground_truth(ground_truth: dict) -> dict:
+    """
+    Converts numpy arrays inside ground_truth to plain Python lists.
+    Expected input:
+      {"header": np.ndarray, "rows": np.ndarray (possibly nested arrays)}
+    """
+    header = ground_truth.get("header", [])
+    rows = ground_truth.get("rows", [])
+
+    header_list = header.tolist() if isinstance(header, np.ndarray) else list(header)
+
+    # rows can be an ndarray of ndarrays (dtype=object)
+    if isinstance(rows, np.ndarray):
+        rows_list = [r.tolist() if isinstance(r, np.ndarray) else list(r) for r in rows]
+    else:
+        rows_list = [r.tolist() if isinstance(r, np.ndarray) else list(r) for r in rows]
+
+    return {"header": header_list, "rows": rows_list}
+
+
+
+def append_jsonl_pretty(filepath, record):
+    """
+    Appends ONE JSON object to a .jsonl file.
+    The object is pretty-formatted but written as a single line
+    (JSONL compliant).
+    """
+    # Pretty format
+    os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+    pretty = json.dumps(record, indent=2, ensure_ascii=False)
+
+    # Collapse into a single line while keeping spacing readable
+    #one_line = "".join(pretty.splitlines())
+
+    with open(filepath, "a", encoding="utf-8") as f:
+        f.write(pretty + "\n")
+
+
+
+def _append_jsonl(path: str, record: Dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+from typing import Any, Dict, List, Optional, Tuple
+
+def _to_py_list(x: Any):
+    # Convert numpy arrays (and similar) to python lists safely
+    try:
+        import numpy as np
+        if isinstance(x, np.ndarray):
+            return x.tolist()
+    except Exception:
+        pass
+    return x
+
+def normalize_table(t: Any) -> Optional[Dict[str, Any]]:
+    """
+    Ensures:
+      - dict with keys: header (list[str]), rows (list[list[str]])
+      - rows never contain np.ndarray elements
+      - avoids boolean checks on arrays
+    """
+    if t is None or not isinstance(t, dict):
+        return None
+
+    header = _to_py_list(t.get("header", []))
+    rows = _to_py_list(t.get("rows", []))
+
+    # Important: DO NOT do `if rows:` before this normalization.
+    if header is None:
+        header = []
+    if rows is None:
+        rows = []
+
+    # Make sure header is a list
+    if not isinstance(header, list):
+        header = _to_py_list(header)
+        if not isinstance(header, list):
+            header = []
+
+    # Make sure rows is a list of lists
+    if not isinstance(rows, list):
+        rows = _to_py_list(rows)
+        if not isinstance(rows, list):
+            rows = []
+
+    norm_rows: List[List[str]] = []
+    for r in rows:
+        r = _to_py_list(r)
+        if isinstance(r, tuple):
+            r = list(r)
+        if not isinstance(r, list):
+            # last resort: wrap scalar as single-cell row
+            r = [r]
+        # stringify cells to make comparisons stable
+        norm_rows.append([str(c) for c in r])
+
+    return {
+        "header": [str(h) for h in header],
+        "rows": norm_rows,
+    }
+
+def compute_score(
+        solution_str,
+        ground_truth,
+        extra_info: Any = None,
+        score_method: str = "gt",
+        timeout: float = 3.0,
+        acc_weight: float = 0.8,
+        clue_weight: float = 1.0,
+        z3_weight: float = 0.2,
+        meta: Optional[Dict[str, Any]] = None,
+) -> float:
+    """
+    Scoring with:
+    - ACC
+    - Z3
+    """
+
+    import logging
+    import time
+
+    puzzle_task = get_puzzle_task()
+    parse_started = time.perf_counter()
+    predicted_arrangement = None
+    meta_used = meta
+    try:
+        epoch = int(os.getenv("CURRENT_EPOCH", "90"))
+        total_epochs = int(os.getenv("TOTAL_EPOCH", "100"))
+        switch_epoch = int(os.environ.get("SWITCH_EPOCH", "25"))
+        feedback_path = os.path.join(os.environ.get("PUZZLE_FEEDBACK_PATH", "./"), f"jobid_{job_id}")
+        #feedback_path = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_feedback.jsonl")
+
+        puzzle_id = ""
+
+        puzzle_id = None
+        if isinstance(extra_info, dict):
+            puzzle_id = extra_info.get("id") or extra_info.get("puzzle_id")
+        if puzzle_id is None and isinstance(meta, dict):
+            puzzle_id = meta.get("id") or meta.get("puzzle_id")
+
+
+
+        ground_truth = normalize_ground_truth(ground_truth)
+        ground_truth = normalize_header(ground_truth)
+        #ground_truth = normalize_months_in_rows(ground_truth)
+        norm_pred = None
+        cell_acc_score = 0.0
+        puzzle_acc_score = 0.0
+        n_houses = 1
+        verification = []
+        parse_error = ""
+        acc_error = ""
+        z3_error = ""
+        reward_error = ""
+
+        z3_out = {}
+        payload = {}
+        final_result = {}
+        final_result["BASE_sat_full_GT"] = 0.0
+        final_result["missed_data"] = 0.0
+        final_result["BASE_n_steps_total"] = 0.0
+        final_result["BASE_n_steps_parsed_ok"] = 0.0
+        final_result["BASE_n_steps_valid"] = 0.0
+        final_result["BASE_n_steps_novel_inc_clues"] = 0.0
+        final_result["BASE_n_non_valid_contradiction"] = 0.0
+        final_result["Normalizer"] = 0.0
+
+
+        final_result["acc"] = 0.0
+        final_result["PUZZLE_ACCURACY"] = 0.0
+        final_result["CELL_ACCURACY"] = 0.0
+        final_result["score"] = 0.0
+        final_result["epoch"] = epoch
+        final_result["total_epochs"] = total_epochs
+        final_result["reward_logged"] = 0.0
+
+        final_result["pa_accuracy"] = 0.0
+        final_result["pa_accuracy_binary_pass"] = 0.0
+        final_result["pa_consistency_binary_pass"] = 0.0
+        final_result["coverage"] = 0.0
+        final_result["pa_reward"] = 0.0
+
+    except Exception as e:
+        #logger.exception(f"Failed to get puzzle id from extra_info: {e}")
+        logger.error(f"Failed to get puzzle id from extra_info: {e}")
+        final_result = {}
+        payload = {}
+        z3_out = {}
+        final_result["BASE_sat_full_GT"] = 0.0
+        final_result["missed_data"] = 0.0
+
+        final_result["BASE_n_steps_total"] = 0.0
+        final_result["BASE_n_steps_parsed_ok"] = 0.0
+        final_result["BASE_n_steps_valid"] = 0.0
+        final_result["BASE_n_steps_novel_inc_clues"] = 0.0
+        final_result["BASE_n_non_valid_contradiction"] = 0.0
+        final_result["BASE_n_novel_inc_clues_contradiction"] = 0.0
+
+        final_result["acc"] = 0.0
+        final_result["PUZZLE_ACCURACY"] = 0.0
+        final_result["CELL_ACCURACY"] = 0.0
+        final_result["score"] = 0.0
+        final_result["epoch"] = epoch
+        final_result["total_epochs"] = total_epochs
+        final_result["reward_logged"] = 0.0
+
+
+        final_result["pa_accuracy"] = 0.0
+        final_result["pa_accuracy_binary_pass"] = 0.0
+        final_result["pa_consistency_binary_pass"] = 0.0
+        final_result["coverage"] = 0.0
+        final_result["pa_reward"] = 0.0
+
+    parsing_reward = 0.0
+    parse_status = "parsing_failed"
+    try:
+        syntactic_clues, parsed_reasoning, predicted_arrangement, attribute_values, n_houses, parse_status = extract_reasoning_and_solution(solution_str=solution_str, extra_info=extra_info)
+        if parse_status != "success_answer_tag":
+            if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
+                log_case("non_boxed_answer", solution_str, ground_truth, logger)
+
+        if parse_status == "success_direct_json" or parse_status == "success_answer_json":
+            parsing_reward = 1.0
+        # meta selection
+        meta_used = meta
+
+        if meta_used is None and isinstance(extra_info, dict):
+            meta_used = extra_info.get("meta") or extra_info
+    except Exception as parse_error:
+        logger.error(f"Error in solution parsing: {parse_error}")
+        n_houses = 1
+        parsing_reward = 0.0
+        num_blocks = 0
+        attribute_values = None
+        syntactic_clues = None
+        parsed_reasoning = None
+        #final_result["missed_data"] = 1.0
+
+    final_result["puzzle_task"] = puzzle_task
+    final_result["stream_parse_ok"] = float(parse_status == "success_direct_json")
+    final_result["stream_parse_seconds"] = time.perf_counter() - parse_started
+    final_result["reasoning_entries"] = len(parsed_reasoning or [])
+
+    # ---------------- ACC ----------------
+    if predicted_arrangement:
+        try:
+            pred_conv = convert_numpy_arrays(predicted_arrangement)
+            gt_conv = convert_numpy_arrays(ground_truth)
+
+            norm_pred = normalize_table(pred_conv)  # normalize_grid(pred_conv)
+            norm_gt = normalize_table(gt_conv)  # normalize_grid(gt_conv)
+
+            if norm_pred and norm_gt:
+                norm_pred = normalize_header(norm_pred)
+                #norm_pred = normalize_months_in_rows(norm_pred)
+                cell_acc_score, puzzle_acc_score = _compute_acc_from_normalized(norm_pred, norm_gt)
+                # puzzle_acc_score, cell_acc_score = puzzle_and_cell_accuracy(norm_pred, norm_gt)
+            else:
+                cell_acc_score = 1.0 if pred_conv == gt_conv else 0.0
+                puzzle_acc_score = 1.0 if pred_conv == gt_conv else 0.0
+        except Exception as acc_error:
+            #print('Failed case prediction:', pred_conv)
+            #print()
+            #print('Failed case ground-truth:', gt_conv)
+            #print()
+            #logger.exception("Crash in ACC Scoring")
+            #logger.error(f"Error calculating ACC score: {acc_error}")
+            cell_acc_score = 0.0
+            puzzle_acc_score = 0.0
+    # -----------------------
+    # Z3 scoring (base metrics)
+    # -----------------------
+
+    MISSING_BASE_DEFAULTS = {
+        "BASE_sat_full_GT": 0.0,
+        "n_steps_total": 0,
+        "n_steps_parsed_ok": 0,
+        "n_steps_valid": 0,
+        "n_steps_novel_inc_clues": 0,
+        "n_non_valid_contradiction": 0,
+        # Optional lists for downstream debugging
+        "list_steps_non_valid": [],
+        "list_novel_steps_inc_clues": [],
+    }
+
+    FINAL_BASE_KEYS_MAP = {
+        "n_steps_total": "BASE_n_steps_total",
+        "n_steps_parsed_ok": "BASE_n_steps_parsed_ok",
+        "n_steps_valid": "BASE_n_steps_valid",
+        "n_steps_novel_inc_clues": "BASE_n_steps_novel_inc_clues",
+        "n_non_valid_contradiction": "BASE_n_non_valid_contradiction",
+    }
+
+    def _normalize_binary(value) -> float:
+        """Normalize any truthy/falsy value to 1.0 or 0.0."""
+        return 1.0 if bool(value) else 0.0
+
+    def _apply_base_results(final_result: dict, z3_out: dict, *, missed_data: float) -> None:
+        """Write Z3 base results into final_result with consistent keys."""
+        final_result["missed_data"] = float(missed_data)
+
+        for src_key, dst_key in FINAL_BASE_KEYS_MAP.items():
+            final_result[dst_key] = z3_out.get(
+                src_key,
+                MISSING_BASE_DEFAULTS[src_key],)
+
+    def _is_sat_check_failure(z3_out: dict) -> bool:
+        """Return True if the Z3 solver failed its SAT check."""
+        return z3_out.get("parse_status") == "SAT_CHECK_FAIL"
+
+    required_inputs_present = all([
+        n_houses,
+        attribute_values,
+        syntactic_clues,
+        parsed_reasoning,
+    ])
+
+    if required_inputs_present:
+        payload = {
+            "n_houses": n_houses,
+            "attribute_values": attribute_values,
+            "syntactic_clues": syntactic_clues,
+            "reasoning": parsed_reasoning[1::2] if puzzle_task == 4 else parsed_reasoning,
+            "ground_truth": ground_truth,
+        }
+
+        try:
+            z3_out = solve_and_validate_payload(payload, timeout_s=5.0, conflict_tolerant_clues=False,)
+            logger.debug("Z3 parse_status=%s", z3_out.get("parse_status"))
+        except Exception:
+            z3_out = dict(MISSING_BASE_DEFAULTS)
+            #logger.error("Crash while calculating Z3 score")
+
+        if _is_sat_check_failure(z3_out):
+            final_result["BASE_sat_full_GT"] = 0.0
+            _apply_base_results(final_result, MISSING_BASE_DEFAULTS, missed_data=1.0)
+        else:
+            final_result["BASE_sat_full_GT"] = _normalize_binary(z3_out.get("base_sat_full_GT", 0.0))
+            _apply_base_results(final_result, z3_out, missed_data=0.0)
+
+    else:
+        final_result["BASE_sat_full_GT"] = 0.0
+        _apply_base_results(final_result, MISSING_BASE_DEFAULTS, missed_data=1.0)
+
+    # -----------------------
+    # Format Reward
+    # -----------------------
+    format_ok = False
+    #if num_blocks==1 and parsed_reasoning:
+    if parsed_reasoning:
+        try:
+            format_ok = check_interleaved_reasoning(parsed_reasoning, n_houses=int(n_houses))
+            #print(parsed_reasoning)
+            #print(format_ok)
+        except Exception:
+            #logger.error("Error computing format penalty..!")
+            format_ok = False
+    else:
+        format_ok = False
+    #print('Format reward = {}'.format(format_ok))
+
+
+    # ---------------------------
+    # Reasoning + Clues vs Solution Validator
+    # ---------------------------
+    consistency_score = 0
+    reasoning_vs_sol_validate = {}
+    if syntactic_clues and predicted_arrangement and z3_out:
+        try:
+            list_novel_steps_inc_clues = z3_out.get("list_novel_steps_inc_clues", [])
+            reasoning_vs_sol_validate = verify_solution_two_step(syntactic_clues, list_novel_steps_inc_clues, predicted_arrangement)
+            consistency_score = reasoning_vs_sol_validate['reward']
+        except Exception:
+            consistency_score = 0
+    #print("Consistency score:", consistency_score)
+
+    # Safe defaults.
+    pa_accuracy = 0.0
+    pa_accuracy_binary_pass = 0
+    pa_consistency_binary_pass = 0
+    coverage = 0.0
+    pa_reward = 0.0
+
+    pa_diagnosis = {
+        "accuracy": {
+            "status": "not_evaluated",
+            "reason": "PA evaluation has not completed",
+        },
+        "consistency": {
+            "status": "not_evaluated",
+            "reason": "PA evaluation has not completed",
+        },
+    }
+
+    final_result.update({
+        "pa_accuracy": pa_accuracy,
+        "pa_accuracy_binary_pass": pa_accuracy_binary_pass,
+        "pa_consistency_binary_pass": pa_consistency_binary_pass,
+        "coverage": coverage,
+        "pa_reward": pa_reward,
+    })
+
+
+    try:
+        # Normalize only valid dictionary inputs.
+        pa_solution = None
+        if isinstance(predicted_arrangement, dict):
+            pa_solution = normalize_header(
+                deepcopy(convert_numpy_arrays(predicted_arrangement))
+            )
+
+        pa_ground_truth = None
+        if isinstance(ground_truth, dict):
+            pa_ground_truth = normalize_header(
+                deepcopy(convert_numpy_arrays(ground_truth))
+            )
+
+        pa_attribute_values = None
+        if isinstance(attribute_values, dict) and attribute_values:
+            original_keys = list(attribute_values)
+
+            normalized_domain_header = normalize_header({
+                "header": ["House"] + original_keys,
+                "rows": [],
+            })["header"][1:]
+
+            if len(normalized_domain_header) != len(original_keys):
+                raise ValueError(
+                    "Header normalization changed the attribute count"
+                )
+
+            canonical_keys = [
+                str(key).strip().lower().replace(" ", "_")
+                for key in normalized_domain_header
+            ]
+            if len(set(canonical_keys)) != len(canonical_keys):
+                raise ValueError(
+                    "Attribute names collide after normalization"
+                )
+
+            pa_attribute_values = {
+                normalized_key: deepcopy(attribute_values[original_key])
+                for original_key, normalized_key
+                in zip(original_keys, normalized_domain_header)
+            }
+
+        pa_payload = {
+            "ground_truth": pa_ground_truth,
+            "reasoning": parsed_reasoning,
+            "solution": pa_solution,
+            "n_houses": n_houses,
+            "attribute_values": pa_attribute_values,
+            "z3_out": z3_out,
+        }
+
+        pa_result = compute_pa_solution(pa_payload)
+        pa_diagnosis = pa_result["DIAGNOSIS"]
+
+        pa_metrics = {
+            # Correct populated cells / total attribute cells.
+            "pa_accuracy": float(pa_result["pa_accuracy"]),
+
+            # All populated cells match GT; at least one is populated.
+            "pa_accuracy_binary_pass": float(
+                pa_result["pa_accuracy_binary_pass"]
+            ),
+
+            # Reasoning AND populated-cell assignments is SAT.
+            "pa_consistency_binary_pass": float(
+                pa_result["pa_consistency_binary_pass"]
+            ),
+
+            # Populated cells / total attribute cells; ungated.
+            "coverage": float(pa_result["coverage"]),
+
+            # Already gated inside compute_pa_solution().
+            "pa_reward": float(pa_result["pa_reward"]),
+        }
+
+        final_result.update(pa_metrics)
+        pa_reward = pa_metrics["pa_reward"]
+
+
+    except Exception as exc:
+        error_details = {
+            "status": "fail",
+            "stage": "pa_reward_integration",
+            "error_type": type(exc).__name__,
+            "reason": str(exc),
+        }
+        pa_diagnosis = {
+            "accuracy": dict(error_details),
+            "consistency": dict(error_details),
+        }
+        logger.exception("Error computing partial-answer reward")
+
+
+    # -----------------------
+    # Reward components (safe defaults)
+    # -----------------------
+    try:
+
+        reward = 0.0
+        normalizer = 1.0  # will be overwritten if inputs are valid
+        n_novel_steps = float(final_result.get("BASE_n_steps_novel_inc_clues", 0.0))
+
+        answer_reward = puzzle_acc_score if puzzle_task == 4 else pa_reward
+        has_required_inputs = ((attribute_values is not None) and (n_houses is not None) and (puzzle_task == 4 or n_novel_steps > 0))
+
+        if has_required_inputs:
+            n_houses_i = max(int(n_houses), 0)
+            n_attrs_i = max(len(attribute_values), 0)
+
+            # Keep strictly positive to avoid division by zero.
+            normalizer = max(2.0 * max(n_houses_i * n_attrs_i, 1), 1.0)
+
+            n_contradictions = float(final_result.get("BASE_n_non_valid_contradiction", 0.0))
+            novel_step_score = float(min(n_novel_steps / normalizer, 1.0))
+            contradiction_ratio = float(min(n_contradictions / normalizer, 1.0))
+            sat_ok = float(final_result.get("BASE_sat_full_GT", 0.0))  # expected 1.0 or 0.0
+
+            if format_ok:
+                format_reward = 1.0
+            else:
+                format_reward = 0.0
+            #print("Format reward = {}".format(format_reward))
+
+            if sat_ok == 0.0:
+                reward = (
+                        0.15 * parsing_reward
+                        + 0.10 * format_reward
+                        + 0.60 * answer_reward
+                        - 0.20 * contradiction_ratio
+                )
+            else:
+                base_quality = (
+                        0.60 * answer_reward
+                        + 0.20 * parsing_reward
+                        + 0.20 * format_reward
+                )
+
+                process_bonus = (
+                        0.40 * novel_step_score
+                        + 0.30 * consistency_score
+                        - 0.15 * contradiction_ratio
+                )
+
+                # gate process reward by solution quality
+                reward = base_quality + answer_reward * process_bonus
+
+            #if sat_ok == 0.0:
+            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)
+            #else:
+            #    #reward = (0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.2 * (n_contradictions / normalizer) - 0.2 * format_penalty)
+            #    #reward = 0.6 * float(puzzle_acc_score) + 0.4 * (n_novel_steps / normalizer) - 0.4 * (n_contradictions / normalizer) + 0.5 * format_reward + 0.5 * consistency_score
+            #    #reward = 0.6 * float(puzzle_acc_score) + 0.1 * (n_novel_steps / normalizer) - 0.01 * (n_contradictions / normalizer) # + 0.5 * format_reward #- 0.4 * (n_contradictions / normalizer)  # + 0.5 * format_reward # + 0.5 * consistency_score
+            #    reward = 0.2 * parsing_reward + 0.6 * float(puzzle_acc_score)  + 0.2 * float(cell_acc_score) + 0.4 * (n_novel_steps / normalizer) + 0.2 * format_reward + 0.4 * consistency_score
+            #    #reward = (1.0 * float(puzzle_acc_score) - 0.4 * (n_contradictions / normalizer))
+        
+        
+        else:
+            reward = -0.5
+
+
+
+        # -----------------------
+        # Log / persist to final_result
+        # -----------------------
+        final_result["Normalizer"] = float(normalizer)
+        final_result["acc"] = float(reward)
+        final_result["PUZZLE_ACCURACY"] = float(puzzle_acc_score)
+        final_result["CELL_ACCURACY"] = float(cell_acc_score)
+        final_result["score"] = float(reward)
+        final_result["epoch"] = epoch
+        final_result["total_epochs"] = total_epochs
+        final_result["reward_logged"] = float(reward)
+
+
+    except Exception:
+        reward = 0.0
+        # Hard fail-safe: never crash reward computation pipeline.
+        logger.exception("Crash in Final Reward Scoring")
+
+        final_result["Normalizer"] = 0.0
+        final_result["acc"] = reward
+        final_result["PUZZLE_ACCURACY"] = 0.0
+        final_result["CELL_ACCURACY"] = 0.0
+        final_result["score"] = reward
+        final_result["epoch"] = epoch
+        final_result["total_epochs"] = total_epochs
+        final_result["reward_logged"] = reward
+
+
+    if os.environ.get("VALID_STATUS", "0") == "1":
+        feedback_path = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_valid_feedback.jsonl")
+        try:
+            example_ = {}
+            example_["pid"] = puzzle_id
+            example_["puzzle_text"] = pid_to_puzzle_dic[puzzle_id]
+            example_["z3_out"] = z3_out
+            example_["payload"] = payload
+            example_["ground_truth"] = ground_truth
+            example_["original_prediction"] = predicted_arrangement
+            if norm_pred != None:
+                example_["processed_prediction"] = norm_pred
+            else:
+                example_["processed_prediction"] = "WRONG OUTPUT FORMAT"
+            example_["z3_out"] = z3_out
+            example_["reasoning_vs_sol_validate"] = reasoning_vs_sol_validate
+            example_["reward"] = reward
+            example_["Format_Check"] = format_ok
+            example_["final_result"] = final_result
+            example_["PA_DIAGNOSIS"] = pa_diagnosis
+            if example_:
+                os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
+                _append_jsonl(feedback_path, example_)
+
+        except Exception as e:
+            logger.exception("Crash in Writing Feedback")
+
+    elif os.environ.get("VALID_STATUS", "0") == "2":
+        feedback_path = os.path.join(feedback_path, f"jobid_{job_id}_epoch_{str(epoch)}_train_feedback.jsonl")
+        try:
+            example_ = {}
+            example_["pid"] = puzzle_id
+            example_["puzzle_text"] = pid_to_puzzle_dic[puzzle_id]
+            example_ ["z3_out"] = z3_out
+            example_["reasoning_vs_sol_validate"] = reasoning_vs_sol_validate
+            example_["payload"] = payload
+            example_["ground_truth"] = ground_truth
+            example_["original_prediction"] = predicted_arrangement
+            if norm_pred != None:
+                example_["processed_prediction"] = norm_pred
+            else:
+                example_["processed_prediction"] = "WRONG OUTPUT FORMAT"
+            example_["z3_out"] = z3_out
+            example_["reward"] = reward
+            example_["Format_Check"] = format_ok
+            example_["final_result"] = final_result
+            example_["PA_DIAGNOSIS"] = pa_diagnosis
+            if example_:
+                os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
+                _append_jsonl(feedback_path, example_)
+
+        except Exception as e:
+            logger.exception("Crash in Writing Feedback")
+
+    #os.environ["VALID_STATUS"] = "0"
+    #sorted_result = dict(sorted(final_result.items(), key=lambda x: x[0]))
+    from verl.utils.puzzle_workflow import verified
+    final_result["verified_coverage"] = float(final_result.get("coverage", 0.0)) if verified(final_result) else 0.0
+    return final_result
+
+
+def pretty(x):
+    print(json.dumps(x, indent=2, ensure_ascii=False))
+
+
+
+
+
+
+
+if __name__ == "__main__":
+    import math
+
+    os.environ["VALID_STATUS"] = "0"
+    ground_truth = {
+        "header": ["House", "Name", "Color", "Children"],
+        "rows": [
+            ["1", "Peter", "yellow", "Bella"],
+            ["2", "Arnold", "red", "Fred"],
+            ["3", "Eric", "white", "Meredith"],
+        ],
+    }
+
+    # Exact full one-shot output from the prompt: one opening tag, two
+    # intermediate closing-tag/EOSEG boundaries, and final closing-tag/EOS.
+    full_example = r"""<answer>
+{
+  "n_houses": 3,
+  "attribute_values": {
+    "Name": [
+      "Peter",
+      "Eric",
+      "Arnold"
+    ],
+    "Color": [
+      "red",
+      "white",
+      "yellow"
+    ],
+    "Children": [
+      "Fred",
+      "Meredith",
+      "Bella"
+    ]
+  },
+  "syntactic_clues": [
+    "C1: Arnold == red.",
+    "C2: Fred < Eric.",
+    "C3: red == 2.",
+    "C4: Bella == 1.",
+    "C5: white == Meredith."
+  ],
+  "reasoning": [
+    {
+      "reasoning_steps": [
+        "Clue 3 places red in house 2.",
+        "S1: red == 2.",
+        "By clue 1, Arnold shares red's house, so Arnold occupies house 2.",
+        "S2: Arnold == 2.",
+        "Clue 4 places Bella in house 1.",
+        "S3: Bella == 1."
+      ],
+      "partial_solution": {
+        "header": [
+          "House",
+          "Name",
+          "Color",
+          "Children"
+        ],
+        "rows": [
+          [
+            "1",
+            "?",
+            "?",
+            "Bella"
+          ],
+          [
+            "2",
+            "Arnold",
+            "red",
+            "?"
+          ],
+          [
+            "3",
+            "?",
+            "?",
+            "?"
+          ]
+        ]
+      }
+    }</answer><EOSEG>
+    ,
+    {
+      "reasoning_steps": [
+        "Fred cannot occupy house 1 because Bella is there; Fred cannot occupy house 3 because clue 2 requires Eric to be to Fred's right. Therefore Fred occupies house 2.",
+        "S4: Fred == 2.",
+        "Eric is to the right of Fred in house 2, so Eric occupies house 3.",
+        "S5: Eric == 3.",
+        "Peter is the remaining name after Arnold in house 2 and Eric in house 3, so Peter occupies house 1.",
+        "S6: Peter == 1."
+      ],
+      "partial_solution": {
+        "header": [
+          "House",
+          "Name",
+          "Color",
+          "Children"
+        ],
+        "rows": [
+          [
+            "1",
+            "Peter",
+            "?",
+            "Bella"
+          ],
+          [
+            "2",
+            "Arnold",
+            "red",
+            "Fred"
+          ],
+          [
+            "3",
+            "Eric",
+            "?",
+            "?"
+          ]
+        ]
+      }
+    }</answer><EOSEG>
+    ,
+    {
+      "reasoning_steps": [
+        "Meredith is the remaining child after Bella in house 1 and Fred in house 2, so Meredith occupies house 3.",
+        "S7: Meredith == 3.",
+        "Clue 5 places white in Meredith's house, so white occupies house 3.",
+        "S8: white == 3.",
+        "Yellow is the remaining color after red in house 2 and white in house 3, so yellow occupies house 1.",
+        "S9: yellow == 1."
+      ],
+      "partial_solution": {
+        "header": [
+          "House",
+          "Name",
+          "Color",
+          "Children"
+        ],
+        "rows": [
+          [
+            "1",
+            "Peter",
+            "yellow",
+            "Bella"
+          ],
+          [
+            "2",
+            "Arnold",
+            "red",
+            "Fred"
+          ],
+          [
+            "3",
+            "Eric",
+            "white",
+            "Meredith"
+          ]
+        ]
+      }
+    }
+  ]
+}
+</answer><EOS>"""
+
+    # Use the actual example as the source for variants, without loading the
+    # preprocessing module or depending on another file at runtime.
+    example_body = full_example.split("<answer>", 1)[1].rsplit("</answer>", 1)[0]
+    example_answer = json.loads(example_body.replace("</answer>", "").replace("<EOSEG>", ""))
+
+    def serialize_example(answer):
+        """Serialize a complete rollout in the same format as the one-shot."""
+        formal = {key: deepcopy(answer[key]) for key in ("n_houses", "attribute_values", "syntactic_clues")}
+        prefix = json.dumps(formal, indent=2).rstrip()[:-1] + ',\n  "reasoning": [\n'
+        objects = answer["reasoning"]
+        segments = []
+        for index, obj in enumerate(objects):
+            segment = json.dumps(obj, indent=2)
+            if index < len(objects) - 1:
+                segment += "</answer><EOSEG>\n,"
+            segments.append(segment)
+        return "<answer>\n" + prefix + "\n".join(segments) + "\n]}\n</answer><EOS>"
+
+    # Every normal example is a FULL rollout containing EOSEG and EOS.
+    # The malformed cases deliberately alter the specified boundary/JSON.
+    # label, full output, expected parser acceptance, expected coverage,
+    # expected accuracy gate (None means do not assert).
+    examples = [("Exact one-shot example", full_example, True, 1.0, 1)]
+    examples.append(("One-shot after a thinking section", "<think>Working through the clues.</think>\n" + full_example, True, 1.0, 1))
+
+    variant = deepcopy(example_answer)
+    for row in variant["reasoning"][0]["partial_solution"]["rows"]:
+        row[1:] = ["?", "?", "?"]
+    examples.append(("All-unknown first table, then progress to complete solution", serialize_example(variant), True, 1.0, 1))
+
+    variant = deepcopy(example_answer)
+    variant["reasoning"][0]["partial_solution"]["rows"][0][1] = "wrong intermediate guess"
+    examples.append(("Corrected intermediate grid", serialize_example(variant), True, 1.0, 1))
+
+    variant = deepcopy(example_answer)
+    variant["reasoning"][-1]["partial_solution"]["rows"][0][2] = "white"
+    variant["reasoning"][-1]["partial_solution"]["rows"][2][2] = "yellow"
+    examples.append(("Parseable but incorrect final table: swapped colors", serialize_example(variant), True, 1.0, 0))
+
+    variant = deepcopy(example_answer)
+    variant["reasoning"][-1]["partial_solution"]["rows"][0][2] = "?"
+    examples.append(("Final table contains an unknown", serialize_example(variant), True, 8 / 9, 0))
+    examples.append(("Invalid: missing intermediate closing tag", full_example.replace("</answer><EOSEG>", "<EOSEG>", 1), False, None, None))
+    examples.append(("Invalid: missing final EOS", full_example.removesuffix("<EOS>"), False, None, None))
+    examples.append(("Invalid: missing final JSON closures", full_example.replace('\n  ]\n}\n</answer><EOS>', '\n</answer><EOS>'), False, None, None))
+
+    metric_keys = [
+        "puzzle_task", "stream_parse_ok", "reasoning_entries", "stream_parse_seconds",
+        "pa_accuracy", "pa_accuracy_binary_pass", "pa_consistency_binary_pass",
+        "coverage", "pa_reward", "PUZZLE_ACCURACY", "CELL_ACCURACY",
+        "BASE_sat_full_GT", "BASE_n_steps_total", "BASE_n_steps_valid",
+        "BASE_n_steps_novel_inc_clues", "BASE_n_non_valid_contradiction", "score",
+    ]
+    failures = []
+    os.environ["PUZZLE_TASK"] = "4"  # Evaluate each complete example through J_N.
+    for label, stream, expect_parse, expect_coverage, accuracy_gate in examples:
+        print(f"\n{'=' * 70}\n{label}\nGenerated output:\n{stream}")
+        try:
+            parsed = extract_reasoning_and_solution(stream)
+            print("Parser status:", parsed[-1])
+            assert (parsed[-1] == "success_direct_json") == expect_parse, "Unexpected parser result"
+            result = compute_score(solution_str=stream, ground_truth=deepcopy(ground_truth))
+            pretty({key: result.get(key) for key in metric_keys})
+            assert math.isfinite(float(result["score"])), "Score must be finite"
+            assert result["stream_parse_ok"] == float(expect_parse), "Evaluator parsing disagrees"
+            if expect_coverage is not None:
+                assert math.isclose(float(result["coverage"]), expect_coverage, abs_tol=1e-9), "Unexpected coverage"
+            if accuracy_gate is not None:
+                assert result["PUZZLE_ACCURACY"] == accuracy_gate, "Unexpected final puzzle accuracy"
+            if not expect_parse:
+                assert result["score"] == -0.5, "Expected existing parsing-failure reward"
+            if expect_parse:
+                assert parsed[1] == [step for obj in example_answer["reasoning"] for step in obj["reasoning_steps"]]
+                assert result["BASE_n_steps_total"] == len(parsed[1]) // 2
+            print("PASS")
+        except Exception as error:
+            failures.append((label, str(error)))
+            logger.exception("Example failed: %s", label)
+
+    # With zero novel steps, the exact final answer still earns its answer term.
+    direct = deepcopy(example_answer)
+    direct["reasoning"] = [deepcopy(example_answer["reasoning"][-1])]
+    direct["reasoning"][0]["reasoning_steps"] = ["Clue 3 places red in house 2.", "S1: red == 2."]
+    correct = compute_score(serialize_example(direct), deepcopy(ground_truth))
+    direct["reasoning"][0]["partial_solution"]["rows"][0][1] = "?"
+    incomplete = compute_score(serialize_example(direct), deepcopy(ground_truth))
+    assert correct["BASE_n_steps_novel_inc_clues"] == incomplete["BASE_n_steps_novel_inc_clues"] == 0
+    assert correct["PUZZLE_ACCURACY"] == 1 and incomplete["PUZZLE_ACCURACY"] == 0
+    assert incomplete["pa_accuracy_binary_pass"] == 1
+    assert correct["score"] >= incomplete["score"] + 0.60 - 1e-9
+
+    total = len(examples) + 1
+    print(f"\nPassed {total - len(failures)}/{total} reward examples.")
+    if failures:
+        raise AssertionError("\n".join(f"{label}: {error}" for label, error in failures))

@@ -1,0 +1,1 @@
+data.path=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_full_trace_baseline_mraza/evaluation_results/test_offline_guru_math_20/guru-7b-step320/math__math_500_20.parquet data.prompt_key=prompt data.response_key=responses  data.data_source_key=data_source data.reward_model_key=reward_model

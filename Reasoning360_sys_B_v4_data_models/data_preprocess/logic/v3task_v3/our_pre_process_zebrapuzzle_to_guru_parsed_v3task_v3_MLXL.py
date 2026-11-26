@@ -484,10 +484,11 @@ def make_map_fn_1_shot(split, data_source):
 
 
 if __name__ == '__main__':
+    cache_root = '/export/alt-insight/HF_cache'
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path', default='/home/asif/data3/HF_cache/ZebraLogic/', help='Path to json file')
-    parser.add_argument('--data_setting', default=None, help='Path to json file')
-    parser.add_argument('--output_dir', default=None, help='Directory to save processed data')
+    parser.add_argument('--data_path', default=os.path.join(cache_root, 'ZebraLogic'), help='Directory containing the source puzzles')
+    parser.add_argument('--data_setting', default='mlxl_train_mlxl_test', help='Train/test split setting')
+    parser.add_argument('--output_dir', default=os.path.join(cache_root, 'ZebraPuzzle_to_guru_parsed_v3task_v3_MLXL'), help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')
     parser.add_argument('--train_size', type=float, default=0.3, help='Proportion of data for train set')
     parser.add_argument('--test_size', type=float, default=0.7, help='Proportion of data for test set')

@@ -6,8 +6,8 @@
 #SBATCH --gres gpu:4 #number of gpus needed, default is 1
 #SBATCH -c 128  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
-#SBATCH --output=./all_logs/%j-%x.out
-#SBATCH --error=./all_logs/%j-%x.err
+#SBATCH --output=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/all_logs/%j-%x.out
+#SBATCH --error=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza/all_logs/%j-%x.err
 #SBATCH -A H200
 #SBATCH -q h200_qos
 #SBATCH --mail-user=asif6827@gmail.com
@@ -149,10 +149,10 @@ MODEL_NAME=$(basename "$BASE_MODEL" | tr -s ' ' '_' | tr -d -c '[:alnum:]_')
 MODEL_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]')
 #BASE_MODEL=/export/home/mraza/HF_cache/Qwen3-1.7B
 
-export REWARD_LOG_PATH=/export/home/mraza/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+export REWARD_LOG_PATH=/export/alt-insight/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
 SHARED_DATA_PATH=/export/home/mraza/HF_cache/${DATA_PATH}
-VALID_GENERATION_PATH=/export/home/mraza/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
-export PUZZLE_FEEDBACK_PATH=/export/home/mraza/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+VALID_GENERATION_PATH=/export/alt-insight/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
+export PUZZLE_FEEDBACK_PATH=/export/alt-insight/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
 export PUZZLE_DIC_PATH=/export/home/mraza/HF_cache/ZebraLogic/pid_to_puzzle_dic.json
 
 
