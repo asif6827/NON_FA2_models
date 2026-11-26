@@ -6,8 +6,8 @@ import argparse
 from sklearn.model_selection import train_test_split
 
 # Add project root to Python path
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.append(project_root)
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+sys.path.insert(0, project_root)
 
 from verl.utils.data_process.utils import set_seed, sample_dataset, save_dataset
 
@@ -414,7 +414,7 @@ def make_map_fn_1_shot(split, data_source):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path', default='/home/asif/data3/HF_cache/ZebraLogic/', help='Path to json file')
+    parser.add_argument('--data_path', default='/export/alt-insight/HF_cache/ZebraLogic/', help='Path to json file')
     parser.add_argument('--data_setting', default=None, help='Path to json file')
     parser.add_argument('--output_dir', default=None, help='Directory to save processed data')
     parser.add_argument('--hdfs_dir', default=None, help='HDFS directory (optional)')

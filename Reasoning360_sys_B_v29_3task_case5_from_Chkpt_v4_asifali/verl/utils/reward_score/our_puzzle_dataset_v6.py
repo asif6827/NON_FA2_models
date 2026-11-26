@@ -56,8 +56,8 @@ with open(pid_to_puzzle_dic_file, "r", encoding="utf-8") as f:
 
 def parse_answer_tag(solution_str: str) -> Optional[str]:
     """Extract content from <answer>...</answer> tags."""
-    answer_pattern = r'<answer>([\s\S]*?)</answer>'
-    match = re.search(answer_pattern, solution_str, re.DOTALL)
+    answer_pattern = r'<answer\b[^>]*>(.*?)</answer\s*>'
+    match = re.search(answer_pattern, solution_str, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
     return None
@@ -551,74 +551,20 @@ def curriculum_with_z3(
     return float(reward)
 
 
-def _try_parse_first_json_obj(text: str) -> Optional[Dict[str, Any]]:
-    """
-    Try parsing JSON object from text.
-    - fast path: json.loads(text)
-    - fallback: brute scan for the first valid {...} object
-    """
-    if not text:
-        return None
-
-    try:
-        obj = json.loads(text)
-        return obj if isinstance(obj, dict) else None
-    except Exception:
-        pass
-
-    starts = [m.start() for m in re.finditer(r'\{', text)]
-    for st in starts:
-        for ed in range(len(text), st, -1):
-            if text[ed - 1] != '}':
-                continue
-            chunk = text[st:ed]
-            try:
-                obj = json.loads(chunk)
-                if isinstance(obj, dict):
-                    return obj
-            except Exception:
-                continue
-    return None
-
-
-def find_last_answer_block(text: str) -> Optional[str]:
-    """
-    Returns the *last* <answer>...</answer> block found in `text`,
-    or None if no block exists.
-
-    - Case-insensitive tags: <answer> or <ANSWER>
-    - Allows attributes in the opening tag: <answer id="x">
-    - Dot matches newlines so multi-line blocks work
-    """
-    pattern = re.compile(
-        r"<answer\b[^>]*>.*?</answer\s*>",
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-
-    matches = list(pattern.finditer(text))
-    if not matches:
-        return None
-
-    return matches[-1].group(0)
-
-
 def extract_reasoning_and_solution(solution_str: str):
-    """
-    Extract both reasoning and solution.
-    Returns (reasoning, solution, status)
-    """
-    answer_content = find_last_answer_block(solution_str)
-    if answer_content:
-        parsed = _try_parse_first_json_obj(answer_content)
-        if parsed is not None:
-            return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses", None), "success_answer_tag"
+    """Task 1 scores only the first closed answer in the generated response."""
+    content = parse_answer_tag(solution_str)
+    if content is None:
+        return None, None, None, None, None, "parsing_failed"
+    try:
+        parsed = json.loads(content)
+    except (TypeError, ValueError):
+        parsed = None
+    if not isinstance(parsed, dict):
         return None, None, None, None, None, "answer_tag_json_error"
+    return (parsed.get("syntactic_clues"), parsed.get("reasoning"), parsed.get("solution"),
+            parsed.get("attribute_values"), parsed.get("n_houses"), "success_answer_tag")
 
-    parsed = _try_parse_first_json_obj(solution_str)
-    if parsed is not None:
-        return parsed.get("syntactic_clues", None), parsed.get("reasoning", None), parsed.get("solution", None), parsed.get("attribute_values", None), parsed.get("n_houses", None), "success_direct_json"
-
-    return None, None, None, None, None, "parsing_failed"
 
 def normalize_ground_truth(ground_truth: dict) -> dict:
     """
@@ -838,7 +784,7 @@ def compute_score(
             if os.environ.get("DEBUG_CODE", "0").lower() in ("1", "true", "yes"):
                 log_case("non_boxed_answer", solution_str, ground_truth, logger)
 
-        if parse_status == "success_direct_json" or parse_status == "success_answer_json":
+        if parse_status == "success_answer_tag":
             parsing_reward = 1.0
         # meta selection
         meta_used = meta

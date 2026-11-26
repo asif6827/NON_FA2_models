@@ -202,6 +202,8 @@ class vLLMRollout(BaseRollout):
         for k in config.keys():
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
+        if config.get("task1_stop_after_answer", False):
+            kwargs.update(stop=["</answer>"], include_stop_str_in_output=True, detokenize=True)
         kwargs["n"] = 1  # already repeat in ray_trainer
         print(f"kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
