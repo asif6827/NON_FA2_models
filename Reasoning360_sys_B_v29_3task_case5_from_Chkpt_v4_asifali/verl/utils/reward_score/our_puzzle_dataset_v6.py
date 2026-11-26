@@ -46,6 +46,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+#pid_to_puzzle_dic_file = '/export/home/asifali/HF_cache/ZebraLogic/pid_to_puzzle_dic.json'
+#pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/Users/asif/Desktop/Codes_QCRI/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
+
 #pid_to_puzzle_dic_file = '/export/alt-insight/HF_cache/ZebraLogic/pid_to_puzzle_dic.json'
 pid_to_puzzle_dic_file = os.environ.get("PUZZLE_DIC_PATH", "/export/alt-insight/HF_cache/ZebraLogic/pid_to_puzzle_dic.json")
 
@@ -1299,13 +1302,13 @@ if __name__ == "__main__":
     add_test(
         "Correct partial answer: seven of nine cells",
         partial,
-        (7 / 9, 1, 1, 7 / 9, 1 + 7 / 9),
+        (7 / 9, 1, 1, 7 / 9, 1),
     )
 
     add_test(
         "Correct complete answer",
         complete,
-        (1, 1, 1, 1, 2),
+        (1, 1, 1, 1, 1),
     )
 
     prediction = deepcopy(partial)
@@ -1313,7 +1316,7 @@ if __name__ == "__main__":
     add_test(
         "Correct additional cell compatible with reasoning",
         prediction,
-        (8 / 9, 1, 1, 8 / 9, 1 + 8 / 9),
+        (8 / 9, 1, 1, 8 / 9, 1),
     )
 
     prediction = deepcopy(partial)
@@ -1321,7 +1324,7 @@ if __name__ == "__main__":
     add_test(
         "Correct full table with incomplete but compatible reasoning",
         prediction,
-        (1, 1, 1, 1, 2),
+        (1, 1, 1, 1, 1),
     )
 
     # The recorded reasoning does not fix yellow or white.
@@ -1333,7 +1336,7 @@ if __name__ == "__main__":
     add_test(
         "Accuracy fails; consistency passes",
         prediction,
-        (7 / 9, 0, 1, 1, 0),
+        (7 / 9, 0, 1, 1, -1),
     )
 
     # Complete reasoning explicitly fixes white in house three.
@@ -1343,7 +1346,7 @@ if __name__ == "__main__":
     add_test(
         "Both gates fail",
         prediction,
-        (7 / 9, 0, 0, 1, 0),
+        (7 / 9, 0, 0, 1, -1),
     )
 
     prediction = deepcopy(complete)
@@ -1355,14 +1358,14 @@ if __name__ == "__main__":
     add_test(
         "Accuracy passes; contradictory reasoning fails consistency",
         prediction,
-        (1, 1, 0, 1, 0),
+        (1, 1, 0, 1, -1),
     )
 
     prediction = deepcopy(partial)
     for row in prediction["solution"]["rows"]:
         row[1:] = ["?", "?", "?"]
     add_test(
-        "All cells unknown: reasoning SAT but reward zero",
+        "All cells unknown: reasoning SAT and pa_reward zero",
         prediction,
         (0, 0, 1, 0, 0),
     )
@@ -1374,7 +1377,7 @@ if __name__ == "__main__":
     add_test(
         "One correct populated cell",
         prediction,
-        (1 / 9, 1, 1, 1 / 9, 1 + 1 / 9),
+        (1 / 9, 1, 1, 1 / 9, 1),
     )
 
     # Three populated cells, two correct.
@@ -1388,7 +1391,7 @@ if __name__ == "__main__":
     add_test(
         "Partial accuracy uses all nine cells as denominator",
         prediction,
-        (2 / 9, 0, 1, 3 / 9, 0),
+        (2 / 9, 0, 1, 3 / 9, -3 / 9),
     )
 
     # Header-normalization regression test.
@@ -1397,7 +1400,7 @@ if __name__ == "__main__":
     add_test(
         "Whitespace in attribute header",
         prediction,
-        (1, 1, 1, 1, 2),
+        (1, 1, 1, 1, 1),
     )
 
     metric_keys = [
