@@ -8,8 +8,8 @@
 #SBATCH --mem 256GB #amount of memory needed, default
 #SBATCH --output=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_full_trace_baseline_mraza/all_logs/%j-%x.out
 #SBATCH --error=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_full_trace_baseline_mraza/all_logs/%j-%x.err
-#SBATCH -A H200_Collaborator
-#SBATCH -q H200_Collaborator_qos
+#SBATCH -A H200
+#SBATCH -q h200_qos
 #SBATCH --mail-user=asif6827@gmail.com
 
 
