@@ -7,7 +7,7 @@ BASE_DIR="$HOME/NON_FA2_models"
 
 echo "Submitting Reasoning360_sys_B_v29_case5_from_Chkpt_mraza..."
 cd "$BASE_DIR/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza"
-bash submit_job_qwen3_MLXL.sh
+bash submit_job_qwen3_4B_MLXL.sh
 
 
 if false; then
