@@ -5,26 +5,25 @@ set -euo pipefail
 BASE_DIR="$HOME/NON_FA2_models"
 
 
-
-echo "Submitting Reasoning360_sys_B1..."
-cd "$BASE_DIR/Reasoning360_sys_B1"
+echo "Submitting Reasoning360_sys_B_v29_case5_from_Chkpt_mraza..."
+cd "$BASE_DIR/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza"
 bash submit_job_qwen3_MLXL.sh
-
-echo "Submitting Reasoning360_sys_B1..."
-cd "$BASE_DIR/Reasoning360_sys_B1"
-bash submit_job_qwen3_MLXL.sh
-
-echo "Submitting Reasoning360_sys_B1..."
-cd "$BASE_DIR/Reasoning360_sys_B1"
-bash submit_job_qwen3_MLXL.sh
-
-echo "Submitting Reasoning360_sys_B1..."
-cd "$BASE_DIR/Reasoning360_sys_B1"
-bash submit_job_qwen3_MLXL.sh
-
 
 
 if false; then
+
+    echo "Submitting Reasoning360_sys_B1..."
+    cd "$BASE_DIR/Reasoning360_sys_B1"
+    bash submit_job_qwen3_MLXL.sh
+
+    echo "Submitting Reasoning360_sys_B1..."
+    cd "$BASE_DIR/Reasoning360_sys_B1"
+    bash submit_job_qwen3_MLXL.sh
+
+    echo "Submitting Reasoning360_sys_B1..."
+    cd "$BASE_DIR/Reasoning360_sys_B1"
+    bash submit_job_qwen3_MLXL.sh
+
 
     echo "Submitting Reasoning360_sys_A..."
     cd "$BASE_DIR/Reasoning360_sys_A"
