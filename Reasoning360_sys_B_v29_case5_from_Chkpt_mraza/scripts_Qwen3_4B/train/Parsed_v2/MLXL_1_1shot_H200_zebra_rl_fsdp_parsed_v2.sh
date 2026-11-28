@@ -33,29 +33,39 @@ export HF_DATASETS_CACHE="/export/alt-insight/HF_cache"
 # Force ALL temp/cache off /tmp
 # ===============================
 
-# temp dirs (your existing block)
-LOCAL_BASE="/var/tmp/$USER/${SLURM_JOB_ID}"
+# Only clean per-job scratch after Slurm confirms the job has ended.
+[[ "${SLURM_LOCALID:-0}" == 0 ]] || exit 0
+[[ ${SLURM_JOB_ID:-} =~ ^[0-9]+$ ]] || exit 1
+job_owner=$(id -un) || exit 1
+scratch_root="/var/tmp/$job_owner"
+[[ ! -L "$scratch_root" && ( ! -e "$scratch_root" || -O "$scratch_root" ) ]] || exit 1
+for previous in "$scratch_root"/*; do
+    job_id=${previous##*/}
+    [[ -d "$previous" && -O "$previous" && ! -L "$previous" ]] || continue
+    [[ "$job_id" =~ ^[0-9]+$ && "$job_id" != "$SLURM_JOB_ID" ]] || continue
+    records=$(sacct -X -n -P -j "$job_id" -o JobIDRaw,State,User) || continue
+    if awk -F'|' -v id="$job_id" -v owner="$job_owner" '
+        $1 == id {
+            found++
+            terminal = ($3 == owner && $2 ~ /^(COMPLETED|FAILED|TIMEOUT|OUT_OF_MEMORY|CANCELLED( by [0-9]+)?)$/)
+        }
+        END { exit !(found == 1 && terminal) }
+    ' <<< "$records"; then
+        echo "Cleaning Ray and temporary files for completed job $job_id"
+        rm -rf --one-file-system -- "$previous/ray" "$previous/tmp" || exit 1
+        rmdir -- "$previous" 2>/dev/null || true
+    fi
+done
+df -h /var/tmp
+df -i /var/tmp
+LOCAL_BASE="$scratch_root/$SLURM_JOB_ID"
 export RAY_TMPDIR="$LOCAL_BASE/ray"
 export TMPDIR="$LOCAL_BASE/tmp"
-export TMP="$TMPDIR"
-export TEMP="$TMPDIR"
-mkdir -p "$RAY_TMPDIR" "$TMPDIR"
-chmod 700 "$LOCAL_BASE" "$RAY_TMPDIR" "$TMPDIR"
+export TMP="$TMPDIR" TEMP="$TMPDIR"
+mkdir -p "$RAY_TMPDIR" "$TMPDIR" || exit 1
+chmod 700 "$LOCAL_BASE" "$RAY_TMPDIR" "$TMPDIR" || exit 1
 export RAY_DISABLE_DASHBOARD=1
-
-# ensure we don't connect to an old cluster
 unset RAY_ADDRESS RAY_HEAD_IP RAY_PORT
-
-# run-once guard (pick one)
-if [[ "${SLURM_LOCALID:-0}" != "0" ]]; then
-  echo "Skipping on SLURM_LOCALID=${SLURM_LOCALID}"
-  exit 0
-fi
-
-# cleanup only once (same process)
-${CONDA_BIN_PATH}ray stop -f || true
-pkill -9 raylet gcs_server plasma_store dashboard 2>/dev/null || true
-sleep 3
 
 ulimit -n 1048576 2>/dev/null || true
 echo "NOFILE=$(ulimit -n)"
@@ -142,8 +152,8 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 # =================== Model ===================
 MODEL_NAME=spring_global_step_84
 cd "/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza" || exit 1
-BASE_MODEL="$SPRING_CHECKPOINT/actor/huggingface"
-echo "Loading SPRING actor from $BASE_MODEL"
+BASE_MODEL="$HF_HOME/Qwen3-4B-Thinking-2507"
+echo "Initializing from $BASE_MODEL and resuming from $SPRING_CHECKPOINT"
 
 export REWARD_LOG_PATH=/export/alt-insight/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
 SHARED_DATA_PATH=/export/alt-insight/HF_cache/${DATA_PATH}
@@ -189,7 +199,7 @@ fi
 # The number of CPUs is often best left for Ray to determine automatically.
 echo "Starting Ray on the local node with ${NUM_GPUS} GPUs..."
 #${CONDA_BIN_PATH}ray start --head --num-gpus ${NUM_GPUS} --include-dashboard=True --dashboard-port 8265
-${CONDA_BIN_PATH}ray start --head --temp-dir="$RAY_TMPDIR" --num-gpus ${NUM_GPUS} --include-dashboard=False --dashboard-port 8265
+${CONDA_BIN_PATH}ray start --head --temp-dir="$RAY_TMPDIR" --num-gpus ${NUM_GPUS} --include-dashboard=False --dashboard-port 8265 || exit 1
 sleep 5
 
 
@@ -344,7 +354,8 @@ python -m recipe.dapo.main_dapo \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.total_epochs=${EPOCH} \
     trainer.log_val_generations=127 \
-    trainer.resume_mode=disable \
+    trainer.resume_mode=resume_path \
+    trainer.resume_from_path="$SPRING_CHECKPOINT" \
     trainer.default_hdfs_dir=null \
     trainer.del_local_ckpt_after_load=False \
     trainer.validation_data_dir=${VALID_GENERATION_PATH}

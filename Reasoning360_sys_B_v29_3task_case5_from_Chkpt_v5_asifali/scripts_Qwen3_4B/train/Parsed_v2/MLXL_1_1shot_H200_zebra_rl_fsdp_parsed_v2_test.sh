@@ -142,8 +142,8 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 # =================== Model ===================
 MODEL_NAME=spring_global_step_84
 cd "/export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_v5_asifali" || exit 1
-BASE_MODEL="$SPRING_CHECKPOINT"
-echo "Loading SPRING actor from $BASE_MODEL"
+BASE_MODEL="$HF_HOME/Qwen3-4B-Thinking-2507"
+echo "Initializing from $BASE_MODEL and resuming from $SPRING_CHECKPOINT"
 
 export REWARD_LOG_PATH=/export/alt-insight/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
 SHARED_DATA_PATH=/export/alt-insight/HF_cache/${DATA_PATH}
@@ -351,7 +351,8 @@ python -m recipe.dapo.main_dapo \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.total_epochs=${EPOCH} \
     trainer.log_val_generations=127 \
-    trainer.resume_mode=disable \
+    trainer.resume_mode=resume_path \
+    trainer.resume_from_path="$SPRING_CHECKPOINT" \
     trainer.default_local_dir="$TASK_CHECKPOINT_DIR" \
     trainer.default_hdfs_dir=null \
     trainer.del_local_ckpt_after_load=False \
