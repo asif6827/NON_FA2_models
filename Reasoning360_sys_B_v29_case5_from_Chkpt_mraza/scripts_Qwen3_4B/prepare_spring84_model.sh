@@ -1,24 +1,14 @@
 #!/usr/bin/env bash
-# Print the Hugging Face model directory for the SPRING step-84 actor.
+# Resolve the prepared Hugging Face checkpoint for the SPRING step-84 actor.
 set -euo pipefail
-actor_dir="$1/actor"
-model_dir="$2"
-has_weights() {
-    [[ -s "$1/config.json" ]] && [[ -s "$1/model.safetensors" || -s "$1/model.safetensors.index.json" || -s "$1/pytorch_model.bin" || -s "$1/pytorch_model.bin.index.json" ]]
-}
-if has_weights "$actor_dir/huggingface"; then
-    printf '%s\n' "$actor_dir/huggingface"
-    exit 0
-fi
-mkdir -p "$(dirname "$model_dir")"
-exec 9>"${model_dir}.lock"
-flock 9
-if ! has_weights "$model_dir"; then
-    [[ ! -e "$model_dir" ]] || { echo "Incomplete existing model: $model_dir" >&2; exit 1; }
-    staging=$(mktemp -d "${model_dir}.tmp.XXXXXX")
-    trap 'rm -rf -- "$staging"' EXIT
-    python -m verl.model_merger merge --backend fsdp --local_dir "$actor_dir" --target_dir "$staging" >&2
-    has_weights "$staging" || { echo "Missing merged weights in $staging" >&2; exit 1; }
-    mv "$staging" "$model_dir"
-fi
-printf '%s\n' "$model_dir"
+for model_dir in "$1/actor/huggingface" "$2"; do
+    [[ -r "$model_dir/config.json" && -s "$model_dir/config.json" ]] || continue
+    for weights in model.safetensors model.safetensors.index.json pytorch_model.bin pytorch_model.bin.index.json; do
+        if [[ -r "$model_dir/$weights" && -s "$model_dir/$weights" ]]; then
+            printf '%s\n' "$model_dir"
+            exit 0
+        fi
+    done
+done
+printf 'No prepared SPRING checkpoint found in %s or %s. Merge the step-84 actor weights before submitting.\n' "$1/actor/huggingface" "$2" >&2
+exit 1
