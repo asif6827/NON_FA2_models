@@ -142,7 +142,7 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 # =================== Model ===================
 MODEL_NAME=spring_global_step_84
 cd "/export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_v5_asifali" || exit 1
-BASE_MODEL="$SPRING_CHECKPOINT/actor/huggingface"
+BASE_MODEL="$SPRING_CHECKPOINT"
 echo "Loading SPRING actor from $BASE_MODEL"
 
 export REWARD_LOG_PATH=/export/alt-insight/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
