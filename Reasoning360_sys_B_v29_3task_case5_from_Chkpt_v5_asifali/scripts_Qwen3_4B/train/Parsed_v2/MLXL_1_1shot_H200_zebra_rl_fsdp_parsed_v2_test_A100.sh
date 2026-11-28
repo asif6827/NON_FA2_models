@@ -5,8 +5,8 @@
 #SBATCH --gres gpu:1 #number of gpus needed, default is 1
 #SBATCH -c 40  #number of CPUs needed, default is 1
 #SBATCH --mem 256GB #amount of memory needed, default
-#SBATCH --output=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_v4_asifali/all_logs/%j-%x.out
-#SBATCH --error=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_v4_asifali/all_logs/%j-%x.err
+#SBATCH --output=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_v5_asifali/all_logs/%j-%x.out
+#SBATCH --error=/export/alt-insight/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_v5_asifali/all_logs/%j-%x.err
 #SBATCH -A A100
 #SBATCH -q a100_qos
 #SBATCH --mail-user=asif6827@gmail.com
@@ -78,7 +78,7 @@ ACC_W=$ACC_W, Z3_W=$Z3_W, EPOCH_SWITCH=$SWITCH_EPOCH SYSTEM_NAME=$SYSTEM_NAME EV
 
 # ===============================================================
 #SYSTEM_NAME="Reasoning360_sys_B_v2"
-export PYTHONPATH="/export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_v4_asifali:${PYTHONPATH:-}"
+export PYTHONPATH="/export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_v5_asifali:${PYTHONPATH:-}"
 echo "Python Path = ${PYTHONPATH}"
 
 
@@ -140,7 +140,7 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 
 # =================== Model ===================
 MODEL_NAME=spring_global_step_84
-cd "/export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_v4_asifali" || exit 1
+cd "/export/home/asifali/NON_FA2_models/Reasoning360_sys_B_v29_3task_case5_from_Chkpt_v5_asifali" || exit 1
 BASE_MODEL=$(bash scripts_Qwen3_4B/prepare_spring84_model.sh "$SPRING_CHECKPOINT" "$HF_HOME/$MODEL_NAME") || exit 1
 
 export REWARD_LOG_PATH=/export/alt-insight/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}

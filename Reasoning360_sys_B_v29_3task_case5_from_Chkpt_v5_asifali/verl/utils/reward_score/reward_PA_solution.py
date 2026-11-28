@@ -171,6 +171,10 @@ def compute_pa_solution(payload, timeout_s=5.0,penalty_lambda=1.0):
         out['coverage'] = len(cells) / total_cells
         out['pa_accuracy'] = correct_cells / total_cells
         out['pa_accuracy_binary_pass'] = int(bool(cells) and correct_cells == len(cells))
+        if out['pa_accuracy_binary_pass']:
+            out['pa_reward'] = 1.0 + 0.25 * out['coverage']
+        elif cells:
+            out['pa_reward'] = 0.25 * correct_cells / len(cells)
         diagnosis['accuracy'] = {
             'status': 'pass' if out['pa_accuracy_binary_pass'] else 'fail',
             'reason': ('All populated attribute cells match ground truth' if out['pa_accuracy_binary_pass']
@@ -266,15 +270,6 @@ def compute_pa_solution(payload, timeout_s=5.0,penalty_lambda=1.0):
             'n_populated_assignments': len(cells),
         }
 
-        # Case 5: penalize coverage whenever either binary gate fails.
-        if (
-                out['pa_accuracy_binary_pass']
-                and out['pa_consistency_binary_pass']
-        ):
-            out['pa_reward'] = 1.0
-        else:
-            out['pa_reward'] = -out['coverage']
-
     except (KeyError, TypeError, ValueError, AttributeError, SyntaxError,
             OverflowError, RecursionError, z3.Z3Exception) as exc:
         error_details = {
@@ -289,12 +284,11 @@ def compute_pa_solution(payload, timeout_s=5.0,penalty_lambda=1.0):
                 **error_details,
                 'reason': 'Accuracy not evaluated: ' + str(exc),
             }
-        # Invalid input/solver failure must never create a positive PA reward.
+        # Reasoning failures affect consistency independently of table accuracy.
         out['pa_consistency_binary_pass'] = 0
-        out['pa_reward'] = 0.0
     diagnosis['pa_reward'] = {
         'value': out['pa_reward'],
-        'reason': 'Both gates pass' if out['pa_reward'] > 0 else 'At least one gate did not pass',
+        'reason': 'Table accuracy, populated-cell precision and coverage',
     }
     return out
 
@@ -386,15 +380,14 @@ if __name__ == '__main__':
             n_wrong=0,
             n_wrong_available=1,
             penalty=0.0,
-            pa_reward=1.0,
+            pa_reward=1.25,
         ),
     ))
 
     # ------------------------------------------------------------
     # 2. Correct partial solution: six of nine cells populated.
     #
-    # Case 4 uses a constant gate reward: coverage is logged but
-    # does not increase the reward.
+    # A passing partial table earns the coverage bonus.
     # ------------------------------------------------------------
     p = deepcopy(base_payload)
 
@@ -413,7 +406,7 @@ if __name__ == '__main__':
             n_wrong=0,
             n_wrong_available=1,
             penalty=0.0,
-            pa_reward=1.0,
+            pa_reward=1 + 0.25 * 6 / 9,
         ),
     ))
 
@@ -440,7 +433,7 @@ if __name__ == '__main__':
             n_wrong=1,
             n_wrong_available=1,
             penalty=1.0,
-            pa_reward=-1.0,
+            pa_reward=0,
         ),
     ))
 
@@ -467,15 +460,14 @@ if __name__ == '__main__':
             n_wrong=2,
             n_wrong_available=1,
             penalty=2.0,
-            pa_reward=-2.0,
+            pa_reward=0.25 * 7 / 9,
         ),
     ))
 
     # ------------------------------------------------------------
     # 5. Correct answer, but reasoning contradicts the answer.
     #
-    # There are no wrong cells, so the penalty is zero. The gate
-    # reward is also zero because consistency fails.
+    # Table credit is independent of the consistency metric.
     # ------------------------------------------------------------
     p = deepcopy(base_payload)
 
@@ -496,7 +488,7 @@ if __name__ == '__main__':
             n_wrong=0,
             n_wrong_available=1,
             penalty=0.0,
-            pa_reward=0.0,
+            pa_reward=1.25,
         ),
     ))
 
@@ -523,7 +515,7 @@ if __name__ == '__main__':
             n_wrong=2,
             n_wrong_available=1,
             penalty=2.0,
-            pa_reward=-2.0,
+            pa_reward=0.25 * 7 / 9,
         ),
     ))
 
@@ -547,7 +539,7 @@ if __name__ == '__main__':
             n_wrong=0,
             n_wrong_available=1,
             penalty=0.0,
-            pa_reward=0.0,
+            pa_reward=0,
         ),
     ))
 
@@ -578,7 +570,7 @@ if __name__ == '__main__':
             n_wrong=1,
             n_wrong_available=1,
             penalty=1.0,
-            pa_reward=0.0,
+            pa_reward=0,
         ),
     ))
 
@@ -604,7 +596,7 @@ if __name__ == '__main__':
             n_wrong=2,
             n_wrong_available=1,
             penalty=1.0,
-            pa_reward=-1.0,
+            pa_reward=0.25 * 7 / 9,
         ),
     ))
 
@@ -631,7 +623,7 @@ if __name__ == '__main__':
             n_wrong=0,
             n_wrong_available=0,
             penalty=0.0,
-            pa_reward=0.0,
+            pa_reward=0,
         ),
     ))
 
@@ -687,7 +679,7 @@ if __name__ == '__main__':
 
     passed = len(tests) - len(failures)
 
-    print(f'\nPassed {passed}/{len(tests)} Case 4 tests.')
+    print(f'\nPassed {passed}/{len(tests)} partial-answer tests.')
 
     if failures:
         raise AssertionError(
