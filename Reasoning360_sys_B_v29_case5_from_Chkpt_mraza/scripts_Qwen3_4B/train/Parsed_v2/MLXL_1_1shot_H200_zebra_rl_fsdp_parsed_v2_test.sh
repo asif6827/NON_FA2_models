@@ -142,7 +142,8 @@ export SWITCH_EPOCH=${SWITCH_EPOCH}
 # =================== Model ===================
 MODEL_NAME=spring_global_step_84
 cd "/export/home/mraza/NON_FA2_models/Reasoning360_sys_B_v29_case5_from_Chkpt_mraza" || exit 1
-BASE_MODEL=$(bash scripts_Qwen3_4B/prepare_spring84_model.sh "$SPRING_CHECKPOINT" "$HF_HOME/$MODEL_NAME") || exit 1
+BASE_MODEL="$SPRING_CHECKPOINT/actor/huggingface"
+echo "Loading SPRING actor from $BASE_MODEL"
 
 export REWARD_LOG_PATH=/export/alt-insight/NON_FA2_models/${SYSTEM_NAME}/evaluation_results/${EVAL_PATH}/${MODEL_NAME}
 SHARED_DATA_PATH=/export/alt-insight/HF_cache/${DATA_PATH}
